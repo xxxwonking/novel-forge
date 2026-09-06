@@ -66,14 +66,20 @@ export type AnchorResolution =
 
 // ── 派生值的编译期护栏 ──────────────────────────────────────────────────
 
+declare const derivedBrand: unique symbol;
+
 /**
  * 标记"由代码派生、绝不接受模型或用户输入"的字段（§10.1）。
  *
  * 用法：`Derived<WordBudget>`。品牌字段只能由 `deriveXxx()` 系列函数
  * 通过内部断言产出，因此模型返回的 JSON 无法直接赋值给它 —— 派生值被
  * 当成模型输出存储这个错误在编译期就断掉。
+ *
+ * 品牌用 **symbol 键**而非字符串键：字符串键会与索引签名类型冲突
+ * （`Derived<Record<string, number>>` 下品牌字段被索引签名要求为 number），
+ * 而索引签名只约束字符串键，symbol 品牌可以共存。
  */
-export type Derived<T> = T & { readonly __derived: unique symbol };
+export type Derived<T> = T & { readonly [derivedBrand]: true };
 
 /** 模型/用户产出物的三态生命周期（§12.0：一切模型产出先进待接受区）。 */
 export type Provenance =

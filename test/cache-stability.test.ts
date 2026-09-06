@@ -1,108 +1,293 @@
 /**
- * §13.8 的三个回归测试。
+ * §13.8 的回归测试。
  *
- * 它们便宜，但能挡住绝大多数缓存事故 —— 缓存失效是静默的，只能靠
- * cache_read_input_tokens 掉到 0 才发现，而那时已经付了钱。
- *
- * 现在 renderL1 / renderL2 / WRITING_TOOLS 尚未实现，测试对占位实现断言，
- * 保证契约先立起来；M1 实现时替换 import 即可，测试本身不用改。
+ * 便宜，但能挡住绝大多数缓存事故 —— 缓存失效是静默的，只能靠
+ * cache_read_input_tokens 掉到 0 才发现，而那时钱已经付了。
  */
 
 import { describe, expect, it } from "vitest";
-import type { L2Renderer, L2Snapshot } from "../src/types/index.js";
+import { EXPECTED_TOOL_ORDER, WRITING_TOOLS } from "../src/context/tools.js";
+import { L1_FORBIDDEN_PATTERN, renderL1 } from "../src/context/render-l1.js";
+import { renderL2 } from "../src/context/render-l2.js";
+import { buildL2Snapshot, type L2BuildInput } from "../src/context/build-l2.js";
+import { renderL3, selectL3 } from "../src/context/select-l3.js";
+import { renderVolatile } from "../src/context/render-volatile.js";
+import { assemble } from "../src/context/assemble.js";
+import { WRITING_DISCIPLINE } from "../src/context/discipline.js";
+import {
+  beat,
+  chapterSynopses,
+  characters,
+  foreshadows,
+  plotLines,
+  previousChapterText,
+  settings,
+  volumeSummaries,
+  workSetting,
+} from "./fixtures.js";
 
-// ── 占位实现（M1 实现后替换为真实 import）──────────────────────────────
+const l1Input = { setting: workSetting, discipline: WRITING_DISCIPLINE };
 
-const EXPECTED_TOOL_ORDER = [
-  "load_character",
-  "load_setting",
-  "load_chapter",
-  "list_open_foreshadows",
-  "propose_character_update",
-  "propose_foreshadow",
-] as const;
-
-const WRITING_TOOL_NAMES: readonly string[] = EXPECTED_TOOL_ORDER;
-
-const renderL1 = (work: { readonly title: string; readonly genre: string }): string =>
-  `【作品】${work.title}\n【题材】${work.genre}\n【写作纪律】POV 单一，禁止元层穿帮。`;
-
-const renderL2: L2Renderer = (s) => {
-  const lines: string[] = [];
-  lines.push(`[人物名录] 共 ${s.characters.totalCount} 人，主要 ${s.characters.majorCount} 人`);
-  for (const c of s.characters.rows) {
-    lines.push(`${c.name} | ${c.role} | ${c.condition} | 最近 ${c.lastSeen}`);
-  }
-  lines.push(`[未收伏笔] ${s.foreshadows.rows.length} 条`);
-  for (const f of s.foreshadows.rows) {
-    lines.push(`${f.id} | ${f.weight} | ${f.label} | ${f.planted} | ${f.expectation}`);
-  }
-  for (const a of s.pendingAppend) {
-    lines.push(`+ch${a.chapter} ${a.synopsis}`);
-  }
-  return lines.join("\n");
+const l2Input: L2BuildInput = {
+  currentChapter: 52,
+  characters,
+  chapterSynopses,
+  volumeSummaries: [...volumeSummaries],
+  foreshadows,
+  plotLines,
+  pendingAppend: [],
 };
 
-// ── fixture ─────────────────────────────────────────────────────────────
-
-const snapshot: L2Snapshot = {
-  formatVersion: 1,
-  characters: {
-    rows: [
-      { id: "C01", name: "李长风", role: "主角", condition: "现居青州·养伤中", lastSeen: "ch52" },
-      { id: "C02", name: "血刀客", role: "主要反派", condition: "下落不明·记恨主角", lastSeen: "ch48" },
-    ],
-    totalCount: 47,
-    majorCount: 8,
-  },
-  synopsis: [{ granularity: "per_chapter", range: "ch52", text: "李长风在青州养伤，察觉师门有内应。" }],
-  foreshadows: {
-    rows: [
-      { id: "F03", weight: "main", label: "生锈的钥匙", planted: "ch5埋", expectation: "预期3卷", flag: "due_soon" },
-      { id: "F11", weight: "sub", label: "村口老树", planted: "ch18埋", expectation: "20章内", flag: "overdue" },
-    ],
-    counts: { main: 3, sub: 5, detail: 4 },
-  },
-  plotLines: [{ id: "P01", label: "复仇主线", weight: "main", lastAdvanced: "ch52" }],
-  pendingAppend: [{ chapter: 53, synopsis: "血刀客围杀。", foreshadowDelta: ["F03 resolved"], characterDelta: [] }],
+const l3Input = {
+  beat,
+  characters: characters.filter((c) => beat.plan.characters.includes(c.id)),
+  settings: settings.filter((s) => beat.plan.locations.includes(s.id)),
+  volumeBoundary: null,
+  plantedExcerpts: [
+    {
+      foreshadowId: "F03" as const,
+      label: "生锈的钥匙",
+      anchor: foreshadows[0]!.plantedAnchor,
+      excerpt: "他把那把生锈的钥匙塞回怀里，铜锈在指腹上留了一道绿痕。",
+    },
+  ],
 };
 
-// ── 测试 ────────────────────────────────────────────────────────────────
+const volatileInput = {
+  previous: { chapter: 52, headSummary: null, tailText: previousChapterText },
+  beat,
+  resolves: [
+    {
+      id: "F03" as const,
+      label: "生锈的钥匙",
+      intent: foreshadows[0]!.intent,
+      weight: "main" as const,
+      completeness: "full" as const,
+    },
+  ],
+  avoid: [{ id: "F07" as const, label: "母亲的信" }],
+  task: "写出第 53 章的第一场：破庙被围。",
+};
 
-describe("装配输出逐字节稳定", () => {
-  it("同一快照的深拷贝渲染出完全相同的字符串", () => {
-    expect(renderL2(structuredClone(snapshot))).toBe(renderL2(snapshot));
+function fullAssembleInput() {
+  return {
+    l1: l1Input,
+    l2: buildL2Snapshot(l2Input),
+    l3: selectL3(l3Input),
+    volatile: volatileInput,
+  };
+}
+
+describe("段 0：工具顺序固定", () => {
+  it("工具名数组与期望顺序完全一致", () => {
+    expect(WRITING_TOOLS.map((t) => t.name)).toEqual([...EXPECTED_TOOL_ORDER]);
   });
 
-  it("键序不同但内容相同的快照渲染结果一致", () => {
-    const reordered: L2Snapshot = {
-      ...snapshot,
-      foreshadows: { counts: snapshot.foreshadows.counts, rows: snapshot.foreshadows.rows },
-      characters: {
-        majorCount: snapshot.characters.majorCount,
-        totalCount: snapshot.characters.totalCount,
-        rows: snapshot.characters.rows,
+  it("工具定义里不含动态内容", () => {
+    const json = JSON.stringify(WRITING_TOOLS);
+    expect(json).not.toMatch(/\$\{|共\s*\d+\s*[人条章]|\d{4}-\d{2}-\d{2}/);
+  });
+});
+
+describe("段 1：L1 不含动态内容", () => {
+  it("渲染结果不含日期、章号、计数或进度", () => {
+    expect(renderL1(l1Input)).not.toMatch(L1_FORBIDDEN_PATTERN);
+  });
+
+  it("同输入逐字节稳定", () => {
+    expect(renderL1(structuredClone(l1Input))).toBe(renderL1(l1Input));
+  });
+
+  it("纪律条目变更会改变输出（确认纪律确实进了缓存前缀）", () => {
+    const modified = {
+      ...l1Input,
+      discipline: { version: "d2", rules: [...WRITING_DISCIPLINE.rules.slice(1)] },
+    };
+    expect(renderL1(modified)).not.toBe(renderL1(l1Input));
+  });
+});
+
+describe("段 2：L2 渲染逐字节稳定", () => {
+  it("深拷贝快照渲染结果相同", () => {
+    const snap = buildL2Snapshot(l2Input);
+    expect(renderL2(structuredClone(snap))).toBe(renderL2(snap));
+  });
+
+  it("人物数组的输入顺序不影响输出（显式排序生效）", () => {
+    const reversed = buildL2Snapshot({ ...l2Input, characters: [...characters].reverse() });
+    expect(renderL2(reversed)).toBe(renderL2(buildL2Snapshot(l2Input)));
+  });
+
+  it("伏笔数组的输入顺序不影响输出", () => {
+    const reversed = buildL2Snapshot({ ...l2Input, foreshadows: [...foreshadows].reverse() });
+    expect(renderL2(reversed)).toBe(renderL2(buildL2Snapshot(l2Input)));
+  });
+
+  it("增量附加只改变输出尾部，前缀逐字节不变", () => {
+    const base = renderL2(buildL2Snapshot(l2Input));
+    const appended = renderL2(
+      buildL2Snapshot({
+        ...l2Input,
+        pendingAppend: [
+          { chapter: 53, synopsis: "破庙被围，账本现名。", foreshadowDelta: ["F03 已收"], characterDelta: [] },
+        ],
+      }),
+    );
+    expect(appended.startsWith(base)).toBe(true);
+    expect(appended.length).toBeGreaterThan(base.length);
+  });
+
+  it("连续两次增量附加，第二次仍保持第一次的前缀", () => {
+    const one = renderL2(
+      buildL2Snapshot({
+        ...l2Input,
+        pendingAppend: [{ chapter: 53, synopsis: "一。", foreshadowDelta: [], characterDelta: [] }],
+      }),
+    );
+    const two = renderL2(
+      buildL2Snapshot({
+        ...l2Input,
+        pendingAppend: [
+          { chapter: 53, synopsis: "一。", foreshadowDelta: [], characterDelta: [] },
+          { chapter: 54, synopsis: "二。", foreshadowDelta: [], characterDelta: [] },
+        ],
+      }),
+    );
+    expect(two.startsWith(one)).toBe(true);
+  });
+
+  it("已收伏笔不出现在未收清单里", () => {
+    const out = renderL2(buildL2Snapshot(l2Input));
+    expect(out).not.toContain("断剑的裂纹");
+    expect(out).toContain("生锈的钥匙");
+  });
+
+  it("超出 20 章未出场的次要角色被裁剪，主要角色保留", () => {
+    const out = renderL2(buildL2Snapshot(l2Input));
+    // 玄机子 lastSeen=4，当前 52 章，超窗 → 裁掉
+    expect(out).not.toContain("玄机子");
+    // 茶摊老丈 lastSeen=51，在窗内 → 保留
+    expect(out).toContain("茶摊老丈");
+    // 苏晚晴 lastSeen=26 但 tier=major → 无论如何保留
+    expect(out).toContain("苏晚晴");
+  });
+
+  it("章节梗概按距离衰减，近 8 章逐章、更早的分桶", () => {
+    const snap = buildL2Snapshot(l2Input);
+    const perChapter = snap.synopsis.filter((s) => s.granularity === "per_chapter");
+    expect(perChapter).toHaveLength(8);
+    expect(snap.synopsis.some((s) => s.granularity === "per_5")).toBe(true);
+    expect(snap.synopsis.some((s) => s.granularity === "per_15")).toBe(true);
+    // 52 章不衰减是 52 行；衰减后总行数应显著更少
+    expect(snap.synopsis.length).toBeLessThan(30);
+  });
+});
+
+describe("段 3：L3 渲染与裁剪", () => {
+  it("同输入逐字节稳定", () => {
+    expect(renderL3(selectL3(structuredClone(l3Input)))).toBe(renderL3(selectL3(l3Input)));
+  });
+
+  it("说话方式在压缩档下仍然保留（C6 依赖它）", () => {
+    const tiny = selectL3(l3Input, 200);
+    const out = renderL3(tiny);
+    expect(tiny.trimStage).not.toBe("none");
+    expect(out).toContain("说话方式");
+    expect(out).toContain("句长");
+  });
+
+  it("压缩档去掉外貌与背景", () => {
+    const compressed = selectL3(l3Input, 200);
+    const out = renderL3(compressed);
+    expect(out).not.toContain("外貌：");
+    expect(out).not.toContain("背景：");
+  });
+
+  it("预算充足时不裁剪，且包含伏笔埋设原文", () => {
+    const sel = selectL3(l3Input, 100_000);
+    expect(sel.trimStage).toBe("none");
+    expect(renderL3(sel)).toContain("生锈的钥匙");
+  });
+
+  it("预算极小时进 overflow 并给出可操作提示", () => {
+    const sel = selectL3(l3Input, 1);
+    expect(sel.trimStage).toBe("overflow");
+    expect(sel.overflowNote).toContain("建议拆章");
+  });
+});
+
+describe("段 4：易变区", () => {
+  it("任务指令排在最后", () => {
+    const out = renderVolatile(volatileInput);
+    expect(out.lastIndexOf("# 任务")).toBeGreaterThan(out.indexOf("# 本章节拍"));
+    expect(out.trimEnd().endsWith(volatileInput.task)).toBe(true);
+  });
+
+  it("上一章正文排在最前", () => {
+    const out = renderVolatile(volatileInput);
+    expect(out.indexOf("# 上一章")).toBe(0);
+  });
+
+  it("要收的伏笔带 intent 全文，暗线伏笔只给标签", () => {
+    const out = renderVolatile(volatileInput);
+    expect(out).toContain("这把钥匙开的是第三卷里三叔藏账本的密室");
+    expect(out).toContain("母亲的信");
+    expect(out).not.toContain("信里写明主角并非三叔亲侄");
+  });
+
+  it("预算阈值按 key 排序输出，不依赖对象构造顺序", () => {
+    const reordered = {
+      ...volatileInput,
+      beat: {
+        ...beat,
+        budget: beat.budget === null ? null : { ...beat.budget },
       },
     };
-    expect(renderL2(reordered)).toBe(renderL2(snapshot));
-  });
-
-  it("增量附加只改变输出的尾部，前缀逐字节不变", () => {
-    const before = renderL2({ ...snapshot, pendingAppend: [] });
-    const after = renderL2(snapshot);
-    expect(after.startsWith(before)).toBe(true);
+    expect(renderVolatile(reordered)).toBe(renderVolatile(volatileInput));
   });
 });
 
-describe("L1 不含动态内容", () => {
-  it("渲染结果不含日期、章号或计数", () => {
-    const l1 = renderL1({ title: "青州旧事", genre: "玄幻" });
-    expect(l1).not.toMatch(/\d{4}-\d{2}-\d{2}|第\s*\d+\s*章|共\s*\d+/);
+describe("装配：四段布局与 breakpoint", () => {
+  it("装配输出逐字节稳定", () => {
+    const a = assemble(fullAssembleInput());
+    const b = assemble(fullAssembleInput());
+    expect(JSON.stringify(a)).toBe(JSON.stringify(b));
   });
-});
 
-describe("工具顺序固定", () => {
-  it("工具名数组与期望顺序完全一致", () => {
-    expect(WRITING_TOOL_NAMES).toEqual([...EXPECTED_TOOL_ORDER]);
+  it("system 是数组形式的 text block 并挂了 cache_control", () => {
+    const req = assemble(fullAssembleInput());
+    expect(Array.isArray(req.system)).toBe(true);
+    expect(req.system[0]?.cache_control).toEqual({ type: "ephemeral" });
+  });
+
+  it("breakpoint 总数不超过 4", () => {
+    const req = assemble(fullAssembleInput());
+    const inSystem = req.system.filter((b) => b.cache_control != null).length;
+    const content = req.messages[0]?.content;
+    const inMessages = Array.isArray(content)
+      ? content.filter((b) => "cache_control" in b && b.cache_control != null).length
+      : 0;
+    expect(inSystem + inMessages).toBeLessThanOrEqual(4);
+  });
+
+  it("易变区是最后一个 block 且没有 cache_control", () => {
+    const req = assemble(fullAssembleInput());
+    const content = req.messages[0]?.content;
+    expect(Array.isArray(content)).toBe(true);
+    if (!Array.isArray(content)) return;
+    const last = content[content.length - 1];
+    expect(last && "cache_control" in last ? last.cache_control : undefined).toBeUndefined();
+  });
+
+  it("段 3 过短时与段 2 合并，避免浪费 breakpoint 在不会被缓存的段上", () => {
+    const input = fullAssembleInput();
+    const thin = assemble({
+      ...input,
+      l3: selectL3({ ...l3Input, characters: [], settings: [], plantedExcerpts: [] }),
+    });
+    const content = thin.messages[0]?.content;
+    const blocks = Array.isArray(content) ? content.length : 0;
+    // L3 为空 → 只有 L2 + 易变区两个 block
+    expect(blocks).toBe(2);
   });
 });
