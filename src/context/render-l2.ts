@@ -55,10 +55,9 @@ function appendEntry(a: L2AppendEntry): string {
 }
 
 /**
- * 渲染 L2。
+ * 渲染 L2 的**稳定部分**（不含增量区）。这一段之后才是 bp2。
  *
- * 段落顺序固定且**增量区永远在最后** —— 这是 §13.4 增量附加能命中 bp2
- * 的前提：写完一章只往尾部追加，前缀逐字节不变。
+ * 增量区刻意不在这里 —— 见 `renderL2Append` 的说明。
  */
 export const renderL2: L2Renderer = (s: L2Snapshot): string => {
   const lines: string[] = [];
@@ -81,13 +80,25 @@ export const renderL2: L2Renderer = (s: L2Snapshot): string => {
   lines.push("[情节线]");
   for (const p of s.plotLines) lines.push(plotLineRow(p));
 
-  // 增量区必须最后，且为空时不输出任何内容 —— 否则空标题本身就会成为
-  // 前缀的一部分，第一次追加时反而破坏了前缀不变性。
-  if (s.pendingAppend.length > 0) {
-    lines.push("");
-    lines.push("[最新进展]");
-    for (const a of s.pendingAppend) lines.push(appendEntry(a));
-  }
-
   return lines.join("\n");
 };
+
+/**
+ * 渲染增量附加区（§13.4）。
+ *
+ * **必须与 renderL2 分成两个 block，bp2 挂在稳定部分之后。**
+ *
+ * §13.4 说"把新内容附在段 2 末尾，前缀不变 → bp2 仍命中"，但这只在
+ * breakpoint 位于追加点**之前**时成立。如果增量区和稳定部分拼成同一个
+ * 带 cache_control 的 block，那么每写一章 block 内容就变，bp2 每章都要
+ * 重新创建 —— 缓存写入价是读取价的数倍，反而比不缓存更贵。
+ *
+ * 分开后：稳定部分挂 bp2 命中，增量区跟在后面不缓存（它只有几十 token）。
+ * 空时返回空串，调用方不产生 block。
+ */
+export function renderL2Append(s: L2Snapshot): string {
+  if (s.pendingAppend.length === 0) return "";
+  const lines = ["[最新进展]"];
+  for (const a of s.pendingAppend) lines.push(appendEntry(a));
+  return lines.join("\n");
+}

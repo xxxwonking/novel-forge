@@ -5,9 +5,11 @@
   "type": "module",
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "acceptance:m1": "tsx src/harness/ten-chapters.ts"
   },
   "devDependencies": {
+    "tsx": "4.20.6",
     "typescript": "5.9.3",
     "vitest": "3.2.4"
   },

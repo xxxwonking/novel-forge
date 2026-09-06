@@ -8,7 +8,7 @@
 import { describe, expect, it } from "vitest";
 import { EXPECTED_TOOL_ORDER, WRITING_TOOLS } from "../src/context/tools.js";
 import { L1_FORBIDDEN_PATTERN, renderL1 } from "../src/context/render-l1.js";
-import { renderL2 } from "../src/context/render-l2.js";
+import { renderL2, renderL2Append } from "../src/context/render-l2.js";
 import { buildL2Snapshot, type L2BuildInput } from "../src/context/build-l2.js";
 import { renderL3, selectL3 } from "../src/context/select-l3.js";
 import { renderVolatile } from "../src/context/render-volatile.js";
@@ -123,7 +123,7 @@ describe("段 2：L2 渲染逐字节稳定", () => {
     expect(renderL2(reversed)).toBe(renderL2(buildL2Snapshot(l2Input)));
   });
 
-  it("增量附加只改变输出尾部，前缀逐字节不变", () => {
+  it("增量附加完全不影响 L2 稳定部分 —— bp2 挂在它之后", () => {
     const base = renderL2(buildL2Snapshot(l2Input));
     const appended = renderL2(
       buildL2Snapshot({
@@ -133,27 +133,29 @@ describe("段 2：L2 渲染逐字节稳定", () => {
         ],
       }),
     );
-    expect(appended.startsWith(base)).toBe(true);
-    expect(appended.length).toBeGreaterThan(base.length);
+    // 稳定部分逐字节相同，而非"前缀相同" —— 增量内容已被移出这个 block
+    expect(appended).toBe(base);
   });
 
-  it("连续两次增量附加，第二次仍保持第一次的前缀", () => {
-    const one = renderL2(
+  it("增量区单独渲染，为空时输出空串（调用方不产生 block）", () => {
+    expect(renderL2Append(buildL2Snapshot(l2Input))).toBe("");
+    const withAppend = renderL2Append(
       buildL2Snapshot({
         ...l2Input,
         pendingAppend: [{ chapter: 53, synopsis: "一。", foreshadowDelta: [], characterDelta: [] }],
       }),
     );
-    const two = renderL2(
-      buildL2Snapshot({
-        ...l2Input,
-        pendingAppend: [
-          { chapter: 53, synopsis: "一。", foreshadowDelta: [], characterDelta: [] },
-          { chapter: 54, synopsis: "二。", foreshadowDelta: [], characterDelta: [] },
-        ],
-      }),
-    );
-    expect(two.startsWith(one)).toBe(true);
+    expect(withAppend).toContain("最新进展");
+    expect(withAppend).toContain("ch53");
+  });
+
+  it("连续多次增量附加，稳定部分始终不变", () => {
+    const base = renderL2(buildL2Snapshot(l2Input));
+    let pending: { chapter: number; synopsis: string; foreshadowDelta: string[]; characterDelta: string[] }[] = [];
+    for (let ch = 53; ch < 60; ch += 1) {
+      pending = [...pending, { chapter: ch, synopsis: `第${ch}章。`, foreshadowDelta: [], characterDelta: [] }];
+      expect(renderL2(buildL2Snapshot({ ...l2Input, pendingAppend: pending }))).toBe(base);
+    }
   });
 
   it("已收伏笔不出现在未收清单里", () => {

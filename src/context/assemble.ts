@@ -15,7 +15,7 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { WRITING_TOOLS } from "./tools.js";
 import { renderL1, type L1Input } from "./render-l1.js";
-import { renderL2 } from "./render-l2.js";
+import { renderL2, renderL2Append } from "./render-l2.js";
 import { renderL3, estimateTokens, type L3Selection } from "./select-l3.js";
 import { renderVolatile, type VolatileInput } from "./render-volatile.js";
 import type { L2Snapshot } from "../types/l2.js";
@@ -53,6 +53,7 @@ export const MIN_CACHEABLE_TOKENS = 1024;
 export function assemble(input: AssembleInput): AssembledRequest {
   const l1Text = renderL1(input.l1);
   const l2Text = renderL2(input.l2);
+  const l2AppendText = renderL2Append(input.l2);
   const l3Text = renderL3(input.l3);
   const volatileText = renderVolatile(input.volatile);
 
@@ -60,7 +61,7 @@ export function assemble(input: AssembleInput): AssembledRequest {
   const l1Tokens = estimateTokens(l1Text);
   const l2Tokens = estimateTokens(l2Text);
   const l3Tokens = estimateTokens(l3Text);
-  const volatileTokens = estimateTokens(volatileText);
+  const volatileTokens = estimateTokens(volatileText) + estimateTokens(l2AppendText);
 
   const content: Anthropic.ContentBlockParam[] = [];
 
@@ -72,6 +73,12 @@ export function assemble(input: AssembleInput): AssembledRequest {
     if (l3Tokens > 0) {
       content.push({ type: "text", text: l3Text, cache_control: CACHE });
     }
+  }
+
+  // 增量区在 bp2/bp3 之后、不带 cache_control —— 它每章都变，放在
+  // breakpoint 之前会让 bp2 每章重新创建（写入价高于读取价，比不缓存更贵）。
+  if (l2AppendText !== "") {
+    content.push({ type: "text", text: l2AppendText });
   }
 
   content.push({ type: "text", text: volatileText });
