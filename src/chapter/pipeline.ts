@@ -17,7 +17,10 @@ import { C5_OUTPUT_SCHEMA, parseC5, type ParseContext, type ParseResult } from "
 import { checkPromisedResolutions, crossCheckC5 } from "./c5-crosscheck.js";
 import { recordCacheMetrics, type CacheRecord } from "../metrics/cache.js";
 import { commitDeclaration, EventStream } from "../store/event-stream.js";
-import type { GateFinding } from "../types/beat.js";
+import { gateChapter, type ChapterGateResult } from "../gate/code-channel.js";
+import { canAccept, routeChapter, unresolvedFromFindings, type RouteResult } from "../gate/route.js";
+import type { Rules } from "../rules/schema.js";
+import type { GateFinding, WorkProfile } from "../types/beat.js";
 import type { StructuralEvent } from "../types/events.js";
 import type { ChapterNo } from "../types/primitives.js";
 
@@ -56,6 +59,14 @@ export interface ChapterRunInput {
     readonly completeness: "full" | "partial";
   }[];
   readonly maxOutputTokens?: number;
+  /**
+   * C6/C7 所需。缺省则跳过质量闸门 —— M1 的调用方（缓存实测工装）不需要
+   * 闸门，而给它一份假 profile 会让实测数据里混进无意义的 findings。
+   */
+  readonly gate?: {
+    readonly profile: WorkProfile;
+    readonly rules: Rules;
+  };
 }
 
 export type ChapterRunResult =
@@ -67,6 +78,12 @@ export type ChapterRunResult =
       readonly metrics: readonly CacheRecord[];
       /** proposed 状态的事件。用户接受后调 stream.decideChapter 提交。 */
       readonly proposed: readonly StructuralEvent[];
+      /** C6 代码通道的度量。gate 未配置时为 null。 */
+      readonly gate: ChapterGateResult | null;
+      /** C7 的分流结论。gate 未配置时为 null。 */
+      readonly route: RouteResult | null;
+      /** §12.3 C7 末条：block 未清不允许接受。 */
+      readonly acceptable: boolean;
     }
   /** C4 被拒 —— 整章作废，但带可展示的文案（§2：空白页面是最差处理）。 */
   | { readonly kind: "refused"; readonly userMessage: string; readonly metrics: readonly CacheRecord[] }
@@ -152,13 +169,70 @@ export async function runChapter(
   }
 
   const parsed = parseC5(parse, { ...input.parseContextBase, chapterText });
-  const findings = [
+  const c5Findings = [
     ...crossCheckC5({ declaration: parsed.declaration, chapterText }),
     ...checkPromisedResolutions(parsed.declaration, input.promisedResolutions),
   ];
   const proposed = commitDeclaration(stream, input.chapter, parsed.declaration);
 
-  return { kind: "ok", chapterText, parse: parsed, findings, metrics, proposed };
+  // ── C6 → C7 ──
+  // 顺序不能反：C7 的分流依赖 C6 算出的实际字数，而 C6 的字数越界只报
+  // warn，最终级别由 C7 定（回收章收束未完成时超额是 pass 而非 block）。
+  const beat = input.assembleInput.volatile.beat;
+  if (input.gate === undefined || beat.budget === null) {
+    return {
+      kind: "ok",
+      chapterText,
+      parse: parsed,
+      findings: c5Findings,
+      metrics,
+      proposed,
+      gate: null,
+      route: null,
+      acceptable: canAccept(c5Findings),
+    };
+  }
+
+  const gate = gateChapter(
+    {
+      chapterText,
+      plan: beat.plan,
+      budget: beat.budget,
+      profile: input.gate.profile,
+      declaredEventWeights: parsed.declaration.events.map((e) => e.weight),
+    },
+    input.gate.rules,
+  );
+
+  const route = routeChapter(
+    {
+      words: gate.words,
+      plan: beat.plan,
+      budget: beat.budget,
+      unresolvedPromises: unresolvedFromFindings(c5Findings),
+    },
+    input.gate.rules,
+  );
+
+  // C6 的字数 finding 与 C7 的分流结论重复，去掉前者 —— C7 的结论更完整
+  // （带补写/删减清单与放行理由），两条并列会让用户不知道该看哪个。
+  const findings = [
+    ...c5Findings,
+    ...gate.findings.filter((f) => f.rule !== "word_count_under" && f.rule !== "word_count_over"),
+    ...route.findings,
+  ];
+
+  return {
+    kind: "ok",
+    chapterText,
+    parse: parsed,
+    findings,
+    metrics,
+    proposed,
+    gate,
+    route,
+    acceptable: canAccept(findings),
+  };
 }
 
 /** 取响应里的文本。工具调用块和 thinking 块跳过。 */

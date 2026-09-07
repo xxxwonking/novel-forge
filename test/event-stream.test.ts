@@ -13,6 +13,7 @@ import {
 } from "../src/store/event-stream.js";
 import { project, projectCharacterState } from "../src/store/project.js";
 import { parseC5, type ParseContext } from "../src/chapter/c5-schema.js";
+import { loadRules } from "../src/rules/load.js";
 import type { ForeshadowId } from "../src/types/primitives.js";
 
 let tick = 0;
@@ -105,6 +106,9 @@ const plotDefs = [
   { id: "P02" as const, label: "师门内应", weight: "sub" as const },
 ];
 
+/** 断线阈值从 rules.yaml 来 —— 投影不自带缺省值（见 ProjectionInput 注释）。 */
+const GAP = loadRules().crossChapter.plotLineGap;
+
 describe("EventStream：append-only", () => {
   it("seq 单调递增，ID 按章内序号可读", () => {
     const s = freshStream();
@@ -188,6 +192,7 @@ describe("投影：proposed 不进视图", () => {
       currentChapter: 53,
       characterProfiles: profiles,
       plotLineDefs: plotDefs,
+      plotLineGap: GAP,
     });
     expect(p.foreshadows).toHaveLength(0);
     expect(p.relations).toHaveLength(0);
@@ -204,6 +209,7 @@ describe("投影：proposed 不进视图", () => {
       currentChapter: 53,
       characterProfiles: profiles,
       plotLineDefs: plotDefs,
+      plotLineGap: GAP,
     });
     expect(p.foreshadows).toHaveLength(1);
     expect(p.relations).toHaveLength(1);
@@ -244,6 +250,7 @@ describe("投影：伏笔时间线", () => {
       currentChapter: 53,
       characterProfiles: profiles,
       plotLineDefs: plotDefs,
+      plotLineGap: GAP,
     }).foreshadows[0];
   }
 
@@ -284,6 +291,7 @@ describe("投影：伏笔时间线", () => {
       currentChapter: 1,
       characterProfiles: profiles,
       plotLineDefs: plotDefs,
+      plotLineGap: GAP,
     });
     expect(p.foreshadows[0]?.status).toBe("planned");
   });
@@ -297,6 +305,7 @@ describe("投影：情节线断线阈值按权重派生", () => {
       currentChapter: 53,
       characterProfiles: profiles,
       plotLineDefs: plotDefs,
+      plotLineGap: GAP,
     });
     expect(p.plotLines.find((l) => l.id === "P01")?.gapLimit).toBe(3);
     expect(p.plotLines.find((l) => l.id === "P02")?.gapLimit).toBe(12);
@@ -312,6 +321,7 @@ describe("投影：情节线断线阈值按权重派生", () => {
       currentChapter: 60,
       characterProfiles: profiles,
       plotLineDefs: plotDefs,
+      plotLineGap: GAP,
     });
     expect(p.plotLines.find((l) => l.id === "P01")?.currentGap).toBe(7);
   });
@@ -328,6 +338,7 @@ describe("投影：人物弧线与状态", () => {
       currentChapter: 53,
       characterProfiles: profiles,
       plotLineDefs: plotDefs,
+      plotLineGap: GAP,
     });
     const arc = p.arcs.find((a) => a.characterId === "C01");
     expect(arc?.presence).toHaveLength(1);
@@ -392,6 +403,7 @@ describe("投影：关系图保留沿革", () => {
       currentChapter: 53,
       characterProfiles: profiles,
       plotLineDefs: plotDefs,
+      plotLineGap: GAP,
     });
     const edge = p.relations[0];
     expect(edge?.kind).toBe("ally");
@@ -411,6 +423,7 @@ describe("投影：全量重放确定性", () => {
       currentChapter: 53,
       characterProfiles: profiles,
       plotLineDefs: plotDefs,
+      plotLineGap: GAP,
     };
     expect(JSON.stringify(project(input))).toBe(JSON.stringify(project(input)));
   });

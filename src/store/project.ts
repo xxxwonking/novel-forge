@@ -34,9 +34,6 @@ function derived<T>(value: T): Derived<T> {
   return value as Derived<T>;
 }
 
-/** §10.8 断线阈值按权重派生：主线 3 / 支线 12 / 细节 20 章。 */
-const GAP_LIMIT: Readonly<Record<ForeshadowWeight, number>> = { main: 3, sub: 12, detail: 20 };
-
 export interface ProjectionInput {
   readonly events: readonly StructuralEvent[];
   readonly currentChapter: ChapterNo;
@@ -48,6 +45,14 @@ export interface ProjectionInput {
     readonly label: string;
     readonly weight: ForeshadowWeight;
   }[];
+  /**
+   * 断线阈值（§10.8：主线 3 / 支线 12 / 细节 20），来自 `rules.crossChapter.plotLineGap`。
+   *
+   * 从外部传入而不是在这里读 rules.yaml：投影是纯函数，读文件会让它依赖进程
+   * 环境。**也不给缺省值** —— 缺省等于在这里写回一份系数，那样它与
+   * gate/cross-chapter.ts 各持一份，改了 rules.yaml 只有一处生效且没有报错。
+   */
+  readonly plotLineGap: Readonly<Record<ForeshadowWeight, number>>;
 }
 
 export interface Projections {
@@ -178,7 +183,7 @@ function projectPlotLines(input: ProjectionInput): readonly PlotLineTrack[] {
         id: def.id,
         label: def.label,
         weight: def.weight,
-        gapLimit: derived(GAP_LIMIT[def.weight]),
+        gapLimit: derived(input.plotLineGap[def.weight]),
         lastAdvancedAt,
         currentGap: derived(input.currentChapter - lastAdvancedAt),
         points: pts,

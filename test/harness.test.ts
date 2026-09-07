@@ -11,7 +11,12 @@ import { assemble } from "../src/context/assemble.js";
 import { buildL2Snapshot, shouldRebuildL2 } from "../src/context/build-l2.js";
 import { selectL3 } from "../src/context/select-l3.js";
 import { WRITING_DISCIPLINE } from "../src/context/discipline.js";
-import { formatReport, type HarnessResult } from "../src/harness/ten-chapters.js";
+import {
+  evaluateM2,
+  formatReport,
+  type ChapterGateSummary,
+  type HarnessResult,
+} from "../src/harness/ten-chapters.js";
 import type { L2AppendEntry } from "../src/types/l2.js";
 import type { CacheRecord } from "../src/metrics/cache.js";
 import {
@@ -147,37 +152,131 @@ describe("验收报告文案", () => {
     };
   }
 
-  it("非官方端点时明确标注不可验证，不给出通过结论", () => {
-    const r: HarnessResult = {
-      records: [record(0.9, false)],
+  function gate(chapter: number, over: Partial<ChapterGateSummary> = {}): ChapterGateSummary {
+    return {
+      chapter,
+      words: 2400,
+      budget: [2100, 2650],
+      inBudget: true,
+      density: 0.42,
+      densityRange: [0.3, 0.55],
+      action: "ok",
+      blocks: [],
+      warns: [],
+      acceptable: true,
+      ...over,
+    };
+  }
+
+  function result(over: Partial<HarnessResult> = {}): HarnessResult {
+    return {
+      records: [record(0.9, true)],
       rebuildChapters: new Set(),
       chapterTexts: new Map(),
       failures: [],
+      gates: [],
+      planRejections: [],
+      ...over,
     };
-    const out = formatReport(r);
+  }
+
+  it("非官方端点时明确标注不可验证，不给出通过结论", () => {
+    const out = formatReport(result({ records: [record(0.9, false)] }));
     expect(out).toContain("不可验证");
     expect(out).not.toContain("M1 验收通过");
   });
 
   it("官方端点且达标时给出通过结论", () => {
     const records = Array.from({ length: 10 }, (_, i) => ({ ...record(0.9, true), chapter: i + 1 }));
-    const out = formatReport({
-      records,
-      rebuildChapters: new Set(),
-      chapterTexts: new Map(),
-      failures: [],
-    });
-    expect(out).toContain("✅ M1 验收通过");
+    expect(formatReport(result({ records }))).toContain("✅ M1 验收通过");
   });
 
   it("运行中的失败被单独列出", () => {
-    const out = formatReport({
-      records: [record(0.9, true)],
-      rebuildChapters: new Set(),
-      chapterTexts: new Map(),
-      failures: ["第 3 章：refused — 这段内容模型无法生成"],
-    });
+    const out = formatReport(
+      result({ failures: ["第 3 章：refused — 这段内容模型无法生成"] }),
+    );
     expect(out).toContain("运行中的失败");
     expect(out).toContain("第 3 章");
+  });
+
+  it("M1 与 M2 分开报 —— M2 的结论不受端点影响", () => {
+    const gates = Array.from({ length: 10 }, (_, i) => gate(i + 1));
+    const out = formatReport(result({ records: [record(0.9, false)], gates }));
+    expect(out).toContain("不可验证"); // M1 侧
+    expect(out).toContain("✅ M2 验收通过"); // M2 侧照样给结论
+  });
+});
+
+describe("M2 验收判定", () => {
+  function gate(chapter: number, over: Partial<ChapterGateSummary> = {}): ChapterGateSummary {
+    return {
+      chapter,
+      words: 2400,
+      budget: [2100, 2650],
+      inBudget: true,
+      density: 0.42,
+      densityRange: [0.3, 0.55],
+      action: "ok",
+      blocks: [],
+      warns: [],
+      acceptable: true,
+      ...over,
+    };
+  }
+
+  function result(gates: readonly ChapterGateSummary[], planRejections: readonly string[] = []): HarnessResult {
+    return {
+      records: [],
+      rebuildChapters: new Set(),
+      chapterTexts: new Map(),
+      failures: [],
+      gates,
+      planRejections,
+    };
+  }
+
+  it("全部落区间且无 block → 通过", () => {
+    const m2 = evaluateM2(result(Array.from({ length: 10 }, (_, i) => gate(i + 1))));
+    expect(m2.passed).toBe(true);
+    expect(m2.inBudgetRatio).toBe(1);
+  });
+
+  it("落区间比例低于 80% → 不通过", () => {
+    const gates = Array.from({ length: 10 }, (_, i) => gate(i + 1, { inBudget: i < 7 }));
+    const m2 = evaluateM2(result(gates));
+    expect(m2.passed).toBe(false);
+    expect(m2.failures.some((f) => f.includes("7/10"))).toBe(true);
+  });
+
+  it("恰好 80% → 通过（系数未校准，不要求全中）", () => {
+    const gates = Array.from({ length: 10 }, (_, i) => gate(i + 1, { inBudget: i < 8 }));
+    expect(evaluateM2(result(gates)).passed).toBe(true);
+  });
+
+  it("有 block 未清 → 不通过，并指出是哪一章哪条规则", () => {
+    const gates = [gate(1), gate(2, { acceptable: false, blocks: ["meta_leak"] })];
+    const m2 = evaluateM2(result(gates));
+    expect(m2.passed).toBe(false);
+    expect(m2.blockedChapters).toBe(1);
+    expect(m2.failures.some((f) => f.includes("第 2 章") && f.includes("meta_leak"))).toBe(true);
+  });
+
+  it("pass 级不算 block —— 高潮章主动放行仍算通过", () => {
+    const gates = [gate(1), gate(2, { action: "pass", words: 9000, inBudget: false })];
+    const m2 = evaluateM2(result(gates));
+    expect(m2.passedChapters).toBe(1);
+    expect(m2.blockedChapters).toBe(0);
+  });
+
+  it("V2 排章打回 → 不通过（工装节拍表本身不合规）", () => {
+    const m2 = evaluateM2(result([gate(1)], ["第 1 章：beat_hook_cliche — ..."]));
+    expect(m2.passed).toBe(false);
+    expect(m2.planRejections).toBe(1);
+  });
+
+  it("零章过闸 → 不通过而非空转通过", () => {
+    const m2 = evaluateM2(result([]));
+    expect(m2.passed).toBe(false);
+    expect(m2.failures[0]).toContain("无法评估");
   });
 });

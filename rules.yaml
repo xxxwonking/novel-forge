@@ -1,0 +1,271 @@
+## 派生约束规则（§10.15）
+##
+## 这是全系统数字常量的**唯一归宿**。代码里禁止出现任何字数、阈值、系数字面量 ——
+## 见 test/rules.test.ts 的源码扫描测试，它会挡住把数字写回代码的回退。
+##
+## ⚠ 所有数值都是估算，必须实测校准（§10.15）。校准方法：收集"用户实际接受的
+## 章节"的统计分布，用 P25-P75 反推区间，替换所有拍出来的数。
+##
+## version 变更 ⇒ 已派生的预算全部标记为旧版（ChapterBudget.derivedFrom.rulesVersion），
+## 不自动重算 —— 用户写到第 80 章时把前 79 章的预算悄悄改掉是更坏的行为。
+
+version: r1
+
+## §10.3 第 0 层：平台基准。base 是**事件章的中位数**，其他类型从它派生。
+## 换平台只改一个数。
+platform:
+  fanqie: { base: 2200, tolerance: 0.15 } # 移动端日更多章，偏短
+  feilu: { base: 2300, tolerance: 0.15 }
+  qidian: { base: 3000, tolerance: 0.20 }
+  unpublished: { base: 2500, tolerance: 0.30 }
+
+## §10.4 第 1 层：章节类型字数因子 [下限倍数, 上限倍数]
+typeFactor:
+  transition: [0.80, 1.00] # 该短该快
+  setup: [0.90, 1.15]
+  event: [0.95, 1.20] # 基准
+  payoff: [1.10, 1.45] # 收束需要呼应空间
+  climax: [1.25, 1.85] # 多线收束，压缩即自毁
+
+## §10.4 伏笔回收的字数成本 [下限, 上限]。仅回收章/高潮章计入。
+## ⚠ 按写作经验估，需看真实回收章分布校准。
+resolveCost:
+  main: [600, 900] # 呼应 + 揭示 + 人物反应
+  sub: [300, 500]
+  detail: [100, 200] # 一句呼应就够
+
+## 部分收束按 60% 计入
+partialRatio: 0.6
+
+## §10.4 事件的字数成本 [下限, 上限]。**首个事件已含在类型基线里**，从第二个起计。
+eventCost:
+  1: [250, 400]
+  2: [450, 700]
+  3: [800, 1300] # 大事件需要铺垫和余波
+
+## §10.4 上限兜底：预算下限 > base × 该倍数 ⇒ 规划阶段报警并给拆章建议
+splitAdviceFactor: 2.5
+
+## 字数取整粒度
+roundTo: 50
+
+## §10.5 加权事件密度区间（每千字）。用加权值而非原始计数 ——
+## 3 个小事件和 1 个大事件对读者的信息负载完全不同。
+densityRange:
+  transition: [0.20, 0.45]
+  setup: [0.20, 0.40] # 布局章事件少是正常的
+  event: [0.30, 0.55]
+  payoff: [0.35, 0.65]
+  climax: [0.40, 0.80] # 密集但有上限
+
+## §10.5 事件权重 → 密度计算用的加权值。weighted = Σ(weight × 0.5)
+eventWeightValue:
+  1: 0.5
+  2: 1.0
+  3: 1.5
+
+## §10.6 第 2 层：检测阈值按字数缩放。
+## **所有计数类阈值都是密度，不是固定次数** —— 固定次数在长章里会大量误报。
+## threshold = max(hardMin, round(per1k × words/1000 × genreMul))
+densityRules:
+  - key: 高疲劳词_单词
+    per1k: 0.5
+    hardMin: 1
+  - key: 口头感叹词_总计
+    per1k: 1.2
+    hardMin: 2
+  - key: 比喻
+    per1k: 4.0
+    hardMin: 6
+  - key: 环境描写段
+    per1k: 1.0
+    hardMin: 2
+
+## §10.6 题材系数。词表也分题材 —— 玄幻的"周身灵力暴涨"和都市的
+## "袖口的表价值七位数"不是一套。未列出的 key 取 1.0。
+## ⚠ 题材差异可能大于这里给出的系数，尤其是比喻密度。
+genreMul:
+  xuanhuan: { 比喻: 1.3, 环境描写段: 1.2 }
+  xianxia: { 比喻: 1.4, 环境描写段: 1.3 }
+  urban: { 比喻: 0.8, 口头感叹词_总计: 1.3 }
+  scifi: { 比喻: 0.9, 环境描写段: 1.4 }
+  mystery: { 比喻: 0.7, 环境描写段: 0.9 }
+  rulehorror: { 比喻: 0.6, 环境描写段: 1.5 }
+
+## §10.6 高疲劳词表。分题材，通用词进 common。
+## 计数口径是**单个词**各自计数（key 名 `高疲劳词_单词`），不是总计 ——
+## 一章里"瞳孔骤缩"两次和四个不同疲劳词各一次不是一回事。
+fatigueWords:
+  common:
+    - 瞳孔骤缩
+    - 瞳孔一缩
+    - 心中一凛
+    - 心头一震
+    - 不由自主地
+    - 无可奈何
+    - 微微一笑
+    - 嘴角勾起
+    - 深吸一口气
+    - 眼中闪过一丝
+    - 冷汗直流
+    - 头皮发麻
+  xuanhuan:
+    - 周身灵力暴涨
+    - 气息陡然攀升
+    - 天地为之变色
+    - 一股恐怖的威压
+  xianxia:
+    - 仙气缭绕
+    - 道韵流转
+    - 天道无情
+  urban:
+    - 价值七位数
+    - 不动声色地打量
+    - 名牌西装
+  scifi:
+    - 数据流疯狂刷新
+    - 瞳孔中倒映着
+  mystery:
+    - 一切都指向
+    - 真相远比想象
+  rulehorror:
+    - 违反了规则
+    - 空气中弥漫着腐臭
+
+## 口头感叹词。计数口径是**总计**（key 名 `口头感叹词_总计`）。
+interjections:
+  - 啊
+  - 呀
+  - 哦
+  - 唉
+  - 哎
+  - 嗯
+  - 咦
+  - 呵
+  - 哼
+  - 嘿
+
+## §10.7 零容忍型：**不缩放**。scope 决定检测范围，误报代价极高。
+zeroTolerance:
+  ## "作者"出现在叙述里可能是正常的（小说里的一个角色），出现在角色内心独白
+  ## 里才是穿帮。不限定范围就会大量误报。
+  ## scope=speech_and_thought：引号内文本 + 心理标记句，叙述部分不查。
+  metaLeak:
+    pattern: "(卷纲|规划里|按剧本|设定里|这是伏笔|作者|大纲|前文提到|如前所述)"
+    scope: speech_and_thought
+    level: block
+    message: 角色的话语或内心活动里出现了创作层词汇，这是元层穿帮
+  ## 章末总结句。scope=last_paragraphs，只查最后 N 段。
+  endingCliche:
+    pattern: "(这一刻[，,].{0,12}终于|属于他的时代|一场更大的.{0,4}(风暴|危机)|注定不平静|这只是开始|人生就是|命运的齿轮|风暴前的宁静)"
+    scope: last_paragraphs
+    lastParagraphs: 3
+    level: block
+    message: 章末出现套路总结句，换成具体的动作或信息落点
+
+## §10.7 结构型零容忍：复读式排比与感叹词连写。
+repetition:
+  ## 同主语 + 破折号，连续 ≥N 行
+  parallelRun:
+    minRun: 3
+    level: block
+    message: 连续多行同主语破折号句式，这是复读式水字数
+  ## 同一感叹词在相邻 N 行内重复
+  interjectionRepeat:
+    windowLines: 2
+    level: block
+    message: 同一感叹词在相邻行重复
+
+## §10.8 结构型跨章检测。全部纯代码。
+crossChapter:
+  ## 连续 ≥N 章无阶段反馈 → block "本章必须兑现或升级"
+  noStageFeedbackBlock: 2
+  ## V2 节拍表阶段的同一检查，阈值更宽（规划期允许多排一章铺垫）
+  noStageFeedbackPlanBlock: 3
+  ## ≥N 章无读者回报 → warn
+  noPayoffWarn: 5
+  ## 情节线断线阈值，按权重派生。固定一个数会淹没在噪音里。
+  plotLineGap:
+    main: 3
+    sub: 12
+    detail: 20
+  ## 伏笔临近 expected_by 的提前提醒章数
+  foreshadowDueSoon: 3
+  ## 伏笔 >N 章无动静 → warn "还打算收吗？还是废弃？"
+  foreshadowStale: 20
+  ## 角色 presence 断裂 >N 章 → warn，按人物档位派生
+  characterAbsent:
+    protagonist: 2
+    major: 15
+    minor: 30
+    extra: 999 # 龙套消失不是问题
+
+## §12.2 V2 节拍表校验的黑名单。命中即 block，让模型重填。
+## 价值在于把"祈祷模型遵守"变成"不合规就打回"。
+beatValidation:
+  ## 阶段反馈写"继续铺垫"一律打回，必须是具体兑现或升级
+  stageFeedbackBlacklist:
+    - 铺垫
+    - 等待
+    - 后续
+    - 继续
+    - 埋下
+    - 为下一章
+    - 暂时
+    - 蓄势
+  ## 章末钩子黑名单
+  hookBlacklist:
+    - 风暴
+    - 开始
+    - 不平静
+    - 更大
+    - 悬念
+    - 未知
+    - 危机四伏
+  ## 核心事件需两个"然后"才说清 → 提示拆章
+  coreEventConnectors:
+    - 然后
+    - 接着
+    - 随后
+    - 之后又
+    - 紧接着
+  coreEventConnectorLimit: 1
+
+## §10.9 补写与删减优先级。不约束的话模型补字数一定加环境描写，越补越水。
+patchPriority:
+  patch:
+    - 对手的反制动作
+    - 交易的具体条件与筹码
+    - 主角的误判与代价
+    - 可验证的具体收益（数字/物件/地位变化）
+    - 配角的独立判断（不是附和）
+  forbidPatch:
+    - 空泛抒情
+    - 连续心理活动
+    - 同义反复
+    - 无功能环境描写
+    - 群像式震惊反应
+    - 背景设定说明
+  trim:
+    - 内心复盘
+    - 背景说明
+    - 重复反应
+    - 寒暄对话
+    - 无功能环境描写
+  forbidTrim:
+    - 冲突
+    - 选择
+    - 代价
+    - 伏笔呼应
+
+## §12.3 C7 收束不完整时的补写字数区间
+resolutionPatchWords: [300, 400]
+
+## §12.8 流程三档。按章节类型自动选，不让用户每次选 ——
+## 用户不知道该选哪档，但系统从节拍表知道这章的重要性。
+tier:
+  transition: fast
+  setup: standard
+  event: standard
+  payoff: strict # 回收章强制严格档
+  climax: strict

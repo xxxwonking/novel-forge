@@ -15,6 +15,7 @@ import { EventStream } from "../src/store/event-stream.js";
 import { buildL2Snapshot } from "../src/context/build-l2.js";
 import { selectL3 } from "../src/context/select-l3.js";
 import { WRITING_DISCIPLINE } from "../src/context/discipline.js";
+import { loadRules } from "../src/rules/load.js";
 import type { ForeshadowId } from "../src/types/primitives.js";
 import {
   beat,
@@ -25,6 +26,7 @@ import {
   previousChapterText,
   settings,
   volumeSummaries,
+  workProfile,
   workSetting,
 } from "./fixtures.js";
 
@@ -345,5 +347,81 @@ describe("runChapter：异常路径", () => {
     expect(r.detail).toBe("socket hang up");
     // 错误不产生 usage，度量为空
     expect(r.metrics).toHaveLength(0);
+  });
+});
+
+describe("runChapter：C6 → C7 接线（M2）", () => {
+  const rules = loadRules();
+
+  function withGate(over: Partial<ChapterRunInput> = {}): ChapterRunInput {
+    return { ...runInput(), gate: { profile: workProfile, rules }, ...over };
+  }
+
+  async function runWith(text: string, input = withGate()) {
+    const { client } = fakeClient([
+      { kind: "ok", message: fakeMessage(text) },
+      { kind: "ok", message: fakeMessage(c5Json) },
+    ]);
+    return runChapter(client, new EventStream(), input);
+  }
+
+  it("不配 gate 时跳过闸门 —— M1 的缓存实测不该混进 findings", async () => {
+    const r = await runWith(chapterProse, runInput());
+    if (r.kind !== "ok") return;
+    expect(r.gate).toBeNull();
+    expect(r.route).toBeNull();
+    expect(r.findings.every((f) => !f.rule.startsWith("route_"))).toBe(true);
+  });
+
+  it("配了 gate 后产出字数、密度与阈值度量", async () => {
+    const r = await runWith(chapterProse);
+    if (r.kind !== "ok") return;
+    expect(r.gate?.words).toBeGreaterThan(0);
+    expect(r.gate?.thresholds["比喻"]).toBeGreaterThan(0);
+    // fixture 的正文只有几十字，远低于高潮章下限
+    expect(r.route?.action.action).toBe("patch");
+  });
+
+  it("C6 的字数 finding 被 C7 的结论取代，不并列两条", async () => {
+    const r = await runWith(chapterProse);
+    if (r.kind !== "ok") return;
+    expect(r.findings.map((f) => f.rule)).not.toContain("word_count_under");
+    expect(r.findings.map((f) => f.rule)).toContain("route_patch");
+  });
+
+  it("block 未清时 acceptable 为 false（§12.3 C7 末条）", async () => {
+    const r = await runWith(chapterProse);
+    if (r.kind !== "ok") return;
+    expect(r.acceptable).toBe(false);
+  });
+
+  it("零容忍规则在整章正文上生效", async () => {
+    const leaky = `${chapterProse}\n「按剧本我该死在这。」他说。`;
+    const r = await runWith(leaky);
+    if (r.kind !== "ok") return;
+    expect(r.findings.map((f) => f.rule)).toContain("meta_leak");
+  });
+
+  it("密度用 C5 声明的事件权重，不是节拍表的计划值", async () => {
+    const r = await runWith(chapterProse);
+    if (r.kind !== "ok") return;
+    // c5Json 声明 w3 + w2 = 2.5 加权；节拍表计划的是 w3+w2+w2 = 3.5
+    const expected = 2.5 / (r.gate!.words / 1000);
+    expect(r.gate?.density).toBeCloseTo(expected, 6);
+  });
+
+  it("节拍表没有预算时不跑闸门 —— V3 未跑过的章无从判定", async () => {
+    const noBudget = withGate();
+    const input: ChapterRunInput = {
+      ...noBudget,
+      assembleInput: {
+        ...noBudget.assembleInput,
+        volatile: { ...noBudget.assembleInput.volatile, beat: { ...beat, budget: null } },
+      },
+    };
+    const r = await runWith(chapterProse, input);
+    if (r.kind !== "ok") return;
+    expect(r.gate).toBeNull();
+    expect(r.route).toBeNull();
   });
 });

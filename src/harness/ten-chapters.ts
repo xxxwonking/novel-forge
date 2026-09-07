@@ -20,8 +20,12 @@ import { estimateTokens } from "../context/select-l3.js";
 import { WRITING_DISCIPLINE } from "../context/discipline.js";
 import { project } from "../store/project.js";
 import { evaluateAcceptance, type CacheRecord } from "../metrics/cache.js";
+import { deriveBudget } from "../beat/derive.js";
+import { validatePlan } from "../beat/validate.js";
+import { loadRules } from "../rules/load.js";
+import type { Rules } from "../rules/schema.js";
 import type { L2AppendEntry } from "../types/l2.js";
-import type { ChapterBeat, ChapterBudget } from "../types/beat.js";
+import type { ChapterBeat, ChapterPlan, GateFinding, WorkProfile } from "../types/beat.js";
 import type { CharacterCard } from "../types/character.js";
 import type { WorkSetting } from "../types/work.js";
 import type {
@@ -119,49 +123,63 @@ function makeCharacters(): CharacterCard[] {
   ];
 }
 
-function budgetFor(chapter: ChapterNo): ChapterBudget {
-  const climax = chapter % 5 === 0;
+/** 大章的间隔。工装每 N 章排一个多事件重头章，用来同时测两种预算形态。 */
+const BIG_CHAPTER_EVERY = 5;
+
+const PROFILE: WorkProfile = {
+  platform: SETTING.platform,
+  genre: SETTING.genre,
+  targetWords: 1_000_000,
+};
+
+/**
+ * 节拍表的规划部分。
+ *
+ * 大章刻意用「事件章 + 多事件」而不是高潮章：高潮章按 V2 必须有伏笔收束
+ * （beat_payoff_without_resolution），而工装是从零开始连续写，前几章还没有
+ * 伏笔可收。多事件的事件章同样能测出更宽的预算与更高的密度区间。
+ */
+function planFor(chapter: ChapterNo): ChapterPlan {
+  const big = chapter % BIG_CHAPTER_EVERY === 0;
   return {
-    words: derived(climax ? { min: 3200, max: 4400, sweet: 3800 } : { min: 2100, max: 2650, sweet: 2400 }),
-    density: derived(climax ? { min: 0.4, max: 0.8 } : { min: 0.3, max: 0.55 }),
-    thresholds: derived({ 比喻: climax ? 15 : 10, 口头感叹词: 4, 高疲劳词: 2 }),
-    tier: derived(climax ? ("strict" as const) : ("standard" as const)),
-    splitAdvice: null,
-    derivedFrom: { platform: "fanqie", genre: "xuanhuan", rulesVersion: "r1" },
-    derivedAt: "2026-09-06T00:00:00.000Z",
+    chapterType: "event",
+    coreEvent: big
+      ? `第 ${chapter} 章：李长风与血刀客在青州正面交手，一方露出底牌`
+      : `第 ${chapter} 章：李长风追查一条线索，与人交锋一场`,
+    secondaryThread: big ? "苏晚晴带回师门的消息" : null,
+    stageFeedback: big ? "李长风拿到一件可作证物的东西" : "李长风确认了一个此前的疑点",
+    hook: big ? "证物上刻着三叔的名字" : "对方提到了一个不该知道的名字",
+    events: [
+      {
+        kind: "action",
+        summary: big ? "与血刀客交手，接下一式" : "与线人交涉，逼出一句实话",
+        weight: big ? 3 : 1,
+        plotLine: "P01",
+      },
+      ...(big
+        ? ([{ kind: "info", summary: "证物指向三叔", weight: 2, plotLine: "P02" }] as const)
+        : []),
+    ],
+    resolves: [],
+    plants: [],
+    characters: big ? ["C01", "C02", "C03"] : ["C01", "C02"],
+    locations: ["S01"],
   };
 }
 
-function beatFor(chapter: ChapterNo): ChapterBeat {
-  const climax = chapter % 5 === 0;
+/**
+ * 节拍表 + V3 派生预算。
+ *
+ * 预算走 deriveBudget 而不是写死 —— 工装写死预算等于绕过 §10.1，且会让
+ * 「模型知道自己有多少字空间」这件事在实测里失真。
+ */
+function beatFor(chapter: ChapterNo, rules: Rules): ChapterBeat {
+  const plan = planFor(chapter);
   return {
     chapter,
     volume: 1,
-    plan: {
-      chapterType: climax ? "climax" : "event",
-      coreEvent: climax
-        ? `第 ${chapter} 章：李长风与血刀客在青州正面交手，一方露出底牌`
-        : `第 ${chapter} 章：李长风追查一条线索，与人交锋一场`,
-      secondaryThread: climax ? "苏晚晴带回师门的消息" : null,
-      stageFeedback: climax ? "李长风拿到一件可作证物的东西" : "李长风确认了一个此前的疑点",
-      hook: climax ? "证物上刻着三叔的名字" : "对方提到了一个不该知道的名字",
-      events: [
-        {
-          kind: "action",
-          summary: climax ? "与血刀客交手，接下一式" : "与线人交涉，逼出一句实话",
-          weight: climax ? 3 : 1,
-          plotLine: "P01",
-        },
-        ...(climax
-          ? ([{ kind: "info", summary: "证物指向三叔", weight: 2, plotLine: "P02" }] as const)
-          : []),
-      ],
-      resolves: [],
-      plants: [],
-      characters: climax ? ["C01", "C02", "C03"] : ["C01", "C02"],
-      locations: ["S01"],
-    },
-    budget: budgetFor(chapter),
+    plan,
+    budget: deriveBudget(plan, PROFILE, rules, { now: "2026-09-06T00:00:00.000Z" }),
     provenance: "authored",
     updatedAt: "2026-09-06T00:00:00.000Z",
   };
@@ -169,22 +187,42 @@ function beatFor(chapter: ChapterNo): ChapterBeat {
 
 // ── 主流程 ──────────────────────────────────────────────────────────────
 
+/** 一章的 M2 度量。用来看派生预算是否被真实生成命中（§10.15 的校准输入）。 */
+export interface ChapterGateSummary {
+  readonly chapter: ChapterNo;
+  readonly words: number;
+  readonly budget: readonly [number, number];
+  readonly inBudget: boolean;
+  readonly density: number;
+  readonly densityRange: readonly [number, number];
+  readonly action: string;
+  readonly blocks: readonly string[];
+  readonly warns: readonly string[];
+  readonly acceptable: boolean;
+}
+
 export interface HarnessResult {
   readonly records: readonly CacheRecord[];
   readonly rebuildChapters: ReadonlySet<ChapterNo>;
   readonly chapterTexts: ReadonlyMap<ChapterNo, string>;
   readonly failures: readonly string[];
+  readonly gates: readonly ChapterGateSummary[];
+  /** V2 在排章阶段就打回的章。工装的节拍表是写死的，这里非空即工装本身有问题。 */
+  readonly planRejections: readonly string[];
 }
 
 export async function runTenChapters(chapters = 10): Promise<HarnessResult> {
   const client = ClaudeClient.fromEnv();
   const stream = new EventStream();
   const characters = makeCharacters();
+  const rules = loadRules();
 
   const records: CacheRecord[] = [];
   const rebuildChapters = new Set<ChapterNo>();
   const chapterTexts = new Map<ChapterNo, string>();
   const failures: string[] = [];
+  const gates: ChapterGateSummary[] = [];
+  const planRejections: string[] = [];
 
   const synopses: { chapter: ChapterNo; text: string }[] = [];
   let pendingAppend: L2AppendEntry[] = [];
@@ -195,7 +233,13 @@ export async function runTenChapters(chapters = 10): Promise<HarnessResult> {
   let allocated = 0;
 
   for (let chapter = 1; chapter <= chapters; chapter += 1) {
-    const beat = beatFor(chapter);
+    const beat = beatFor(chapter, rules);
+
+    // V2：节拍表不合规就不该往下走（§12.2 有 block 回 V1 重排）。
+    const planFindings = validatePlan(beat.plan, rules);
+    for (const f of planFindings.filter((x) => x.level === "block")) {
+      planRejections.push(`第 ${chapter} 章：${f.rule} — ${f.message}`);
+    }
 
     // L2 重建判定 —— 重建会让 bp2 及之后冷掉，所以要记录是哪几章
     const pendingTokens = estimateTokens(pendingAppend.map((a) => a.synopsis).join(""));
@@ -215,6 +259,7 @@ export async function runTenChapters(chapters = 10): Promise<HarnessResult> {
       currentChapter: Math.max(1, chapter - 1),
       characterProfiles: characters,
       plotLineDefs: [...PLOT_DEFS],
+      plotLineGap: rules.crossChapter.plotLineGap,
     });
 
     const l2 = buildL2Snapshot({
@@ -266,6 +311,7 @@ export async function runTenChapters(chapters = 10): Promise<HarnessResult> {
       },
       promisedResolutions: [],
       maxOutputTokens: 12_000,
+      gate: { profile: PROFILE, rules },
     });
 
     records.push(...result.metrics);
@@ -276,6 +322,24 @@ export async function runTenChapters(chapters = 10): Promise<HarnessResult> {
       // 拒绝或失败不中断 —— 后续章仍能测缓存，且要看失败是否只在特定章出现
       previousText = null;
       continue;
+    }
+
+    if (result.gate !== null && result.route !== null && beat.budget !== null) {
+      const levels = (level: GateFinding["level"]): readonly string[] =>
+        result.findings.filter((f) => f.level === level).map((f) => f.rule);
+      gates.push({
+        chapter,
+        words: result.gate.words,
+        budget: [beat.budget.words.min, beat.budget.words.max],
+        inBudget:
+          result.gate.words >= beat.budget.words.min && result.gate.words <= beat.budget.words.max,
+        density: Math.round(result.gate.density * 100) / 100,
+        densityRange: [beat.budget.density.min, beat.budget.density.max],
+        action: result.route.action.action,
+        blocks: levels("block"),
+        warns: levels("warn"),
+        acceptable: result.acceptable,
+      });
     }
 
     // C8：接受整章
@@ -305,7 +369,62 @@ export async function runTenChapters(chapters = 10): Promise<HarnessResult> {
     );
   }
 
-  return { records, rebuildChapters, chapterTexts, failures };
+  return { records, rebuildChapters, chapterTexts, failures, gates, planRejections };
+}
+
+/**
+ * M2 验收（§12.9）：**字数落在派生区间、block 零漏检。**
+ *
+ * 与 M1 的关键区别：这份结论**不依赖端点是否官方** —— 它测的是字数与规则，
+ * 不读 usage 的缓存字段，中转吞掉缓存度量也不影响它的有效性。
+ */
+export interface M2Report {
+  readonly chapters: number;
+  readonly inBudget: number;
+  readonly inBudgetRatio: number;
+  readonly inDensity: number;
+  readonly blockedChapters: number;
+  readonly passedChapters: number;
+  readonly planRejections: number;
+  readonly failures: readonly string[];
+  readonly passed: boolean;
+}
+
+export function evaluateM2(r: HarnessResult): M2Report {
+  const n = r.gates.length;
+  const inBudget = r.gates.filter((g) => g.inBudget).length;
+  const inDensity = r.gates.filter(
+    (g) => g.density >= g.densityRange[0] && g.density <= g.densityRange[1],
+  ).length;
+  const blockedChapters = r.gates.filter((g) => !g.acceptable).length;
+  const passedChapters = r.gates.filter((g) => g.action === "pass").length;
+  const failures: string[] = [];
+
+  if (n === 0) failures.push("没有任何章跑到质量闸门 —— 无法评估 M2");
+  if (r.planRejections.length > 0) {
+    failures.push(`V2 在排章阶段打回 ${r.planRejections.length} 章（工装节拍表本身不合规）`);
+  }
+  // 门槛定在 8 成而非全中：派生系数尚未实测校准（§10.15），此时要求 100%
+  // 落区间等于把未校准的系数当成真值。
+  const ratio = n === 0 ? 0 : inBudget / n;
+  if (n > 0 && ratio < 0.8) {
+    failures.push(`仅 ${inBudget}/${n} 章字数落在派生区间（门槛 80%）`);
+  }
+  for (const g of r.gates.filter((x) => !x.acceptable)) {
+    failures.push(`第 ${g.chapter} 章 block 未清：${g.blocks.join("、")}`);
+  }
+
+  return {
+    chapters: n,
+    inBudget,
+    inBudgetRatio: ratio,
+    inDensity,
+    blockedChapters,
+    passedChapters,
+    planRejections: r.planRejections.length,
+    failures,
+    passed: failures.length === 0,
+  };
 }
 
 export function formatReport(r: HarnessResult): string {
@@ -330,6 +449,42 @@ export function formatReport(r: HarnessResult): string {
   }
 
   for (const f of report.failures) lines.push(`  - ${f}`);
+
+  // ── M2 部分。与 M1 分开报，因为它不受端点影响 ──
+  const m2 = evaluateM2(r);
+  lines.push("");
+  lines.push("═══ M2 验收报告 ═══");
+  lines.push(`过闸章数：${m2.chapters}`);
+  lines.push(
+    `字数落在派生区间：${m2.inBudget}/${m2.chapters}（${(m2.inBudgetRatio * 100).toFixed(0)}%，门槛 80%）`,
+  );
+  lines.push(`密度落在派生区间：${m2.inDensity}/${m2.chapters}`);
+  lines.push(`block 未清的章：${m2.blockedChapters}（门槛 0）`);
+  lines.push(`主动放行（pass）的章：${m2.passedChapters}`);
+  lines.push(`V2 排章打回：${m2.planRejections}（门槛 0）`);
+  lines.push("");
+  lines.push(m2.passed ? "✅ M2 验收通过" : "❌ M2 验收未通过");
+  for (const f of m2.failures) lines.push(`  - ${f}`);
+
+  if (r.gates.length > 0) {
+    lines.push("");
+    lines.push("逐章明细（章 | 字数/区间 | 密度/区间 | 动作 | block）：");
+    for (const g of r.gates) {
+      const mark = g.inBudget ? " " : "✗";
+      lines.push(
+        `  ${mark} ch${g.chapter} ${g.words}/${g.budget[0]}-${g.budget[1]} | ` +
+          `${g.density}/${g.densityRange[0]}-${g.densityRange[1]} | ${g.action} | ` +
+          `${g.blocks.length === 0 ? "-" : g.blocks.join("、")}`,
+      );
+    }
+  }
+
+  if (r.planRejections.length > 0) {
+    lines.push("");
+    lines.push("V2 排章打回：");
+    for (const f of r.planRejections) lines.push(`  - ${f}`);
+  }
+
   if (r.failures.length > 0) {
     lines.push("");
     lines.push("运行中的失败：");
