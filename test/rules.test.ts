@@ -194,7 +194,17 @@ describe("代码里没有数字（§10.1 的回退防线）", () => {
    * store/ 也在扫描范围内：断线阈值曾经写死在 project.ts 里，那份拷贝与
    * gate/cross-chapter.ts 读的 rules 会静默分歧。
    */
-  const SCANNED = ["src/beat", "src/gate", "src/text", "src/store"];
+  const SCANNED = [
+    "src/beat",
+    "src/gate",
+    "src/text",
+    "src/store",
+    // M3 新增。告警的 impact / decay / 方向系数 / 疲劳因子全是数字，
+    // §12.6.4 那批系数已进 rules.yaml 的 alerts 段，这三个目录只做算术。
+    "src/alerts",
+    "src/anchor",
+    "src/view",
+  ];
   const ALLOWED = new Set(["0", "1", "2", "4", "100", "1000"]);
 
   const repoRoot = fileURLToPath(new URL("..", import.meta.url));

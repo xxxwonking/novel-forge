@@ -98,6 +98,7 @@ export type {
   Alert,
   AlertAction,
   AlertCategory,
+  AlertState,
   AlertSubject,
   CharacterArc,
   ForeshadowStatus,
@@ -107,4 +108,3 @@ export type {
   RelationEdge,
   RepairDirection,
 } from "./projections.js";
-export { DIRECTION_FACTORS, FATIGUE_FACTORS, HOMEPAGE_ALERT_LIMIT } from "./projections.js";

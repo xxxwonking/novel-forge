@@ -205,11 +205,30 @@ export type AlertAction =
   | { readonly kind: "open_view"; readonly view: "foreshadow" | "plotline" | "arc" | "relation" }
   | { readonly kind: "jump_to_anchor"; readonly anchor: TextAnchor };
 
-/** §12.6.6 首页固定 3 条。即使有 8 条也只显示 3 条。 */
-export const HOMEPAGE_ALERT_LIMIT = 3;
-
-/** §12.6.4 疲劳衰减。忽略 ≥3 次退池。 */
-export const FATIGUE_FACTORS = [1.0, 0.6, 0.3] as const;
-
-/** §12.6.4 修复方向系数。后向修复打 0.4 折但不完全埋掉。 */
-export const DIRECTION_FACTORS = { forward: 1.0, backward: 0.4 } as const;
+/**
+ * 告警的用户侧状态。**与 Alert 分开存**：Alert 每次诊断全量重算（和四视图
+ * 一样是投影），而 fatigueCount / acknowledged 是用户行为的累积，重算不能覆盖。
+ *
+ * 靠 AlertId 的 `<类别>:<对象 ID>` 规则附着 —— 同一问题永远同一 ID，
+ * 所以重跑诊断后状态自动对上，不需要额外的关联表。
+ *
+ * ⚠ 首页条数上限、fatigue 系数、direction 系数曾经是本文件的三个常量，
+ * 现已移入 `rules.yaml` 的 `alerts` 段（§10.1：代码里没有数字）。
+ */
+export interface AlertState {
+  readonly id: AlertId;
+  readonly fatigueCount: number;
+  readonly acknowledged: boolean;
+  /** 首次产生的时刻。Alert 每次重算，"这个问题存在多久了"只能存在这里。 */
+  readonly createdAt: IsoTimestamp;
+  /**
+   * 上次评估时的 decay 值。
+   *
+   * 文档没提这个字段，但 §12.6.4 末条要求"decay 显著上升时重置 fatigue 并
+   * 重新入池"，而"上升"是与历史比较 —— 不存旧值就无法判断。
+   * 用户第一次忽略"感情线断了 12 章"，等它断到 25 章时问题性质已变。
+   */
+  readonly lastDecay: number;
+  /** 已迁移到的形态。迁移时要重置 fatigue，所以得记住迁过没有。 */
+  readonly migratedTo: Alert["migratedTo"];
+}

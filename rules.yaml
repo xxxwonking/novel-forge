@@ -261,6 +261,102 @@ patchPriority:
 ## §12.3 C7 收束不完整时的补写字数区间
 resolutionPatchWords: [300, 400]
 
+## §12.6 首页告警。**全部系数都是拍的**（§12.6.9 原文），校准方法按可靠性排序：
+## ① 某类告警动作按钮点击率长期 <10% ⇒ 不该在首页
+## ② 被忽略的伏笔最终是收了还是废弃了 ⇒ 大量废弃则催收拐点该提前
+## ③ 统计"逾期 N 章后被成功回收"的分布，回收率显著下降的 N 是真实拐点（最有价值，
+##    且只有本系统有这个数据 —— 它是伏笔声明+收束声明+章号三者关联的直接产物）
+alerts:
+  ## §12.6.4 影响面（静态）。伏笔与情节线按权重取。
+  impact:
+    main: 3.0
+    sub: 1.5
+    detail: 0.5
+  ## 角色按出场档位。§12.6.4 只给了「主要 3.0 / 次要 1.5 / 龙套不告警」三档，
+  ## 而 CharacterTier 是四档 —— protagonist 与 major 同归"主要"。
+  ## extra 为 0 ⇒ score 恒为 0，配合 minScore 实现"龙套不告警"。
+  characterImpact:
+    protagonist: 3.0
+    major: 3.0
+    minor: 1.5
+    extra: 0
+  ## score 低于此值不进候选。存在的唯一理由是让 characterImpact.extra=0 生效。
+  minScore: 0.01
+
+  ## §12.6.4 decay：修复成本的增长速度。**这是首页排序的真正判据**——
+  ## 不是"多严重"，而是"再拖下去会不会更贵"。三种曲线形状见下。
+  decay:
+    ## ① 先升后降。逾期 5 章的伏笔下一章顺手收掉，逾期 35 章的读者早忘了。
+    foreshadowOverdue:
+      ## 未逾期段（overdue < 0）：dueSoonFloor + (1 - min(1, 剩余/window)) × dueSoonSpan
+      dueSoonFloor: 0.4
+      dueSoonSpan: 0.6
+      dueSoonWindow: 10
+      ## 上升段（0 < overdue ≤ peakAt）：1.0 + overdue / risePer
+      risePer: 10
+      peakAt: 20
+      ## 下降段：peak - (overdue - peakAt) / fallPer，不低于 floor
+      fallPer: 15
+      floor: 0.6
+    ## ① 同形，但横轴是 gap/limit 的比值 —— 主线断 3 章与细节线断 20 章等价。
+    plotlineGap:
+      base: 0.5
+      slope: 1.5
+      cap: 2.5
+    ## ① 先升后降。拐点后类别迁移为「确认退场」，decay 回落。
+    characterMissing:
+      lowGap: 15
+      low: 0.6
+      highGap: 40
+      risePer: 20
+      afterExit: 0.7
+    ## ② 单调上升。上限给到 4.0 是为了让它**即使被 direction 打 0.4 折仍能在
+    ## 真正严重时冒头**（4.0 × 3.0 × 0.4 = 4.8）—— 后向修复不被完全埋掉。
+    settingConflict:
+      base: 1.5
+      per: 8
+      cap: 4.0
+    ## ③ 平坦。比喻密度、感叹词、节奏偏软拖一年也一样容易修。
+    flat: 0.8
+
+  ## §12.6.3 修复方向。**比 decay 更重要的一维**：前向修复只是给下一章节拍表
+  ## 加一行（心理成本几乎为零），后向修复要中断写作、回读、判断改哪边。
+  direction:
+    forward: 1.0
+    backward: 0.4
+  ## §12.6.6 后向修复的 impact 低于此值只进「待返修」，不占首页三格。
+  backwardMinImpact: 1.5
+
+  ## §12.6.4 疲劳衰减。索引 = 已忽略次数。
+  fatigue: [1.0, 0.6, 0.3]
+  ## 忽略 ≥N 次移出首页候选，仅留完整列表。
+  fatigueDropAt: 3
+  ## decay 相比上次评估上升超过此幅度 ⇒ 重置 fatigue 重新入池。
+  ## §12.6.4 末条：用户第一次忽略"感情线断了 12 章"，等它断到 25 章时
+  ## 问题性质已变，应该重新提醒。
+  decayResetDelta: 1.0
+
+  ## §12.6.5 MMR 式多样性惩罚：同类第 N 条乘以 penalty^N（第二条 5 折、第三条 2.5 折）。
+  ## **不硬性禁止同类** —— 真有 3 条主线伏笔都严重逾期时它们占满三格是对的。
+  diversityPenalty: 0.5
+  ## §12.6.8 数量上限固定为 3。即使有 8 条也只显示 3 条 ——
+  ## 用户能处理完的告警才有价值。
+  homepageLimit: 3
+
+  ## §12.6.2 类别迁移的拐点。不做迁移，几十章后首页全是处理不掉的死条目。
+  migration:
+    ## 伏笔逾期 >N 章 ⇒ 从「催收」变「还打算收吗？还是废弃？」
+    foreshadowAbandonAfter: 20
+    ## 角色消失 >N 章 ⇒ 从「催回」变「这个角色是否已退场？」
+    characterExitAfter: 40
+
+## 文本锚点的重定位（§6.3）。quote 是主键，offsetHint 只是搜索起点提示。
+anchor:
+  ## 命中位置与 offsetHint 之差超过此值判 shifted（作者在前面增删了内容）。
+  ## 给得宽是刻意的：shifted 与 exact 对用户是同一件事（都能跳过去），
+  ## 区分它们只为让 UI 能提示"位置有变动"，判错的代价接近零。
+  shiftTolerance: 200
+
 ## §12.8 流程三档。按章节类型自动选，不让用户每次选 ——
 ## 用户不知道该选哪档，但系统从节拍表知道这章的重要性。
 tier:

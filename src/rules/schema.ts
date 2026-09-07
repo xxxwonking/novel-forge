@@ -87,6 +87,67 @@ export interface PatchPriority {
   readonly forbidTrim: readonly string[];
 }
 
+// ── §12.6 首页告警 ──────────────────────────────────────────────────────
+
+/**
+ * decay 曲线的系数。**每条曲线一个独立结构，不做统一抽象** ——
+ * §12.6.2 的三种形状（单调上升 / 先升后降 / 平坦）横轴含义都不同
+ * （逾期章数 / gap 与阈值的比值 / 距今章数），硬凑成一组通用参数会让
+ * 每个字段的含义依赖曲线类型，校准时无从下手。
+ */
+export interface AlertDecayRules {
+  readonly foreshadowOverdue: {
+    readonly dueSoonFloor: number;
+    readonly dueSoonSpan: number;
+    readonly dueSoonWindow: number;
+    readonly risePer: number;
+    readonly peakAt: number;
+    readonly fallPer: number;
+    readonly floor: number;
+  };
+  readonly plotlineGap: {
+    readonly base: number;
+    readonly slope: number;
+    readonly cap: number;
+  };
+  readonly characterMissing: {
+    readonly lowGap: number;
+    readonly low: number;
+    readonly highGap: number;
+    readonly risePer: number;
+    readonly afterExit: number;
+  };
+  readonly settingConflict: {
+    readonly base: number;
+    readonly per: number;
+    readonly cap: number;
+  };
+  /** 平坦型（比喻密度、感叹词、节奏偏软）的固定值。 */
+  readonly flat: number;
+}
+
+export interface AlertRules {
+  readonly impact: Readonly<Record<ForeshadowWeight, number>>;
+  readonly characterImpact: Readonly<Record<CharacterTier, number>>;
+  readonly minScore: number;
+  readonly decay: AlertDecayRules;
+  readonly direction: Readonly<Record<"forward" | "backward", number>>;
+  readonly backwardMinImpact: number;
+  readonly fatigue: readonly number[];
+  readonly fatigueDropAt: number;
+  readonly decayResetDelta: number;
+  readonly diversityPenalty: number;
+  readonly homepageLimit: number;
+  readonly migration: {
+    readonly foreshadowAbandonAfter: number;
+    readonly characterExitAfter: number;
+  };
+}
+
+export interface AnchorRules {
+  readonly shiftTolerance: number;
+}
+
 /**
  * 规则集全貌。
  *
@@ -120,6 +181,8 @@ export interface Rules {
   readonly beatValidation: BeatValidationRules;
   readonly patchPriority: PatchPriority;
   readonly resolutionPatchWords: Range;
+  readonly alerts: AlertRules;
+  readonly anchor: AnchorRules;
   readonly tier: Readonly<Record<ChapterType, PipelineTier>>;
 }
 

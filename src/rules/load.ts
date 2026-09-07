@@ -13,6 +13,7 @@
 import { readFileSync } from "node:fs";
 import { parse } from "yaml";
 import type {
+  AlertRules,
   BeatValidationRules,
   CrossChapterRules,
   DensityRule,
@@ -192,6 +193,70 @@ function readBeatValidation(root: unknown): BeatValidationRules {
   });
 }
 
+/** 数字列表。fatigue 那种"索引即语义"的数组用它。 */
+function numList(root: unknown, path: string): readonly number[] {
+  const v = at(root, path);
+  if (!Array.isArray(v) || v.length === 0) {
+    throw new RulesError(path, "必须是非空数字数组");
+  }
+  v.forEach((x, i) => {
+    if (typeof x !== "number" || !Number.isFinite(x)) {
+      throw new RulesError(`${path}.${i}`, `必须是有限数字，实际是 ${JSON.stringify(x)}`);
+    }
+  });
+  return Object.freeze([...(v as number[])]);
+}
+
+/** 一组同层数字字段。decay 的四条曲线各自的系数用它，路径全部进错误消息。 */
+function numGroup<K extends string>(
+  root: unknown,
+  path: string,
+  keys: readonly K[],
+): Readonly<Record<K, number>> {
+  return table<K, number>(keys, (k) => num(root, `${path}.${k}`));
+}
+
+function readAlerts(root: unknown): AlertRules {
+  const d = "alerts.decay";
+  return Object.freeze({
+    impact: numGroup(root, "alerts.impact", FORESHADOW_WEIGHTS),
+    characterImpact: numGroup(root, "alerts.characterImpact", CHARACTER_TIERS),
+    minScore: num(root, "alerts.minScore"),
+    decay: Object.freeze({
+      foreshadowOverdue: numGroup(root, `${d}.foreshadowOverdue`, [
+        "dueSoonFloor",
+        "dueSoonSpan",
+        "dueSoonWindow",
+        "risePer",
+        "peakAt",
+        "fallPer",
+        "floor",
+      ] as const),
+      plotlineGap: numGroup(root, `${d}.plotlineGap`, ["base", "slope", "cap"] as const),
+      characterMissing: numGroup(root, `${d}.characterMissing`, [
+        "lowGap",
+        "low",
+        "highGap",
+        "risePer",
+        "afterExit",
+      ] as const),
+      settingConflict: numGroup(root, `${d}.settingConflict`, ["base", "per", "cap"] as const),
+      flat: num(root, `${d}.flat`),
+    }),
+    direction: numGroup(root, "alerts.direction", ["forward", "backward"] as const),
+    backwardMinImpact: num(root, "alerts.backwardMinImpact"),
+    fatigue: numList(root, "alerts.fatigue"),
+    fatigueDropAt: num(root, "alerts.fatigueDropAt"),
+    decayResetDelta: num(root, "alerts.decayResetDelta"),
+    diversityPenalty: num(root, "alerts.diversityPenalty"),
+    homepageLimit: num(root, "alerts.homepageLimit"),
+    migration: numGroup(root, "alerts.migration", [
+      "foreshadowAbandonAfter",
+      "characterExitAfter",
+    ] as const),
+  });
+}
+
 function readPatchPriority(root: unknown): PatchPriority {
   return Object.freeze({
     patch: strList(root, "patchPriority.patch"),
@@ -275,6 +340,8 @@ export function buildRules(root: unknown): Rules {
     beatValidation: readBeatValidation(root),
     patchPriority: readPatchPriority(root),
     resolutionPatchWords: range(root, "resolutionPatchWords"),
+    alerts: readAlerts(root),
+    anchor: Object.freeze({ shiftTolerance: num(root, "anchor.shiftTolerance") }),
     tier: table<ChapterType, PipelineTier>(CHAPTER_TYPES, (t) =>
       oneOf<PipelineTier>(root, `tier.${t}`, TIERS),
     ),

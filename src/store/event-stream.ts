@@ -50,6 +50,27 @@ export class EventStream {
 
   constructor(private readonly clock: Clock = systemClock) {}
 
+  /**
+   * 从落盘的事件重建流（M3 持久化）。
+   *
+   * 关键是把 `nextSeq` 与每章的计数器一起续上 —— 只恢复数组会让下一次
+   * append 从 seq=1 开始，重放顺序被破坏，而这是投影正确性的唯一依赖。
+   *
+   * 不做校验（seq 连续性、id 唯一性）：坏数据在 persist 层解析 JSONL 时就该
+   * 拦下，在这里再查一遍等于把同一逻辑放两处。
+   */
+  static restore(events: readonly StructuralEvent[], clock: Clock = systemClock): EventStream {
+    const stream = new EventStream(clock);
+    for (const e of events) {
+      stream.events.push(e);
+      if (e.envelope.seq >= stream.nextSeq) stream.nextSeq = e.envelope.seq + 1;
+      const prior = stream.chapterCounters.get(e.envelope.chapter) ?? 0;
+      // 章内序号从 id 的后缀取不可靠（用户可能手改过 JSONL），按条数计。
+      stream.chapterCounters.set(e.envelope.chapter, prior + 1);
+    }
+    return stream;
+  }
+
   append(input: AppendInput): StructuralEvent {
     const n = (this.chapterCounters.get(input.chapter) ?? 0) + 1;
     this.chapterCounters.set(input.chapter, n);
