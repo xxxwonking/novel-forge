@@ -276,7 +276,7 @@ Mac 上 GitHub 的 HTTPS(443) 直连被掐、SSH 正常：git 用 SSH 远端；`
     npm run web
     npm run acceptance:m1
 
-- serve 默认读取 data/demo，监听 127.0.0.1:5174；交付后未保留常驻服务，自动化测试启动的临时 HTTP 服务已关闭。
+- serve 默认读取 data/demo，监听 127.0.0.1:5174；本轮按用户要求已在主目录启动《雨夜账册》测试作品的网页服务，详见第 14 节。
 - Windows PowerShell 中使用 `npm.cmd` 执行上述脚本；主目录已按锁文件运行 `npm.cmd ci --no-audit --no-fund`，依赖已安装，无须为接续工作重新生成演示数据。
 - acceptance:m1 会真实调用模型，需要有效配置，运行前明确本次实测范围和消耗。
 - npm run seed 用于生成演示项目；当前已有 data/demo，普通查看 / 启动不需要重新生成数据。
@@ -448,6 +448,13 @@ Mac 上 GitHub 的 HTTPS(443) 直连被掐、SSH 正常：git 用 SSH 远端；`
 
 **当前接续入口。** 用户授权使用自有代理站 Gemini，并指定 chat 接口。本轮由当前代理完成实现、真实测试和复核，没有启动子代理、没有调用 Claude，也没有改动已有 `data/demo`。
 
+### 交付状态与当前网页
+
+- 功能提交：`c7ecb1b2e5e65bc9a2ca70cf9192c7ded2c22581`，`feat(model): 新增 Gemini chat 写章接入与实测`，已快进合入 `master` 并推送到 `origin/master`。
+- 主目录 `C:/Users/Administrator/Desktop/novel-forge` 中重新运行 574 项测试、类型检查和前端构建，全部通过。已合入的 `feat-gemini-chat` 分支和临时 worktree 均已清理。
+- 网页服务已从主目录以后台进程启动，地址 `http://127.0.0.1:5174`，加载下方实测作品；启动时 PID 为 23044。该进程保留供用户查看，修改服务代码后需要重启。日志位于实测目录的 `web-server.stdout.log` / `web-server.stderr.log`。
+- 实测作品、正文、报告、截图和主目录 `.env.local` 均保留；这些本地数据和凭证不进入 Git。本次记忆收尾提交以 Git 历史为准。
+
 ### 已完成的实现
 
 - 新增最小 `ModelClient`、`ChatClient` 和 `createModelClient`；通过 `NOVEL_MODEL_PROVIDER=chat` 配合 `CHAT_BASE_URL`、`CHAT_API_KEY`、`CHAT_MODEL` 选择代理模型。未设置 provider 的旧入口仍兼容 Claude，chat 失败不会自动回退。
@@ -471,7 +478,7 @@ Mac 上 GitHub 的 HTTPS(443) 直连被掐、SSH 正常：git 用 SSH 远端；`
 - 作品目录：`C:/Users/Administrator/Desktop/novel-forge/data/chat-smoke-2026-09-10-4xJ2NV/`。
 - 正文：`drafts/ch1/ch1d1.txt`；采用后的正文也已落到该作品正式章节目录。
 - 首次报告：`report.md` / `report.json`（保留 C5 格式错误）；修复后的最终报告：`report-resume.md` / `report-resume.json`（包含正文未变化、仅恢复声明及采用/读取结果）。
-- 真实连接信息由用户桌面配置文件读取，写入被忽略的 `.env.local`；密钥及具体代理地址不写入 Git 或 MEMORY。保留主项目的 `.env.local` 后再清理开发 worktree。
+- 真实连接信息由用户桌面配置文件读取，已保存到主项目被忽略的 `.env.local`，并在清理开发 worktree 前核对一致；密钥及具体代理地址不写入 Git 或 MEMORY。
 - 查看测试作品：`npm.cmd run serve -- data/chat-smoke-2026-09-10-4xJ2NV`。阅读视图已有，Web 写章、草稿与采用操作界面仍待开发。
 
 ### 验证与自审
@@ -483,7 +490,7 @@ Mac 上 GitHub 的 HTTPS(443) 直连被掐、SSH 正常：git 用 SSH 远端；`
 - 用户补充要求启动 Web 测试后，使用 Chromium 145 + Playwright 实际点击首页、全部提示、四种结构视图和正文页；正文与保存稿一致，无浏览器脚本错误或失败的页面/API 响应。
 - 浏览器发现并修复两处衔接问题：节拍预算未持久化时，体检接口现在按规则派生预算并返回章内检查，读取不改动作品；原文高亮元素现在正确绑定滚动引用，点击情节节点会滚到对应正文。前者经新增失败单测复现，后者经浏览器断言复现，修复后均复测通过。
 - Web 最终报告及截图保存在同一测试作品的 `web-report.json`、`web-home.png`、`web-plotlines.png`、`web-reader.png`、`web-anchor.png`；首次异常记录保留在 `web-report-before.json` 和 `web-anchor-before.json`。网页只验证现有阅读/检查功能，未宣称尚未接入的写章/采用界面可用。
-- 实施计划：`docs/superpowers/plans/2026-09-10-gemini-chat.md`；设计：`docs/superpowers/specs/2026-09-10-gemini-chat-design.md`。开发分支为 `feat-gemini-chat`，从 `e1c963b` 开始；合入和推送完成状态以 Git 历史核对，清理后不再使用临时 worktree 路径。
+- 实施计划：`docs/superpowers/plans/2026-09-10-gemini-chat.md`；设计：`docs/superpowers/specs/2026-09-10-gemini-chat-design.md`。开发从 `e1c963b` 开始，已完成合入与推送；后续在主目录继续，不再使用已删除的临时 worktree 路径。
 
 ### 接续待办
 
