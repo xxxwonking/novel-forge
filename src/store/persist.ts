@@ -14,6 +14,8 @@
  *
  * 目录：
  *   <root>/setting.json          作品设定（L1，极少改）
+ *   <root>/discipline.json       写作纪律（L1，版本随内容保存）
+ *   <root>/settings.json         地点/组织设定库（L3 按需读取）
  *   <root>/profile.json          平台/题材/目标字数
  *   <root>/characters.json       人物卡（设定块；state 块是投影，不存）
  *   <root>/plotlines.json        情节线定义
@@ -29,7 +31,9 @@ import { EventStream, type Clock, systemClock } from "./event-stream.js";
 import type { StructuralEvent } from "../types/events.js";
 import type { ChapterBeat, WorkProfile } from "../types/beat.js";
 import type { CharacterCard } from "../types/character.js";
-import type { WorkSetting } from "../types/work.js";
+import type { WorkSetting, WritingDiscipline } from "../types/work.js";
+import type { SettingCard } from "../context/select-l3.js";
+import { WRITING_DISCIPLINE } from "../context/discipline.js";
 import type { AlertState } from "../types/projections.js";
 import type { AlertId, ChapterNo, PlotLineId } from "../types/primitives.js";
 import type { ForeshadowWeight } from "../types/events.js";
@@ -50,6 +54,8 @@ export interface PlotLineDef {
  */
 export interface ProjectSnapshot {
   readonly setting: WorkSetting;
+  readonly discipline: WritingDiscipline;
+  readonly settings: readonly SettingCard[];
   readonly profile: WorkProfile;
   readonly characters: readonly Omit<CharacterCard, "state">[];
   readonly plotLines: readonly PlotLineDef[];
@@ -59,8 +65,14 @@ export interface ProjectSnapshot {
   readonly chapters: ReadonlyMap<ChapterNo, string>;
 }
 
+/** 兼容尚未提供写章资料的旧建库/演示调用方；读取总是返回完整快照。 */
+type ProjectSaveInput = Omit<ProjectSnapshot, "discipline" | "settings"> &
+  Partial<Pick<ProjectSnapshot, "discipline" | "settings">>;
+
 const FILES = {
   setting: "setting.json",
+  discipline: "discipline.json",
+  settings: "settings.json",
   profile: "profile.json",
   characters: "characters.json",
   plotLines: "plotlines.json",
@@ -85,6 +97,8 @@ export class ProjectStore {
   load(): ProjectSnapshot {
     return {
       setting: this.readJson<WorkSetting>(FILES.setting),
+      discipline: this.readJsonOr<WritingDiscipline>(FILES.discipline, WRITING_DISCIPLINE),
+      settings: this.readJsonOr<readonly SettingCard[]>(FILES.settings, []),
       profile: this.readJson<WorkProfile>(FILES.profile),
       characters: this.readJsonOr<readonly Omit<CharacterCard, "state">[]>(FILES.characters, []),
       plotLines: this.readJsonOr<readonly PlotLineDef[]>(FILES.plotLines, []),
@@ -142,9 +156,11 @@ export class ProjectStore {
   // ── 写 ────────────────────────────────────────────────────────────────
 
   /** 建目录并写入全部文件。已存在的项目会被整体覆盖。 */
-  save(snapshot: ProjectSnapshot): void {
+  save(snapshot: ProjectSaveInput): void {
     mkdirSync(join(this.root, CHAPTER_DIR), { recursive: true });
     this.writeJson(FILES.setting, snapshot.setting);
+    this.writeDiscipline(snapshot.discipline ?? WRITING_DISCIPLINE);
+    this.writeSettings(snapshot.settings ?? []);
     this.writeJson(FILES.profile, snapshot.profile);
     this.writeJson(FILES.characters, snapshot.characters);
     this.writeJson(FILES.plotLines, snapshot.plotLines);
@@ -200,6 +216,14 @@ export class ProjectStore {
 
   writeCharacters(characters: readonly Omit<CharacterCard, "state">[]): void {
     this.writeJson(FILES.characters, characters);
+  }
+
+  writeSettings(settings: readonly SettingCard[]): void {
+    this.writeJson(FILES.settings, settings);
+  }
+
+  writeDiscipline(discipline: WritingDiscipline): void {
+    this.writeJson(FILES.discipline, discipline);
   }
 
   // ── 原语 ──────────────────────────────────────────────────────────────

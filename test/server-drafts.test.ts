@@ -121,11 +121,29 @@ describe("章节草稿端点", () => {
     expect((again.body as { result: { changed: boolean } }).result.changed).toBe(false);
   });
 
+  it("采用只提交选中稿的声明，不顺带确认事件流中的旧候选", () => {
+    const { session } = seed();
+    session.appendEvents([{ chapter: 53, origin: "async_candidate", provenance: "proposed", payload: { type: "plot_event", kind: "info", summary: "未选择的旧候选", weight: 1, plotLine: "P01", participants: ["C01"], anchor: { chapter: 53, quote: "旧候选", offsetHint: 0, occurrence: 0 } } }]);
+    const res = post(session, "/api/chapter/adopt", { chapter: 53, draftId: "ch53d1" });
+    expect(res.status).toBe(200);
+    expect(session.events()[0]?.envelope.provenance).toBe("proposed");
+    expect(session.events().filter((e) => e.envelope.provenance === "committed").map((e) => e.payload.type === "plot_event" ? e.payload.summary : e.payload.type)).toEqual(["A"]);
+  });
+
   it("采用未就绪草稿 → 400", () => {
     const { session, drafts } = seed();
     drafts.saveDraft({ ...ready("ch53d3", "x", "x"), status: "needs_revision", acceptable: false });
     const res = post(session, "/api/chapter/adopt", { chapter: 53, draftId: "ch53d3" });
     expect(res.status).toBe(400);
+  });
+
+  it.each(["stale", "discarded", "failed", "writing", "declaring", "checking"] as const)("%s 草稿即使保留旧 acceptable 也不能采用", (status) => {
+    const { session, drafts } = seed();
+    drafts.saveDraft({ ...ready("ch53d3", "过期的正文", "旧声明"), status });
+    const res = post(session, "/api/chapter/adopt", { chapter: 53, draftId: "ch53d3" });
+    expect(res.status).toBe(400);
+    expect(session.chapterText(53)).toBeUndefined();
+    expect(session.events()).toHaveLength(0);
   });
 
   it("POST /api/chapter/discard 丢弃草稿", () => {
@@ -134,6 +152,15 @@ describe("章节草稿端点", () => {
     expect(res.status).toBe(200);
     const d = get(session, "/api/chapter/draft", { n: "53", id: "ch53d1" });
     expect((d.body as ChapterDraft).status).toBe("discarded");
+  });
+
+  it("不能把已采用版本改成已丢弃，正式正文保持可追溯", () => {
+    const { session } = seed();
+    post(session, "/api/chapter/adopt", { chapter: 53, draftId: "ch53d1" });
+    const discarded = post(session, "/api/chapter/discard", { chapter: 53, draftId: "ch53d1" });
+    expect(discarded.status).toBe(409);
+    expect(session.getDraft(53, "ch53d1")?.status).toBe("adopted");
+    expect(session.chapterText(53)).toBe("正文A");
   });
 
   it("缺参数 → 400", () => {

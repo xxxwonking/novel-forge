@@ -75,11 +75,26 @@ describe("DraftStore", () => {
     expect(newStore().loadDraft(1, "nope")).toBeUndefined();
   });
 
-  it("nextDraftId 按现有数量递增", () => {
+  it("nextDraftId 按已有序号递增", () => {
     const store = newStore();
     expect(store.nextDraftId(7)).toBe("ch7d1");
     store.saveDraft(draft(7, "ch7d1"));
     expect(store.nextDraftId(7)).toBe("ch7d2");
+  });
+
+  it("草稿编号有缺口时继续最大序号，不能覆盖已有稿", () => {
+    const store = newStore();
+    store.saveDraft(draft(7, "ch7d1"));
+    store.saveDraft(draft(7, "ch7d3"));
+    expect(store.nextDraftId(7)).toBe("ch7d4");
+    expect(store.loadDraft(7, "ch7d3")?.body).toBe("正文-ch7d3");
+  });
+
+  it("创建时间相同时按数字版本排序，d10 晚于 d9", () => {
+    const store = newStore();
+    store.saveDraft(draft(7, "ch7d9"));
+    store.saveDraft(draft(7, "ch7d10"));
+    expect(store.latestDraft(7)?.draftId).toBe("ch7d10");
   });
 
   it("listDrafts 按 createdAt 升序，末尾即最新", () => {

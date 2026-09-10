@@ -24,6 +24,7 @@ import type {
   ChapterDraftStatus,
   DraftId,
   DraftProposal,
+  DraftWriteContext,
 } from "./types.js";
 
 /** 工具的读侧来源（= ToolContext 去掉 onPropose）。服务按草稿注入 onPropose。 */
@@ -44,6 +45,7 @@ interface DraftIdentity {
   readonly baseVersion: number;
   readonly baseAdoptedThrough: ChapterNo;
   readonly createdAt: string;
+  readonly writeContext?: DraftWriteContext;
 }
 
 export class ChapterTaskService {
@@ -60,7 +62,7 @@ export class ChapterTaskService {
   }
 
   /** 新起一章任务：跑 write→declare→check，每步落草稿，返回最终草稿。 */
-  async run(runInput: ChapterRunInput): Promise<ChapterDraft> {
+  async run(runInput: ChapterRunInput, writeContext?: DraftWriteContext): Promise<ChapterDraft> {
     const { chapter } = runInput;
     const draftId = this.deps.draftStore.nextDraftId(chapter);
     const identity: DraftIdentity = {
@@ -69,6 +71,7 @@ export class ChapterTaskService {
       baseVersion: this.deps.draftStore.workVersion(),
       baseAdoptedThrough: Math.max(0, chapter - 1),
       createdAt: this.now(),
+      ...(writeContext === undefined ? {} : { writeContext }),
     };
     return this.drive(initialGraphState(runInput), identity, []);
   }
@@ -77,18 +80,20 @@ export class ChapterTaskService {
    * 恢复一份未完成草稿：从草稿重建初始态，图内节点自动跳过已完成的步骤。
    * `runInput` 由调用方按当前项目重建；C4 会话则从 `draft.session` 恢复。
    */
-  async resume(runInput: ChapterRunInput, draftId: DraftId): Promise<ChapterDraft> {
+  async resume(runInput: ChapterRunInput, draftId: DraftId, writeContext?: DraftWriteContext): Promise<ChapterDraft> {
     const { chapter } = runInput;
     const draft = this.deps.draftStore.loadDraft(chapter, draftId);
     if (draft === undefined) throw new Error(`草稿不存在：ch${chapter}/${draftId}`);
     if (draft.status === "adopted" || draft.status === "discarded") return draft;
 
+    const context = writeContext ?? draft.writeContext;
     const identity: DraftIdentity = {
       chapter,
       draftId,
       baseVersion: draft.baseVersion,
       baseAdoptedThrough: draft.baseAdoptedThrough,
       createdAt: draft.createdAt,
+      ...(context === undefined ? {} : { writeContext: context }),
     };
     return this.drive(stateFromDraft(draft, runInput), identity, draft.proposals);
   }
@@ -142,6 +147,7 @@ export class ChapterTaskService {
       acceptable: state.acceptable,
       proposals: state.proposals,
       session: sessionFromWrite(state.write),
+      ...(identity.writeContext === undefined ? {} : { writeContext: identity.writeContext }),
       baseVersion: identity.baseVersion,
       baseAdoptedThrough: identity.baseAdoptedThrough,
       error: refusalOrError(state),

@@ -62,9 +62,10 @@ export class DraftStore {
 
   // ── 草稿 ──────────────────────────────────────────────────────────────
 
-  /** 该章的下一个草稿号 `ch{n}d{k}`，k = 现有草稿数 + 1。 */
+  /** 序号取已有最大值 + 1；手动移除旧稿留下缺口时也不能覆盖现存版本。 */
   nextDraftId(chapter: ChapterNo): DraftId {
-    return `ch${chapter}d${this.listDrafts(chapter).length + 1}`;
+    const last = this.listDrafts(chapter).reduce((max, draft) => Math.max(max, draftSequence(draft.draftId)), 0);
+    return `ch${chapter}d${last + 1}`;
   }
 
   saveDraft(draft: ChapterDraft): void {
@@ -93,7 +94,7 @@ export class DraftStore {
       .filter((f) => f.endsWith(".json"))
       .map((f) => this.loadDraft(chapter, f.slice(0, f.length - ".json".length)))
       .filter((d): d is ChapterDraft => d !== undefined)
-      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || draftSequence(a.draftId) - draftSequence(b.draftId));
   }
 
   latestDraft(chapter: ChapterNo): ChapterDraft | undefined {
@@ -111,4 +112,8 @@ export class DraftStore {
       .map(Number)
       .sort((a, b) => a - b);
   }
+}
+
+function draftSequence(draftId: DraftId): number {
+  return Number(/^ch\d+d(\d+)$/u.exec(draftId)?.[1] ?? 0);
 }

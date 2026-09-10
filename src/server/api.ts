@@ -16,6 +16,8 @@ import type { AlertAction, AlertState } from "../types/projections.js";
 import type { AlertId, ChapterNo, TextAnchor } from "../types/primitives.js";
 import type { EventWeight } from "../types/events.js";
 import type { ChapterDraft } from "../task/types.js";
+import { ChapterWriteError } from "./chapter-input.js";
+import type { ChapterWriteOptions } from "./chapter-writer.js";
 
 export interface ApiRequest {
   readonly method: string;
@@ -35,6 +37,14 @@ const missing = (message: string): ApiResponse => ({ status: 404, body: { error:
 
 /** 锚点上下文窗口（字）。布局参数，不是规则常量，所以不进 rules.yaml。 */
 const CONTEXT_WINDOW = 60;
+
+/** HTTP 的统一入口：写章等待异步任务，其余端点沿用同步处理。 */
+export async function handleAsync(session: ProjectSession, req: ApiRequest): Promise<ApiResponse> {
+  if (req.method === "POST" && req.path === "/api/chapter/write") {
+    return chapterWrite(session, req.body);
+  }
+  return handle(session, req);
+}
 
 export function handle(session: ProjectSession, req: ApiRequest): ApiResponse {
   const { method, path } = req;
@@ -379,8 +389,32 @@ function refreshed(session: ProjectSession): { readonly alerts: unknown } {
 
 /** 草稿的对外视图：剔除内部 C4 会话快照（体积大且属实现细节）。 */
 function toDraftView(d: ChapterDraft): unknown {
-  const { session: _session, ...view } = d;
+  const { session: _session, writeContext: _writeContext, ...view } = d;
   return view;
+}
+
+async function chapterWrite(session: ProjectSession, body: unknown): Promise<ApiResponse> {
+  if (!isRecord(body)) return bad("请求体必须是对象");
+  const chapter = body["chapter"];
+  if (typeof chapter !== "number") return bad("缺少有效的 chapter");
+  const draftId = body["draftId"];
+  const newDraft = body["newDraft"];
+  const maxOutputTokens = body["maxOutputTokens"];
+  if (draftId !== undefined && typeof draftId !== "string") return bad("draftId 必须是字符串");
+  if (newDraft !== undefined && typeof newDraft !== "boolean") return bad("newDraft 必须是布尔值");
+  if (maxOutputTokens !== undefined && typeof maxOutputTokens !== "number") return bad("maxOutputTokens 必须是正整数");
+  const options: ChapterWriteOptions = {
+    chapter,
+    ...(draftId === undefined ? {} : { draftId }),
+    ...(newDraft === undefined ? {} : { newDraft }),
+    ...(maxOutputTokens === undefined ? {} : { maxOutputTokens }),
+  };
+  try {
+    return ok(toDraftView(await session.writeChapter(options)));
+  } catch (error) {
+    if (error instanceof ChapterWriteError) return { status: error.status, body: { error: error.message } };
+    throw error;
+  }
 }
 
 function chapterDrafts(session: ProjectSession, query: URLSearchParams): ApiResponse {
@@ -412,9 +446,14 @@ function chapterAdopt(session: ProjectSession, body: unknown): ApiResponse {
 function chapterDiscard(session: ProjectSession, body: unknown): ApiResponse {
   const ref = draftRef(body);
   if (typeof ref === "string") return bad(ref);
-  return session.discardDraft(ref.chapter, ref.draftId)
-    ? ok({ changed: true })
-    : missing(`草稿不存在：ch${ref.chapter}/${ref.draftId}`);
+  try {
+    return session.discardDraft(ref.chapter, ref.draftId)
+      ? ok({ changed: true })
+      : missing(`草稿不存在：ch${ref.chapter}/${ref.draftId}`);
+  } catch (error) {
+    if (error instanceof ChapterWriteError) return { status: error.status, body: { error: error.message } };
+    throw error;
+  }
 }
 
 /** 解析 {chapter, draftId}，失败返回错误消息字符串。 */

@@ -74,6 +74,12 @@ export interface DraftSession {
   readonly c4Response: Anthropic.Message;
 }
 
+/** 可序列化的写章来源校验；不保存带函数和 Set 的 runInput。旧草稿可缺。 */
+export interface DraftWriteContext {
+  readonly fingerprint: string;
+  readonly maxOutputTokens?: number;
+}
+
 /**
  * 一份章节草稿 —— 任务的持久化产物，落盘即权威。
  *
@@ -91,6 +97,7 @@ export interface ChapterDraft {
   readonly proposals: readonly DraftProposal[];
   /** C4 会话快照，供 resume 到声明步重建同会话第二轮。ready/adopted 后可为 null。 */
   readonly session: DraftSession | null;
+  readonly writeContext?: DraftWriteContext;
   /**
    * 生成时的作品版本号（每次采用 +1，见 DraftStore.workVersion）。
    * 采用更早章后，`baseVersion` 落后的后续章草稿被标 `stale`。

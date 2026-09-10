@@ -17,7 +17,9 @@ import { EventStream, commitDeclaration } from "../src/store/event-stream.js";
 import { project } from "../src/store/project.js";
 import { initialAlertState } from "../src/alerts/apply.js";
 import { loadRules } from "../src/rules/load.js";
-import { beat, characters, workProfile, workSetting } from "./fixtures.js";
+import { WRITING_DISCIPLINE } from "../src/context/discipline.js";
+import { ProjectSession } from "../src/server/state.js";
+import { beat, characters, settings, workProfile, workSetting } from "./fixtures.js";
 import type { StructuralEvent } from "../src/types/events.js";
 import type { CharacterCard } from "../src/types/character.js";
 import type { AlertId, ChapterNo } from "../src/types/primitives.js";
@@ -80,6 +82,8 @@ function snapshot(): ProjectSnapshot {
   const id = "foreshadow_overdue:F07" as AlertId;
   return {
     setting: workSetting,
+    settings,
+    discipline: WRITING_DISCIPLINE,
     profile: workProfile,
     characters: settingBlocks(),
     plotLines: [{ id: "P01", label: "复仇主线", weight: "main" }],
@@ -98,6 +102,8 @@ describe("save / load 往返", () => {
     const back = store.load();
 
     expect(back.setting).toEqual(snap.setting);
+    expect(back.settings).toEqual(snap.settings);
+    expect(back.discipline).toEqual(snap.discipline);
     expect(back.profile).toEqual(snap.profile);
     expect(back.characters).toEqual(snap.characters);
     expect(back.plotLines).toEqual(snap.plotLines);
@@ -150,6 +156,71 @@ describe("save / load 往返", () => {
     store.save(snapshot());
     rmSync(join(root, "setting.json"));
     expect(() => store.load()).toThrow(/setting\.json/u);
+  });
+});
+
+describe("写章资料持久化与旧项目兼容", () => {
+  const discipline = { version: "author-d2", rules: ["使用第三人称有限视角。", "对话避免重复解释。"] };
+
+  it("地点、组织和作者纪律可落盘并在新会话中读取", () => {
+    const root = tempRoot();
+    const library = [...settings, { id: "S90" as const, name: "守卷司", kind: "organization" as const, description: "保管旧案卷宗。", facts: ["凭令牌查阅。"] }];
+    new ProjectStore(root).save({ ...snapshot(), settings: library, discipline });
+
+    const session = new ProjectSession(root);
+    expect(session.meta.settings).toEqual(library);
+    expect(session.meta.discipline).toEqual(discipline);
+    expect(JSON.parse(readFileSync(join(root, "settings.json"), "utf8"))).toEqual(library);
+    expect(JSON.parse(readFileSync(join(root, "discipline.json"), "utf8"))).toEqual(discipline);
+  });
+
+  it("旧项目缺文件时提供默认值，读取本身不修改项目", () => {
+    const root = tempRoot();
+    const store = new ProjectStore(root);
+    store.save(snapshot());
+    rmSync(join(root, "settings.json"));
+    rmSync(join(root, "discipline.json"));
+
+    const session = new ProjectSession(root);
+    expect(session.meta.settings).toEqual([]);
+    expect(session.meta.discipline).toEqual(WRITING_DISCIPLINE);
+    expect(existsSync(join(root, "settings.json"))).toBe(false);
+    expect(existsSync(join(root, "discipline.json"))).toBe(false);
+  });
+
+  it("旧格式 save 调用会保存默认资料", () => {
+    const root = tempRoot();
+    const { settings: _settings, discipline: _discipline, ...legacy } = snapshot();
+    const store = new ProjectStore(root);
+    store.save(legacy);
+    expect(store.load().settings).toEqual([]);
+    expect(store.load().discipline).toEqual(WRITING_DISCIPLINE);
+  });
+
+  it("会话更新资料后可重新打开，正式事件与正文保持完整", () => {
+    const root = tempRoot();
+    const store = new ProjectStore(root);
+    store.save(snapshot());
+    const before = store.load();
+    const session = new ProjectSession(root);
+    session.putSettings(settings.slice(0, 1));
+    session.putDiscipline(discipline);
+
+    expect(session.meta.settings).toEqual(settings.slice(0, 1));
+    expect(session.meta.discipline).toEqual(discipline);
+    const reopened = store.load();
+    expect(reopened.settings).toEqual(session.meta.settings);
+    expect(reopened.discipline).toEqual(discipline);
+    expect(reopened.events).toEqual(before.events);
+    expect(reopened.chapters).toEqual(before.chapters);
+  });
+
+  it.each(["settings.json", "discipline.json"])("损坏的 %s 报错，不静默退回默认值", (file) => {
+    const root = tempRoot();
+    const store = new ProjectStore(root);
+    store.save(snapshot());
+    writeFileSync(join(root, file), "{broken", "utf8");
+    expect(() => store.load()).toThrow(file);
   });
 });
 

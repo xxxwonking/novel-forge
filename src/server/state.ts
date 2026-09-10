@@ -23,10 +23,13 @@ import { loadRules } from "../rules/load.js";
 import type { Rules } from "../rules/schema.js";
 import type { AlertState } from "../types/projections.js";
 import type { ChapterBeat, WorkProfile } from "../types/beat.js";
-import type { WorkSetting } from "../types/work.js";
+import type { WorkSetting, WritingDiscipline } from "../types/work.js";
+import type { SettingCard } from "../context/select-l3.js";
 import type { CharacterCard } from "../types/character.js";
 import type { AlertId, ChapterNo } from "../types/primitives.js";
 import type { C5Declaration } from "../types/events.js";
+import { ChapterWriter, type ChapterWriteOptions, type ChapterWriterOptions } from "./chapter-writer.js";
+import { ChapterWriteError } from "./chapter-input.js";
 
 export interface SessionDerived {
   readonly projections: Projections;
@@ -38,8 +41,11 @@ export interface SessionDerived {
 export class ProjectSession {
   private readonly store: ProjectStore;
   private readonly drafts: DraftStore;
+  private readonly writer: ChapterWriter;
   private stream: EventStream;
   private setting: WorkSetting;
+  private discipline: WritingDiscipline;
+  private settings: readonly SettingCard[];
   private profile: WorkProfile;
   private characters: readonly Omit<CharacterCard, "state">[];
   private plotLines: readonly PlotLineDef[];
@@ -51,11 +57,14 @@ export class ProjectSession {
   constructor(
     root: string,
     readonly rules: Rules = loadRules(),
+    writing: ChapterWriterOptions = {},
   ) {
     this.store = new ProjectStore(root);
     this.drafts = new DraftStore(root);
     const snap = this.store.load();
     this.setting = snap.setting;
+    this.discipline = snap.discipline;
+    this.settings = snap.settings;
     this.profile = snap.profile;
     this.characters = snap.characters;
     this.plotLines = snap.plotLines;
@@ -63,6 +72,7 @@ export class ProjectSession {
     this.alertStates = new Map(snap.alertStates.map((s) => [s.id, s]));
     this.chapters = new Map(snap.chapters);
     this.stream = EventStream.restore(snap.events);
+    this.writer = new ChapterWriter(this, this.drafts, writing);
   }
 
   // ── 读 ────────────────────────────────────────────────────────────────
@@ -93,6 +103,8 @@ export class ProjectSession {
 
   get meta(): {
     readonly setting: WorkSetting;
+    readonly discipline: WritingDiscipline;
+    readonly settings: readonly SettingCard[];
     readonly profile: WorkProfile;
     readonly currentChapter: ChapterNo;
     readonly nextChapter: ChapterNo;
@@ -103,6 +115,8 @@ export class ProjectSession {
   } {
     return {
       setting: this.setting,
+      discipline: this.discipline,
+      settings: this.settings,
       profile: this.profile,
       currentChapter: this.currentChapter,
       nextChapter: this.nextChapter,
@@ -135,6 +149,18 @@ export class ProjectSession {
 
   // ── 写 ────────────────────────────────────────────────────────────────
 
+  putSettings(settings: readonly SettingCard[]): void {
+    this.store.writeSettings(settings);
+    this.settings = settings;
+    this.invalidate();
+  }
+
+  putDiscipline(discipline: WritingDiscipline): void {
+    this.store.writeDiscipline(discipline);
+    this.discipline = discipline;
+    this.invalidate();
+  }
+
   putBeat(beat: ChapterBeat): void {
     const rest = this.beats.filter((b) => b.chapter !== beat.chapter);
     this.beats = [...rest, beat].sort((x, y) => x.chapter - y.chapter);
@@ -165,15 +191,15 @@ export class ProjectSession {
    * 采用一份草稿声明为该章正式事实（Stage 1 按版本采用的提交侧）。
    *
    * 先作废该章旧的 C5 committed 事件（修订已采用章时 >0），再把新声明展开为
-   * proposed 并整章提交为 committed，最后全量重写事件流并失效缓存。返回被作废数。
+   * proposed 并逐条提交，最后全量重写事件流并失效缓存。返回被作废数。
    *
-   * 只提交本次声明：草稿在事件流之外，除刚 append 的这批外，该章没有其它 proposed，
-   * 所以 decideChapter 精确到这一稿（修复「采用不精确到版本」）。
+   * 只裁决本次新建的事件 ID；旧流程或异步诊断留在流里的候选仍然待确认，
+   * 不能随本次采用一起生效。
    */
   commitDraftDeclaration(chapter: ChapterNo, declaration: C5Declaration): number {
     const superseded = this.stream.supersedeChapter(chapter);
-    commitDeclaration(this.stream, chapter, declaration);
-    this.stream.decideChapter(chapter, "committed");
+    const added = commitDeclaration(this.stream, chapter, declaration);
+    for (const event of added) this.stream.decide(event.envelope.id, "committed");
     this.store.rewriteEvents(this.stream.all());
     this.invalidate();
     return superseded;
@@ -181,8 +207,16 @@ export class ProjectSession {
 
   // ── 草稿（Stage 1 章节任务）────────────────────────────────────────────
 
+  writeChapter(options: ChapterWriteOptions): Promise<ChapterDraft> {
+    return this.writer.write(options);
+  }
+
   listDrafts(chapter: ChapterNo): readonly ChapterDraft[] {
     return this.drafts.listDrafts(chapter);
+  }
+
+  allDrafts(): readonly ChapterDraft[] {
+    return this.drafts.chaptersWithDrafts().flatMap((chapter) => this.drafts.listDrafts(chapter));
   }
 
   getDraft(chapter: ChapterNo, draftId: DraftId): ChapterDraft | undefined {
@@ -190,14 +224,18 @@ export class ProjectSession {
   }
 
   discardDraft(chapter: ChapterNo, draftId: DraftId): boolean {
+    this.writer.assertNotRunning(chapter, draftId);
     const d = this.drafts.loadDraft(chapter, draftId);
     if (d === undefined) return false;
+    if (d.status === "adopted") throw new ChapterWriteError(409, "已采用版本不能丢弃；需要修改时请另建草稿");
     this.drafts.saveDraft({ ...d, status: "discarded", updatedAt: new Date().toISOString() });
     return true;
   }
 
   /** 采用一份草稿：提交声明为正式事实 + 落正文 + 版本 +1 + 标记后续章草稿需重核。 */
   adopt(chapter: ChapterNo, draftId: DraftId): AdoptResult {
+    const draft = this.drafts.loadDraft(chapter, draftId);
+    if (draft !== undefined) this.writer.assertFresh(draft);
     return adoptDraft(
       {
         draftStore: this.drafts,

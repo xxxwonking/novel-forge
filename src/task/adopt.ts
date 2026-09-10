@@ -34,7 +34,7 @@ export function adoptDraft(deps: AdoptDeps, chapter: ChapterNo, draftId: DraftId
   if (draft.status === "adopted") {
     return { changed: false, chapter, draftId, superseded: 0, staleMarked: [] };
   }
-  if (!draft.acceptable || draft.declaration === null) {
+  if (draft.status !== "ready" || !draft.acceptable || draft.declaration === null) {
     throw new Error(`草稿未就绪，不能采用：ch${chapter}/${draftId}（status=${draft.status}）`);
   }
 

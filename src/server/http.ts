@@ -14,7 +14,8 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { extname, join, normalize, resolve } from "node:path";
 import { ProjectSession } from "./state.js";
-import { handle, type ApiRequest } from "./api.js";
+import { handleAsync, type ApiRequest } from "./api.js";
+import type { ChapterWriterOptions } from "./chapter-writer.js";
 
 const LOCALHOST = "127.0.0.1";
 
@@ -27,7 +28,7 @@ const MIME: Readonly<Record<string, string>> = {
   ".woff2": "font/woff2",
 };
 
-export interface ServeOptions {
+export interface ServeOptions extends ChapterWriterOptions {
   readonly projectRoot: string;
   readonly port: number;
   /** 静态资源目录。不存在则只提供 API。 */
@@ -35,7 +36,7 @@ export interface ServeOptions {
 }
 
 export function serve(options: ServeOptions): ReturnType<typeof createServer> {
-  const session = new ProjectSession(options.projectRoot);
+  const session = new ProjectSession(options.projectRoot, undefined, options);
   const staticDir = options.staticDir !== undefined ? resolve(options.staticDir) : undefined;
 
   const server = createServer((req, res) => {
@@ -70,7 +71,7 @@ async function route(
       query: url.searchParams,
       body: req.method === "POST" ? await readJson(req) : undefined,
     };
-    const result = handle(session, apiRequest);
+    const result = await handleAsync(session, apiRequest);
     send(res, result.status, result.body);
     return;
   }
