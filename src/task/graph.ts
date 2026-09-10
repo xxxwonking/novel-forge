@@ -2,8 +2,8 @@
  * 章节任务的 LangGraph 编排（Stage 1）。
  *
  * 图只负责**步骤流转**：write → declare → check，任一步失败/被拒即经条件边到 END。
- * 事件流不在这里碰（草稿在事件流之外，见 types.ts）；模型调用走原生 ClaudeClient，
- * 不引 @langchain/anthropic（§8.3 不做 provider 抽象）。
+ * 事件流不在这里碰（草稿在事件流之外，见 types.ts）；模型调用使用最小 ModelClient，
+ * 由原生 Claude SDK 或 chat 客户端实现，不引 LangChain 模型抽象。
  *
  * 恢复：节点带幂等跳过 —— resume 时 service 用草稿预填 `write`/`declaration`，
  * 已完成的步骤直接返回空更新，因此「C5 失败重试从声明起、不重跑 C4」成立。
@@ -14,7 +14,7 @@
  */
 
 import { Annotation, END, MemorySaver, START, StateGraph } from "@langchain/langgraph";
-import type { ClaudeClient } from "../client/claude.js";
+import type { ModelClient } from "../client/model.js";
 import type { ChapterRunInput } from "../chapter/pipeline.js";
 import { checkChapter, declareStructure, writeChapterBody, type WriteResult } from "./steps.js";
 import type { ToolContext } from "./tool-exec.js";
@@ -25,7 +25,7 @@ import type { ChapterTaskOutcome, DraftError, DraftProposal } from "./types.js";
 export type WriteOk = Extract<WriteResult, { kind: "ok" }>;
 
 export interface ChapterGraphDeps {
-  readonly client: ClaudeClient;
+  readonly client: ModelClient;
   readonly ctx: ToolContext;
   /** 工具循环步数上限（rules.task.maxToolIterations）。 */
   readonly maxToolRounds: number;

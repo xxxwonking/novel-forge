@@ -12,6 +12,7 @@ import { anchorContext, resolveAnchor } from "../anchor/resolve.js";
 import { gateChapter } from "../gate/code-channel.js";
 import { gateCrossChapter } from "../gate/cross-chapter.js";
 import { validatePlan } from "../beat/validate.js";
+import { deriveBudget } from "../beat/derive.js";
 import type { AlertAction, AlertState } from "../types/projections.js";
 import type { AlertId, ChapterNo, TextAnchor } from "../types/primitives.js";
 import type { EventWeight } from "../types/events.js";
@@ -180,8 +181,8 @@ function health(session: ProjectSession, query: URLSearchParams): ApiResponse {
     session.rules,
   );
 
-  if (text === undefined || beat.budget === null) {
-    // 还没写正文（或还没派生预算）时只能给规划期的结论。
+  if (text === undefined) {
+    // 还没写正文时只能给规划期的结论。
     return ok({
       chapter: n,
       plan: validatePlan(beat.plan, session.rules),
@@ -195,7 +196,7 @@ function health(session: ProjectSession, query: URLSearchParams): ApiResponse {
     {
       chapterText: text,
       plan: beat.plan,
-      budget: beat.budget,
+      budget: beat.budget ?? deriveBudget(beat.plan, session.meta.profile, session.rules, { now: beat.updatedAt }),
       profile: session.meta.profile,
       declaredEventWeights: declaredWeights,
     },

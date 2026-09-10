@@ -1,5 +1,6 @@
 /** 一个作品会话内的写章协调：装配、去重、恢复和输入变化保护。 */
-import { ClaudeClient } from "../client/claude.js";
+import { createModelClient } from "../client/create.js";
+import type { ModelClient } from "../client/model.js";
 import { ChapterTaskService } from "../task/service.js";
 import type { DraftStore } from "../task/draft-store.js";
 import type { ChapterDraft, DraftId } from "../task/types.js";
@@ -18,7 +19,7 @@ export interface ChapterWriteOptions extends ChapterInputOptions {
 
 export interface ChapterWriterOptions {
   /** 测试/嵌入时注入；生产环境在首次写章时读取环境变量。 */
-  readonly client?: ClaudeClient;
+  readonly client?: ModelClient;
 }
 
 interface ActiveWrite {
@@ -29,7 +30,7 @@ interface ActiveWrite {
 
 export class ChapterWriter {
   private active: ActiveWrite | null = null;
-  private client: ClaudeClient | undefined;
+  private client: ModelClient | undefined;
 
   constructor(
     private readonly session: ProjectSession,
@@ -76,7 +77,7 @@ export class ChapterWriter {
     const fingerprint = chapterInputFingerprint(this.session, options.chapter);
     const readSource = buildChapterReadSource(this.session, options.chapter);
     if (this.client === undefined) {
-      try { this.client = ClaudeClient.fromEnv(); }
+      try { this.client = createModelClient(); }
       catch (error) {
         throw new ChapterWriteError(503, `写章模型尚未配置：${error instanceof Error ? error.message : String(error)}`);
       }

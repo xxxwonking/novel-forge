@@ -4,7 +4,9 @@
 
 ## 准备项目
 
-服务启动方式仍为 `npm run serve -- <项目目录>`，默认端口 5174。阅读 API 不需要模型配置；首次生成时通过 `ClaudeClient.fromEnv()` 读取 `ANTHROPIC_API_KEY` 或 `ANTHROPIC_AUTH_TOKEN`，以及可选的 `ANTHROPIC_BASE_URL`。
+服务启动方式仍为 `npm run serve -- <项目目录>`，默认端口 5174。启动脚本会加载根目录的 `.env.local`，需要 Node.js 22.9.0 或以上版本。阅读 API 不需要模型配置，首次生成时才创建模型客户端。
+
+使用 Gemini chat 代理时，设置 `NOVEL_MODEL_PROVIDER=chat`，并提供 `CHAT_BASE_URL`、`CHAT_API_KEY`、`CHAT_MODEL`，详见 [Gemini chat 使用说明](gemini-chat.md)。未设置 provider 或显式设置 `claude` 时，沿用 `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` 及可选的 `ANTHROPIC_BASE_URL`；chat 请求失败不会自动切换到 Claude。
 
 写章前需要完整的作品设定、人物卡、情节线定义与本章节拍。节拍的 `provenance` 必须是 `authored` 或 `committed`；预算会按当前规则重新派生，允许原文件的 `budget` 为 `null`。第二章起必须有上一章的正式正文。人物、场景、情节线和待收伏笔的引用必须存在；待收伏笔需要真实埋设记录及能定位的原文锚点。
 
@@ -78,6 +80,8 @@ HTTP 会等待本次任务结束，成功处理请求后返回草稿对象，例
 ## 恢复、另写与采用
 
 恢复某稿：`{"chapter":1,"draftId":"ch1d1"}`。C4 已成功而 C5 失败时，恢复原会话执行 C5，保留原正文。已有完整检查结果的草稿直接返回；自动修订尚未接入。
+
+chat 草稿保留原始 assistant 消息及工具签名。更换 chat 模型或端点后不能直接恢复旧会话，应恢复原配置或另写一版；同一端点和模型的密钥轮换不影响恢复。
 
 普通重复请求复用本章最新的未丢弃草稿。同一会话内重叠的同一请求共享任务；冲突的写章请求返回 409。另写一版使用 `{"chapter":1,"newDraft":true}`。`newDraft` 每次代表一次新的写作意图，重试已经创建的新稿应使用它的 `draftId`。
 

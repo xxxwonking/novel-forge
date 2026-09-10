@@ -8,7 +8,7 @@
  *   - 跨重启恢复靠草稿这份领域产物：状态机在哪一步，从草稿字段即可判定并从缺步重入。
  */
 
-import type { ClaudeClient } from "../client/claude.js";
+import type { ModelClient } from "../client/model.js";
 import type { ChapterRunInput } from "../chapter/pipeline.js";
 import type { ChapterNo } from "../types/primitives.js";
 import { DraftStore } from "./draft-store.js";
@@ -31,7 +31,7 @@ import type {
 export type ToolReadSource = Omit<ToolContext, "onPropose">;
 
 export interface ChapterTaskServiceDeps {
-  readonly client: ClaudeClient;
+  readonly client: ModelClient;
   readonly draftStore: DraftStore;
   readonly readSource: ToolReadSource;
   /** rules.task.maxToolIterations。 */

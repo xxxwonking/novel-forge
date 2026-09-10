@@ -2,7 +2,7 @@
  * Claude 客户端封装（§8.2、附录 API 坑）。
  *
  * 只处理三件事（§8.3 抽象做薄）：调用模型 / 执行工具 / 记账。
- * **不做 provider 抽象** —— 只接 Claude，直接用官方 SDK 的类型。
+ * 本文件只处理 Claude 协议，直接使用官方 SDK 类型；chat 接入见 chat.ts。
  *
  * 这里集中处理五个坑：
  *   ① 拒绝不是报错 —— HTTP 200 + stop_reason: "refusal"，读 content 前先查

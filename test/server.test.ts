@@ -265,6 +265,19 @@ describe("GET /api/health", () => {
     expect(Array.isArray(body.plan)).toBe(true);
   });
 
+  it("已有正文且预算未持久化时仍返回章内体检，不改动作品资料", () => {
+    const root = seed();
+    const s = new ProjectSession(root, rules);
+    s.putBeat({ ...s.beatFor(LAST)!, budget: null });
+    const before = new ProjectStore(root).load();
+    const { status, body } = get(s, "/api/health", `n=${LAST}`);
+    expect(status).toBe(200);
+    expect(body.chapterGate).not.toBeNull();
+    expect(body.chapterGate.words).toBeGreaterThan(0);
+    expect(body.chapterGate.findings.some((f: { rule: string }) => f.rule === "word_count_under")).toBe(true);
+    expect(new ProjectStore(root).load()).toEqual(before);
+  });
+
   it("没有节拍表的章返回 404", () => {
     expect(get(session(), "/api/health", "n=12").status).toBe(404);
   });

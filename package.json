@@ -7,8 +7,9 @@
     "typecheck": "tsc --noEmit && tsc -p web --noEmit",
     "test": "vitest run",
     "acceptance:m1": "tsx src/harness/ten-chapters.ts",
+    "acceptance:chat": "node --env-file-if-exists=.env.local --import tsx src/harness/chat-smoke.ts",
     "seed": "tsx src/harness/seed-demo.ts",
-    "serve": "tsx src/server/main.ts",
+    "serve": "node --env-file-if-exists=.env.local --import tsx src/server/main.ts",
     "web": "vite --config web/vite.config.ts web",
     "web:build": "vite build --config web/vite.config.ts web"
   },

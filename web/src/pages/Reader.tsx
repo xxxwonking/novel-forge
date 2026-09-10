@@ -72,7 +72,7 @@ export function Reader({ chapter, quote }: ReaderProps): React.ReactElement {
             <p key={i}>
               {p.map((seg, j) =>
                 seg.marked ? (
-                  <mark key={j} ref={j === 0 ? markRef : undefined}>
+                  <mark key={j} ref={markRef}>
                     {seg.text}
                   </mark>
                 ) : (

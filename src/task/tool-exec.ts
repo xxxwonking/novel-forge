@@ -5,13 +5,14 @@
  * 状态取数并回传；提议工具（propose_*）不直接改状态，只把提议收进「待确认区」
  * （§12.0），采用时再处理。
  *
- * `runToolLoop` 是围绕现有 `ClaudeClient.call` 的手写循环 —— 刻意不引 SDK 的
+ * `runToolLoop` 是围绕 `ModelClient.call` 的手写循环 —— 刻意不引 SDK 的
  * toolRunner，因为 `call` 里集中了拒绝/effort/thinking/streaming/错误五坑的处理
  * （claude.ts），toolRunner 会绕开它们。§3.1：循环步数是主成本，所以步数有硬上限。
  */
 
 import type Anthropic from "@anthropic-ai/sdk";
-import { appendTurn, type CallOptions, type CallResult, type ClaudeClient } from "../client/claude.js";
+import { appendTurn, type CallOptions, type CallResult } from "../client/claude.js";
+import type { ModelClient } from "../client/model.js";
 import type { ForeshadowWeight } from "../types/events.js";
 import type { DraftProposal } from "./types.js";
 
@@ -135,7 +136,7 @@ export interface ToolLoopResult {
  * 非 ok（拒绝/错误/max_tokens）立即透传，不进循环 —— 这些由调用方按 §2/§附录处理。
  */
 export async function runToolLoop(
-  client: ClaudeClient,
+  client: ModelClient,
   callOpts: CallOptions,
   ctx: ToolContext,
   maxToolRounds: number,

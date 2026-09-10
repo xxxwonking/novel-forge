@@ -11,7 +11,8 @@
  */
 
 import type Anthropic from "@anthropic-ai/sdk";
-import type { CallOptions, ClaudeClient } from "../client/claude.js";
+import type { CallOptions } from "../client/claude.js";
+import type { ModelClient } from "../client/model.js";
 import { assemble, type AssembledRequest } from "../context/assemble.js";
 import { C5_TASK, textOf, type ChapterRunInput } from "../chapter/pipeline.js";
 import { C5_OUTPUT_SCHEMA, parseC5, type ParseResult } from "../chapter/c5-schema.js";
@@ -45,7 +46,7 @@ export type WriteResult =
   | { readonly kind: "failed"; readonly detail: string };
 
 export async function writeChapterBody(
-  client: ClaudeClient,
+  client: ModelClient,
   input: ChapterRunInput,
   ctx: ToolContext,
   maxToolRounds: number,
@@ -90,7 +91,7 @@ export type DeclareResult =
   | { readonly kind: "failed"; readonly detail: string };
 
 export async function declareStructure(
-  client: ClaudeClient,
+  client: ModelClient,
   input: ChapterRunInput,
   write: Extract<WriteResult, { kind: "ok" }>,
 ): Promise<DeclareResult> {
