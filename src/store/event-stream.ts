@@ -137,6 +137,38 @@ export class EventStream {
     return out;
   }
 
+  /**
+   * 作废一章已提交的 C5 声明事件（committed → rejected）—— 修订已采用章时用。
+   *
+   * 只翻 `origin==='C5_declaration'` 的事件：`user_edit`（改期/废弃/确认退场）和
+   * `P4_outline`（作者规划）是独立的用户决定，不随章节重写而作废。翻成 rejected 后
+   * `effective()` 自动过滤，新稿的 committed 事件即取代旧事实，无需改投影器。
+   */
+  supersedeChapter(chapter: ChapterNo): number {
+    let n = 0;
+    for (let i = 0; i < this.events.length; i += 1) {
+      const e = this.events[i];
+      if (e === undefined) continue;
+      if (
+        e.envelope.chapter === chapter &&
+        e.envelope.provenance === "committed" &&
+        e.envelope.origin === "C5_declaration"
+      ) {
+        this.events[i] = {
+          envelope: {
+            ...e.envelope,
+            provenance: "rejected",
+            decidedAt: this.clock(),
+            reviewNote: "章节修订，旧结构事实作废",
+          },
+          payload: e.payload,
+        };
+        n += 1;
+      }
+    }
+    return n;
+  }
+
   /** 全部事件，按 seq 有序。 */
   all(): readonly StructuralEvent[] {
     return this.events;
