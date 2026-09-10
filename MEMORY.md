@@ -1,16 +1,16 @@
 # novel-forge 工作记忆
 
-更新时间：2026-09-10（Asia/Shanghai）
+更新时间：2026-09-10（Asia/Shanghai；同日第二次更新：Stage 1 落地，见第 12 节）
 
-记录范围：本文件汇总本次会话中的项目调研、用户流程设计、能力映射和后续待办。当前代码已提交并推送到 GitHub；随后按用户要求改为由当前主代理完成文档复核。产品能力分析来自静态源码；2026-09-10 的代码检查与发布结果记录在第 10 节，本次主代理复核记录在第 11 节。
+记录范围：本文件汇总本次会话中的项目调研、用户流程设计、能力映射和后续待办。当前代码已提交并推送到 GitHub；随后按用户要求改为由当前主代理完成文档复核。产品能力分析来自静态源码；2026-09-10 的代码检查与发布结果记录在第 10 节，本次主代理复核记录在第 11 节。**2026-09-10 下午的 Mac 会话已锁定 v1 决策并实现 Stage 1「可靠的章节任务基础」，记录在第 12 节；接手先读第 12 节，第 1、5、8 节中被其覆盖的内容已就地标注。**
 
 ## 1. 当前状态与接续位置
 
 - 用户正在开发小说 Agent，已实现一部分代码，目前希望理清产品和后续开发方向。
 - 本轮完成了：阅读项目核心源码和历史记忆；核对当前工程进度；调研 LangChain / LangGraph 官方 JavaScript 文档及 OpenFic 核心实现；梳理首版用户流程；将作者操作映射到现有模块与缺口，提出能力建设顺序。
-- 当前处于用户流程设计与能力映射阶段。尚未选定流程框架，尚未开始本轮讨论对应的新功能开发。
+- ~~当前处于用户流程设计与能力映射阶段。尚未选定流程框架，尚未开始本轮讨论对应的新功能开发。~~ **已过时（2026-09-10 下午）**：用户已评审并锁定 v1 决策（逐章采用、引入 LangGraph JS、不用 Codex/Gemini），Stage 1「可靠的章节任务基础」已实现并提交（第 12 节）。
 - 前期设计整理只新增本 MEMORY.md、docs/superpowers/specs/2026-09-09-novel-forge-user-flow-design.md，以及同目录的 2026-09-09-novel-forge-user-flow-capability-map.md，没有实现新功能或安装编排框架。2026-09-10 的发布准备另补充 README、忽略规则和 Node.js 类型依赖，见第 10 节。
-- 当前接续入口是首版用户流程草案和能力映射。下一步集中评审默认创作节奏与首版范围，再把建议的能力建设顺序拆为实现计划；不要重复整个仓库调研。
+- ~~当前接续入口是首版用户流程草案和能力映射。下一步集中评审默认创作节奏与首版范围，再把建议的能力建设顺序拆为实现计划；不要重复整个仓库调研。~~ **现接续入口是第 12 节**：Stage 1 已落地，下一步是补 `buildChapterRunInput` + 设定库 + `/api/chapter/write` 让真机能写一章，再进 Stage 2（对话式主 Agent）。不要重复仓库调研，也不要重新讨论已锁定的决策。
 - 助手提出的建议不等于用户批准的决策；下文分别标注。
 - 2026-09-09 的独立审查曾成功提出两项缺口：结构误读的纠正入口、生成中离开页面后的行为。两项均已补入流程草案及能力映射；之后的复核因服务限流失败。
 - 2026-09-10 早前曾再次尝试独立复核，仍因模型服务 rate limit 未完成。用户随后明确要求不使用独立 Agent，后续复核统一由当前主代理完成；不再将独立代理服务可用性作为后续工作的前置条件。
@@ -38,6 +38,7 @@
 - 用户明确要求：不使用独立 Agent，当前协作中的复核统一由本代理完成。接续时沿用此要求，不再发起子代理复核。
 - 用户尚未明确批准采用 LangChain 或 LangGraph，也没有要求本轮执行框架迁移。
 - 用户要求保存工作记忆后又说“continue”，本轮据此继续细化用户流程并保存草案。继续细化不等于已经批准所有产品默认行为、框架或实现计划。
+- **2026-09-10 下午（Mac 会话）用户明确拍板，勿再重复讨论**：① 创作节奏 = 逐章采用（+「采用并继续」衔接），关键变化采用时打包高亮确认；② **框架 = 引入 LangGraph JS 做编排层**——用户明确推翻了设计文档 §8.3「原生 + Tool Runner」的倾向和助手的同向建议，接手者勿擅自改回原生；执行约束：事件流仍是小说事实唯一真源，LangGraph 只管任务编排/恢复，模型调用保持原生 SDK（不引 LangChain）；③ **不用 Codex/Gemini，不 spawn 子代理**，由主代理独立产出并自审；④ v1 首目标 = Stage 1「可靠的章节任务基础」（已完成）；⑤ v1 推迟：旧作导入、跨多章返修、批量生成、可配置角色、富导出、M4 Haiku 诊断通道、关系图 nodes 填充。
 
 ## 4. 既有项目设计约定
 
@@ -63,9 +64,10 @@
 - 设计阶段核对的 HEAD：4b4cb0d，2026-09-07，M3 引擎层：告警计算 + 锚点重定位 + 视图模型 + 落盘。后续提交结果以 Git 历史为准。
 - 前序提交：a10713e 为 M2 约束层；3319139 为 M1 章循环与验收工装；7e8535d 为 M1 上下文装配、C5 解析、事件流及投影。
 - 历史项目记忆停在 a10713e / M2，因此其“下一步做 M3”已落后于当前代码。
-- 写入本文件前已有修改：package.json、package-lock.json、src/alerts/apply.ts、src/alerts/compute.ts、src/types/projections.ts、test/alerts.test.ts。
-- 写入本文件前已有未跟踪内容：data/、src/.vscode/、src/harness/seed-demo.ts、src/server/、test/server.test.ts、web/。
-- 上述是已有工作，不是本轮新增功能；接续工作时重新检查 Git 状态，保留这些改动。
+- ~~写入本文件前已有修改：package.json、package-lock.json、src/alerts/apply.ts、src/alerts/compute.ts、src/types/projections.ts、test/alerts.test.ts。~~
+- ~~写入本文件前已有未跟踪内容：data/、src/.vscode/、src/harness/seed-demo.ts、src/server/、test/server.test.ts、web/。~~
+- ~~上述是已有工作，不是本轮新增功能；接续工作时重新检查 Git 状态，保留这些改动。~~ 以上三条已随 7528bd8 提交，不再是工作区状态。
+- **Stage 1 提交（2026-09-10 下午）**：`06021b9` feat(task) 章节任务基础层 + `9847ae2` feat(server) 章节草稿端点，在分支 `stage1-chapter-task`，经 **PR #1**（https://github.com/xxxwonking/novel-forge/pull/1）合入 master。本文件的本次更新也在该分支上。Mac 侧 origin 使用 SSH（`git@github.com:xxxwonking/novel-forge.git`）。
 
 ### 已有实现
 
@@ -83,6 +85,8 @@
 | 验收与演示 | 连续 10 章模型验收脚本、52 章演示数据生成脚本 | src/harness/ |
 
 ### 主要衔接缺口
+
+> **2026-09-10 Stage 1 后的状态**：缺口 2（工具执行循环）、7（C4 保稿 + 从声明步恢复）、8（按稿件版本采用、旧事实作废、后续稿失效）已解决；缺口 1 部分解决（草稿列表/详情/采用/丢弃端点已接，**写章端点 `/api/chapter/write` 未接**，因 `buildChapterRunInput` 装配与设定库持久化尚未做）；缺口 3、4、5、6 仍开放（4 的自动修订：阈值已入 `rules.task.maxAutoRevisions`，图未接线）。详见第 12 节。
 
 1. 网页和生成流程尚未接通：src/server/api.ts 的端点主要负责读取和告警操作，没有生成、改写、接受章节的产品入口。src 中 runChapter 的调用方仍是 ten-chapters.ts 验收脚本。
 2. 工具执行循环未接通：src/context/tools.ts 已声明读取人物、设定、章节及提出变更等工具；本轮未找到实际处理 tool_use、执行工具并回传 tool_result 后继续调用模型的循环。appendTurn 辅助函数存在，但未找到调用点。
@@ -232,6 +236,8 @@
 
 ### B. 接通最小写作流程
 
+> **2026-09-10 Stage 1 进度**：第 2 条（工具执行回传循环）✅；第 4 条（任务进度与草稿保存、失败保留、缺步重试）✅；第 5 条（章节版本、采用一致性、重复采用保护、过时版本标记）✅——但「手动编辑后检查失效」未做；第 6 条部分 ✅（服务端已有草稿列表/详情/采用/丢弃，**无写章入口、无对话/结果界面**）；第 1、3、7、8、9 条未开始。
+
 - [ ] 实现对话任务入口，让 Agent 能根据用户意图使用现有小说能力。
 - [ ] 补齐工具执行和结果回传循环，明确读取、提出修改和正式采用的边界。
 - [ ] 把上下文装配、章节生成、结构声明、检查、修订、采用和存储接成产品级流程。
@@ -256,7 +262,9 @@
 
 ## 9. 常用命令与接手注意
 
-工作目录：C:/Users/Administrator/Desktop/novel-forge。
+工作目录：C:/Users/Administrator/Desktop/novel-forge（Windows）；Mac 上是 /Users/others/Desktop/novel-forge。
+
+Mac 上 GitHub 的 HTTPS(443) 直连被掐、SSH 正常：git 用 SSH 远端；`gh` 只认环境变量代理，调用要带 `HTTPS_PROXY=http://127.0.0.1:7897 HTTP_PROXY=http://127.0.0.1:7897`（Clash Verge 混合端口）。节点会抽风，遇 EOF 先用 `curl -s -x http://127.0.0.1:7897 https://api.github.com/zen` 复测。
 
     npm run typecheck
     npm test
@@ -304,3 +312,58 @@
 | 能力、实现与验收的区别 | 两份文档仍标记为设计草案；代码中的 C5 失败保稿、按版本采用和完整工具循环缺口未被误记为已实现 |
 
 本次只修改文档并核验编码、链接、差异与状态。435 个测试、类型检查和前端构建通过是第 10 节所记代码提交的实测结果，本次文档复核不重复运行，也不据此声称真实创作流程已通过验收。
+
+## 12. 2026-09-10 Stage 1 落地记录（Mac 会话）
+
+**接手先读这一节。** 环境：Mac，仓库在 /Users/others/Desktop/novel-forge。完整设计文档在 **/Users/others/Desktop/agent-platform-design.md（未入仓库）**——Windows 会话当时找不到它；它的 §3.2/§8.3 是框架选型讨论的原始依据，§10-13 是约束层与上下文装配的完整推导。
+
+### 决策（用户拍板，见第 3 节末条）
+
+逐章采用；引入 LangGraph JS；不用 Codex/Gemini 与子代理；v1 首目标 Stage 1；推迟项见第 3 节。
+
+### 实现内容
+
+新增 `src/task/`：
+
+| 文件 | 职责 |
+| --- | --- |
+| `types.ts` | `ChapterDraft`（状态机 writing→declaring→checking→needs_revision/ready→adopted，另有 discarded/stale/failed）、`DraftSession`（C4 整轮会话快照，供恢复到 C5 同会话第二轮）、`DraftProposal`、`AdoptResult` |
+| `draft-store.ts` | `drafts/ch{n}/{draftId}.json` + `.txt`（正文纯文本）、`work-meta.json` 作品版本号（每次采用 +1） |
+| `tool-exec.ts` | `executeToolUse`（六个写作工具：读侧取数、propose_* 进待确认区）+ `runToolLoop`（围绕原生 `ClaudeClient.call` 的 `while stop_reason==='tool_use'` 循环，步数上限 `rules.task.maxToolIterations`） |
+| `steps.ts` | `writeChapterBody`（C4 + 工具循环）、`declareStructure`（C5 同会话第二轮，**只产出声明不入事件流**）、`checkChapter`（C6 + C7） |
+| `graph.ts` | LangGraph `StateGraph`：step_write → step_declare → step_check，失败/被拒经条件边到 END；节点幂等跳过已完成步骤；`MemorySaver` 仅进程内 |
+| `service.ts` | `ChapterTaskService.run / resume / listDrafts / getDraft`，按 stream 每步落草稿；resume 用 `draft.session` 重建 C5 会话、不重跑 C4 |
+| `adopt.ts` | `adoptDraft`：ready 校验 → 提交声明 → 落正文 → 版本 +1 → 后续章 in-flight 草稿标 stale；已采用即幂等返回 |
+
+扩展：`store/event-stream.ts` 加 `supersedeChapter`（修订已采用章时把旧 C5 committed 翻 rejected；`effective()` 已过滤，投影器不改）；`chapter/pipeline.ts` 的 `failed` 带回 `chapterText`（遗留路径不再丢正文，其余不动）；`server/state.ts` 挂 `DraftStore`、加 `commitDraftDeclaration / listDrafts / getDraft / discardDraft / adopt`；`server/api.ts` 加 `GET /api/chapter/drafts?n=`、`GET /api/chapter/draft?n=&id=`、`POST /api/chapter/adopt`、`POST /api/chapter/discard`；`rules.yaml` 新增 `task` 段（`maxToolIterations: 6`、`maxAutoRevisions: 1`），`rules/schema.ts`、`rules/load.ts` 对应契约与校验；依赖新增 `@langchain/langgraph`（1.4）。
+
+### 修复的三处缺口与证明
+
+| 缺口 | 修复 | 测试 |
+| --- | --- | --- |
+| 失败即丢稿 | C4 正文即落草稿；C5 失败保留正文与会话；resume 从声明步起、不重跑 C4 | `test/chapter-task.test.ts` |
+| 采用不精确到版本 | 草稿在事件流之外，采用只生效选中稿；幂等；修订 supersede；版本与 staleness | `test/adopt.test.ts`、`test/server-drafts.test.ts` |
+| 无工具执行循环 | `runToolLoop` 真正执行 tool_use 并回传，达上限即停，透传拒绝/错误 | `test/tool-exec.test.ts` |
+
+验证：`npm run typecheck` 干净；`npm test` **467 通过**（435 基线 + 32 新增，含 `test/draft-store.test.ts`）。
+
+### 实现期决策（源码注释里都有）
+
+- 草稿在事件流之外，采用时才展开为 committed 事件；废弃稿不污染 append-only 日志。
+- 跨重启恢复靠草稿这份领域产物，不靠 LangGraph checkpointer（未做自定义持久化 checkpointer）。
+- 模型调用保持原生 `@anthropic-ai/sdk`；LangGraph 只做图编排；未引 LangChain / `@langchain/anthropic`。
+- `runChapter` 遗留路径保持独立（缓存实测工装与 21 个测试依赖它把 proposed 写入 stream），未委托给 steps。
+- `src/task` 不进 `test/rules.test.ts` 的「代码无数字」扫描（steps 含 API 输出规模常量，与 chapter/client 同类）；两个真阈值放 `rules.task`。
+- LangGraph 节点名不能与状态通道同名，故节点叫 `step_write` 等。
+
+### 明确延后（不是遗漏）
+
+1. `buildChapterRunInput`（从 `ProjectSession` 忠实装配 L1/L2/L3 + volatile，把 `ten-chapters.ts` 内联的装配抽出来）+「地点/组织设定库」持久化 + 写作纪律落盘 → **真机跑章前必须**；因此还没有 `/api/chapter/write`，`service.run` 由调用方传 `runInput`。
+2. 自动修订：`rules.task.maxAutoRevisions` 已就位，图未接线（需基于 findings 的修订 prompt）。
+3. 前端结果页 / 采用按钮（Stage 1 只做引擎 + API，用测试验证）。
+4. 真机模型跑章与 M1 缓存实测仍受官方 API key 门槛。
+5. 「手动编辑后检查失效」「已安排/已解决」语义、导出：未开始。
+
+### 接手命令
+
+`npm test` 期望 467 通过；`npm run typecheck` 干净。Mac 上 gh 的代理用法见第 9 节。
