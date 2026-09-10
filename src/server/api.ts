@@ -15,6 +15,7 @@ import { validatePlan } from "../beat/validate.js";
 import type { AlertAction, AlertState } from "../types/projections.js";
 import type { AlertId, ChapterNo, TextAnchor } from "../types/primitives.js";
 import type { EventWeight } from "../types/events.js";
+import type { ChapterDraft } from "../task/types.js";
 
 export interface ApiRequest {
   readonly method: string;
@@ -54,6 +55,10 @@ export function handle(session: ProjectSession, req: ApiRequest): ApiResponse {
         return health(session, req.query);
       case "/api/anchor":
         return anchor(session, req.query);
+      case "/api/chapter/drafts":
+        return chapterDrafts(session, req.query);
+      case "/api/chapter/draft":
+        return chapterDraft(session, req.query);
       default:
         return missing(`未知端点 ${path}`);
     }
@@ -69,6 +74,10 @@ export function handle(session: ProjectSession, req: ApiRequest): ApiResponse {
         return alertStateChange(session, req.body, acknowledgeAlert);
       case "/api/alerts/unacknowledge":
         return alertStateChange(session, req.body, unacknowledgeAlert);
+      case "/api/chapter/adopt":
+        return chapterAdopt(session, req.body);
+      case "/api/chapter/discard":
+        return chapterDiscard(session, req.body);
       default:
         return missing(`未知端点 ${path}`);
     }
@@ -364,6 +373,58 @@ function refreshed(session: ProjectSession): { readonly alerts: unknown } {
       counts: { fullList: selection.fullList.length, repairQueue: selection.repairQueue.length },
     },
   };
+}
+
+// ── 章节草稿端点（Stage 1）─────────────────────────────────────────────
+
+/** 草稿的对外视图：剔除内部 C4 会话快照（体积大且属实现细节）。 */
+function toDraftView(d: ChapterDraft): unknown {
+  const { session: _session, ...view } = d;
+  return view;
+}
+
+function chapterDrafts(session: ProjectSession, query: URLSearchParams): ApiResponse {
+  const n = intParam(query, "n");
+  if (n === null) return bad("缺少参数 n");
+  return ok(session.listDrafts(n).map(toDraftView));
+}
+
+function chapterDraft(session: ProjectSession, query: URLSearchParams): ApiResponse {
+  const n = intParam(query, "n");
+  const id = query.get("id");
+  if (n === null || id === null) return bad("缺少参数 n / id");
+  const d = session.getDraft(n, id);
+  return d === undefined ? missing(`草稿不存在：ch${n}/${id}`) : ok(toDraftView(d));
+}
+
+/** 采用一份草稿。未就绪会抛，归 400（附可读原因）。成功后带上刷新的首页。 */
+function chapterAdopt(session: ProjectSession, body: unknown): ApiResponse {
+  const ref = draftRef(body);
+  if (typeof ref === "string") return bad(ref);
+  try {
+    const result = session.adopt(ref.chapter, ref.draftId);
+    return ok({ result, ...refreshed(session) });
+  } catch (e) {
+    return bad((e as Error).message);
+  }
+}
+
+function chapterDiscard(session: ProjectSession, body: unknown): ApiResponse {
+  const ref = draftRef(body);
+  if (typeof ref === "string") return bad(ref);
+  return session.discardDraft(ref.chapter, ref.draftId)
+    ? ok({ changed: true })
+    : missing(`草稿不存在：ch${ref.chapter}/${ref.draftId}`);
+}
+
+/** 解析 {chapter, draftId}，失败返回错误消息字符串。 */
+function draftRef(body: unknown): { chapter: ChapterNo; draftId: string } | string {
+  if (!isRecord(body)) return "请求体必须是对象";
+  const chapter = body["chapter"];
+  const draftId = body["draftId"];
+  if (typeof chapter !== "number") return "缺少 chapter";
+  if (typeof draftId !== "string") return "缺少 draftId";
+  return { chapter, draftId };
 }
 
 // ── 小工具 ──────────────────────────────────────────────────────────────

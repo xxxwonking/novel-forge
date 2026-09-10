@@ -149,6 +149,17 @@ export interface AnchorRules {
 }
 
 /**
+ * Stage 1 章节任务的操作护栏。不是派生阈值而是循环/成本上限（§3.1、§4.3），
+ * 放进 rules 是为了让 `src/task` 里同样没有魔法数字。
+ */
+export interface TaskRules {
+  /** C4/C5 单次调用内工具循环的步数上限。 */
+  readonly maxToolIterations: number;
+  /** 检查未过时的自动修订次数上限。 */
+  readonly maxAutoRevisions: number;
+}
+
+/**
  * 规则集全貌。
  *
  * `version` 是 ChapterBudget.derivedFrom.rulesVersion 的来源 —— 改系数后
@@ -184,6 +195,7 @@ export interface Rules {
   readonly alerts: AlertRules;
   readonly anchor: AnchorRules;
   readonly tier: Readonly<Record<ChapterType, PipelineTier>>;
+  readonly task: TaskRules;
 }
 
 /** densityRules 里各 key 的稳定引用。渲染顺序与 rules.yaml 的声明顺序一致。 */

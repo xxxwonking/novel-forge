@@ -87,7 +87,8 @@ export type ChapterRunResult =
     }
   /** C4 被拒 —— 整章作废，但带可展示的文案（§2：空白页面是最差处理）。 */
   | { readonly kind: "refused"; readonly userMessage: string; readonly metrics: readonly CacheRecord[] }
-  | { readonly kind: "failed"; readonly step: "C4" | "C5"; readonly detail: string; readonly metrics: readonly CacheRecord[] };
+  /** C5 失败时 `chapterText` 带回已生成的正文 —— 正文不该因结构步失败而丢（草稿可恢复）。 */
+  | { readonly kind: "failed"; readonly step: "C4" | "C5"; readonly detail: string; readonly chapterText?: string; readonly metrics: readonly CacheRecord[] };
 
 /**
  * 跑一章：C4 生成正文 → C5 同会话声明结构 → 校验 → 产出 proposed 事件。
@@ -156,16 +157,16 @@ export async function runChapter(
   recordOf("C5", c5);
 
   if (c5.kind === "error") {
-    return { kind: "failed", step: "C5", detail: c5.error.message, metrics };
+    return { kind: "failed", step: "C5", detail: c5.error.message, chapterText, metrics };
   }
   if (c5.kind === "refusal") {
     // C5 被拒很反常（它只是结构化描述），但正文已经拿到了，不该丢弃。
-    return { kind: "failed", step: "C5", detail: `C5 被拒：${c5.userMessage}`, metrics };
+    return { kind: "failed", step: "C5", detail: `C5 被拒：${c5.userMessage}`, chapterText, metrics };
   }
 
   const parse = parseJson(textOf(c5.message));
   if (parse === null) {
-    return { kind: "failed", step: "C5", detail: "C5 输出不是合法 JSON", metrics };
+    return { kind: "failed", step: "C5", detail: "C5 输出不是合法 JSON", chapterText, metrics };
   }
 
   const parsed = parseC5(parse, { ...input.parseContextBase, chapterText });

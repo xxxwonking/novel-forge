@@ -10,8 +10,11 @@
  * 不一致，而那正是全量重放要避免的问题。重算一次是毫秒级的。
  */
 
-import { EventStream } from "../store/event-stream.js";
+import { EventStream, commitDeclaration } from "../store/event-stream.js";
 import { ProjectStore, alertStateMap, type PlotLineDef, type ProjectSnapshot } from "../store/persist.js";
+import { DraftStore } from "../task/draft-store.js";
+import { adoptDraft } from "../task/adopt.js";
+import type { AdoptResult, ChapterDraft, DraftId } from "../task/types.js";
 import { project, type Projections } from "../store/project.js";
 import { computeAlerts, type AlertCandidate } from "../alerts/compute.js";
 import { selectAlerts, type AlertSelection } from "../alerts/select.js";
@@ -23,6 +26,7 @@ import type { ChapterBeat, WorkProfile } from "../types/beat.js";
 import type { WorkSetting } from "../types/work.js";
 import type { CharacterCard } from "../types/character.js";
 import type { AlertId, ChapterNo } from "../types/primitives.js";
+import type { C5Declaration } from "../types/events.js";
 
 export interface SessionDerived {
   readonly projections: Projections;
@@ -33,6 +37,7 @@ export interface SessionDerived {
 
 export class ProjectSession {
   private readonly store: ProjectStore;
+  private readonly drafts: DraftStore;
   private stream: EventStream;
   private setting: WorkSetting;
   private profile: WorkProfile;
@@ -48,6 +53,7 @@ export class ProjectSession {
     readonly rules: Rules = loadRules(),
   ) {
     this.store = new ProjectStore(root);
+    this.drafts = new DraftStore(root);
     const snap = this.store.load();
     this.setting = snap.setting;
     this.profile = snap.profile;
@@ -153,6 +159,54 @@ export class ProjectSession {
     this.chapters.set(chapter, text);
     this.store.writeChapter(chapter, text);
     this.invalidate();
+  }
+
+  /**
+   * 采用一份草稿声明为该章正式事实（Stage 1 按版本采用的提交侧）。
+   *
+   * 先作废该章旧的 C5 committed 事件（修订已采用章时 >0），再把新声明展开为
+   * proposed 并整章提交为 committed，最后全量重写事件流并失效缓存。返回被作废数。
+   *
+   * 只提交本次声明：草稿在事件流之外，除刚 append 的这批外，该章没有其它 proposed，
+   * 所以 decideChapter 精确到这一稿（修复「采用不精确到版本」）。
+   */
+  commitDraftDeclaration(chapter: ChapterNo, declaration: C5Declaration): number {
+    const superseded = this.stream.supersedeChapter(chapter);
+    commitDeclaration(this.stream, chapter, declaration);
+    this.stream.decideChapter(chapter, "committed");
+    this.store.rewriteEvents(this.stream.all());
+    this.invalidate();
+    return superseded;
+  }
+
+  // ── 草稿（Stage 1 章节任务）────────────────────────────────────────────
+
+  listDrafts(chapter: ChapterNo): readonly ChapterDraft[] {
+    return this.drafts.listDrafts(chapter);
+  }
+
+  getDraft(chapter: ChapterNo, draftId: DraftId): ChapterDraft | undefined {
+    return this.drafts.loadDraft(chapter, draftId);
+  }
+
+  discardDraft(chapter: ChapterNo, draftId: DraftId): boolean {
+    const d = this.drafts.loadDraft(chapter, draftId);
+    if (d === undefined) return false;
+    this.drafts.saveDraft({ ...d, status: "discarded", updatedAt: new Date().toISOString() });
+    return true;
+  }
+
+  /** 采用一份草稿：提交声明为正式事实 + 落正文 + 版本 +1 + 标记后续章草稿需重核。 */
+  adopt(chapter: ChapterNo, draftId: DraftId): AdoptResult {
+    return adoptDraft(
+      {
+        draftStore: this.drafts,
+        commitDeclaration: (ch, decl) => this.commitDraftDeclaration(ch, decl),
+        putChapter: (ch, body) => this.putChapter(ch, body),
+      },
+      chapter,
+      draftId,
+    );
   }
 
   /** 写入本轮算出的告警状态（lastDecay / migratedTo 的推进）。 */

@@ -345,6 +345,10 @@ export function buildRules(root: unknown): Rules {
     tier: table<ChapterType, PipelineTier>(CHAPTER_TYPES, (t) =>
       oneOf<PipelineTier>(root, `tier.${t}`, TIERS),
     ),
+    task: Object.freeze({
+      maxToolIterations: num(root, "task.maxToolIterations"),
+      maxAutoRevisions: num(root, "task.maxAutoRevisions"),
+    }),
   });
 }
 
