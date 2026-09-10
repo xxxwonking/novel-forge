@@ -15,6 +15,7 @@
 
 import type { AlertAction, AlertState } from "../types/projections.js";
 import type { ChapterBeat, ChapterPlan, WorkProfile } from "../types/beat.js";
+import type { ForeshadowWeight } from "../types/events.js";
 import type { IsoTimestamp } from "../types/primitives.js";
 import type { Rules } from "../rules/schema.js";
 import { deriveBudget } from "../beat/derive.js";
@@ -30,6 +31,11 @@ export interface ApplyToBeatResult {
   readonly beat: ChapterBeat;
   /** false 表示该动作对节拍表无影响（如 acknowledge / open_view），原对象返回。 */
   readonly changed: boolean;
+  /**
+   * 章节类型被自动改为回收章。见 planAfter 里 add_resolution_to_beat 的说明 ——
+   * 这是用户点一个按钮引起的第二处改动，必须回报给界面，不能悄悄发生。
+   */
+  readonly promotedToPayoff: boolean;
 }
 
 /**
@@ -44,7 +50,7 @@ export function applyActionToBeat(input: ApplyToBeatInput, rules: Rules): ApplyT
   const plan = beat.plan;
 
   const nextPlan = planAfter(plan, action);
-  if (nextPlan === null) return { beat, changed: false };
+  if (nextPlan === null) return { beat, changed: false, promotedToPayoff: false };
 
   return {
     beat: {
@@ -58,25 +64,23 @@ export function applyActionToBeat(input: ApplyToBeatInput, rules: Rules): ApplyT
       updatedAt: input.now,
     },
     changed: true,
+    promotedToPayoff: nextPlan.chapterType !== plan.chapterType,
   };
 }
 
 /** 返回新 plan；动作与节拍表无关或已生效则返回 null。 */
-function planAfter(plan: ChapterPlan, action: AlertAction): ChapterPlan | null {
-  switch (action.kind) {
+function planAfter(plan: ChapterPlan, action: AlertAction): ChapterPlan | null {  switch (action.kind) {
     case "add_resolution_to_beat": {
       if (plan.resolves.some((r) => r.foreshadowId === action.foreshadowId)) return null;
-      return {
-        ...plan,
-        resolves: [
-          ...plan.resolves,
-          {
-            foreshadowId: action.foreshadowId,
-            weight: action.weight,
-            completeness: action.completeness,
-          },
-        ],
-      };
+      const resolves = [
+        ...plan.resolves,
+        {
+          foreshadowId: action.foreshadowId,
+          weight: action.weight,
+          completeness: action.completeness,
+        },
+      ];
+      return { ...plan, resolves, chapterType: typeAfterResolution(plan, action.weight) };
     }
 
     case "add_advance_to_beat": {
@@ -112,8 +116,31 @@ function planAfter(plan: ChapterPlan, action: AlertAction): ChapterPlan | null {
   }
 }
 
-// ── 告警状态的三个用户动作 ──────────────────────────────────────────────
+/**
+ * 加入主线收束后该章的类型。
+ *
+ * **实现期发现的一处文档不自洽**（写回 §12.6.7）：§12.6.7 说这个闭环是
+ * 「点 [加入第 53 章回收] → 改节拍表 → 触发 V3 重算该章预算（回收主线伏笔
+ * +600~900 字）」，但 §10.4 规定**只有回收章与高潮章把收束成本计入预算**
+ * （derive.ts 的 countsResolutions）。所以往一个事件章加收束，按文档的两处
+ * 规则合起来算，预算一个字都不会变 —— 承诺的 +600~900 字不存在。
+ *
+ * 取向是**让 §10.4 保持不动，改章节类型**：一条主线伏笔的收束要占 600-900 字
+ * 是内容事实，与这章被标成什么无关。既然它要占那么多，这章就是回收章 ——
+ * validate.ts 里 `beat_payoff_without_resolution` 的措辞正是"收束是这两类章的
+ * 定义"。反过来（保留 event 类型、让 event 也计收束成本）会让 §10.4 的
+ * 类型因子失去意义，所有章都变成同一档。
+ *
+ * 只有主线触发升级。支线/细节的一句呼应不足以改变一章的性质，而升级的代价
+ * 不小：typeFactor、密度区间、流程档位（payoff 是 strict）三者全变。
+ */
+function typeAfterResolution(plan: ChapterPlan, weight: ForeshadowWeight): ChapterPlan["chapterType"] {
+  if (weight !== "main") return plan.chapterType;
+  if (plan.chapterType === "payoff" || plan.chapterType === "climax") return plan.chapterType;
+  return "payoff";
+}
 
+// ── 告警状态的三个用户动作 ──────────────────────────────────────────────
 /**
  * 忽略一条告警：fatigue+1，退池。
  *
@@ -140,7 +167,13 @@ export function unacknowledgeAlert(state: AlertState): AlertState {
   return { ...state, acknowledged: false, fatigueCount: 0 };
 }
 
-/** 新建一条状态记录。首次忽略/静音某条告警时用。 */
+/**
+ * 新建一条状态记录。首次忽略/静音某条告警时用。
+ *
+ * `lastDecay` 是 null 而不是 0：这条记录还没经过评估，而 0 会被 compute 当成
+ * 一个真实的旧值，于是"从 0 涨到 1.8"被判为显著上升 —— 用户刚点的忽略会在
+ * 下一次计算里立刻失效。
+ */
 export function initialAlertState(id: AlertState["id"], now: IsoTimestamp): AlertState {
-  return { id, fatigueCount: 0, acknowledged: false, createdAt: now, lastDecay: 0, migratedTo: null };
+  return { id, fatigueCount: 0, acknowledged: false, createdAt: now, lastDecay: null, migratedTo: null };
 }

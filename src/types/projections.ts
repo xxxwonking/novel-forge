@@ -222,13 +222,17 @@ export interface AlertState {
   /** 首次产生的时刻。Alert 每次重算，"这个问题存在多久了"只能存在这里。 */
   readonly createdAt: IsoTimestamp;
   /**
-   * 上次评估时的 decay 值。
+   * 上次评估时的 decay 值。**null 表示还没被评估过**。
    *
    * 文档没提这个字段，但 §12.6.4 末条要求"decay 显著上升时重置 fatigue 并
    * 重新入池"，而"上升"是与历史比较 —— 不存旧值就无法判断。
    * 用户第一次忽略"感情线断了 12 章"，等它断到 25 章时问题性质已变。
+   *
+   * 用 null 而不是 0 表示"未评估"：0 会被当成一个真实的旧值，于是"从 0 涨到
+   * 1.8"看起来就是一次显著上升，把用户刚点下的忽略立刻重置掉 ——
+   * 这个 bug 实际发生过，因为创建状态记录的时机正是用户第一次点忽略。
    */
-  readonly lastDecay: number;
+  readonly lastDecay: number | null;
   /** 已迁移到的形态。迁移时要重置 fatigue，所以得记住迁过没有。 */
   readonly migratedTo: Alert["migratedTo"];
 }

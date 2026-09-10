@@ -27,6 +27,7 @@ import {
   decayPlotlineGap,
 } from "../src/alerts/decay.js";
 import { loadRules } from "../src/rules/load.js";
+import { validatePlan } from "../src/beat/validate.js";
 import { asDerived, beat, workProfile } from "./fixtures.js";
 import type { AlertId, ChapterNo, TextAnchor } from "../src/types/primitives.js";
 import type { AlertState, CharacterArc, ForeshadowTimelineItem, PlotLineTrack } from "../src/types/projections.js";
@@ -537,6 +538,78 @@ describe("applyActionToBeat：一键写进节拍表（§12.6.7）", () => {
     expect(after.beat.budget!.words.min).toBeGreaterThan(0);
     expect(after.beat.provenance).toBe("authored");
     expect(after.beat.updatedAt).toBe(NOW);
+  });
+
+  describe("主线收束会把事件章升级为回收章", () => {
+    // §12.6.7 承诺"回收主线伏笔 +600~900 字"，但 §10.4 只让回收章/高潮章
+    // 计入收束成本。往事件章加收束若不改类型，预算一个字都不变 ——
+    // 承诺的闭环是空的。见 apply.ts 的 typeAfterResolution。
+    const action = {
+      kind: "add_resolution_to_beat" as const,
+      targetChapter: 53 as ChapterNo,
+      foreshadowId: "F07" as const,
+      weight: "main" as const,
+      completeness: "full" as const,
+    };
+
+    it("事件章 + 主线收束 → payoff，且预算真的变宽", () => {
+      const base = applyActionToBeat(
+        { beat: plainBeat, action: { kind: "add_character_to_beat", targetChapter: 53, characterId: "C05" }, profile: workProfile, now: NOW },
+        rules,
+      );
+      const promoted = applyActionToBeat({ beat: plainBeat, action, profile: workProfile, now: NOW }, rules);
+
+      expect(promoted.promotedToPayoff).toBe(true);
+      expect(promoted.beat.plan.chapterType).toBe("payoff");
+      expect(promoted.beat.budget!.words.max).toBeGreaterThan(base.beat.budget!.words.max);
+      // 至少要放宽到能装下一条主线收束的下限（§10.4 resolveCost.main）。
+      const [lo] = rules.resolveCost.main;
+      expect(promoted.beat.budget!.words.max - base.beat.budget!.words.max).toBeGreaterThanOrEqual(lo);
+    });
+
+    it("已是回收章/高潮章则不动类型", () => {
+      for (const chapterType of ["payoff", "climax"] as const) {
+        const out = applyActionToBeat(
+          { beat: { ...plainBeat, plan: { ...emptyPlan, chapterType } }, action, profile: workProfile, now: NOW },
+          rules,
+        );
+        expect(out.beat.plan.chapterType).toBe(chapterType);
+        expect(out.promotedToPayoff).toBe(false);
+      }
+    });
+
+    it("支线与细节收束不升级 —— 一句呼应不改变一章的性质", () => {
+      for (const weight of ["sub", "detail"] as const) {
+        const out = applyActionToBeat(
+          { beat: plainBeat, action: { ...action, weight }, profile: workProfile, now: NOW },
+          rules,
+        );
+        expect(out.beat.plan.chapterType).toBe("event");
+        expect(out.promotedToPayoff).toBe(false);
+      }
+    });
+
+    it("升级后 V2 不会因「回收章没有收束」而打回", () => {
+      // 顺序上必须是"先加 resolves 再改类型"，否则 validatePlan 的
+      // beat_payoff_without_resolution 会 block 一个刚被按钮改出来的节拍表。
+      // 基础节拍表要带一个事件 —— 没有事件的事件章本身就会被 V2 打回
+      // （beat_no_events），那样测的就不是升级这件事了。
+      const withEvent = {
+        ...plainBeat,
+        plan: {
+          ...emptyPlan,
+          events: [{ kind: "action" as const, summary: "撬开密室", weight: 2 as const, plotLine: "P01" as const }],
+        },
+      };
+      const out = applyActionToBeat({ beat: withEvent, action, profile: workProfile, now: NOW }, rules);
+      expect(out.beat.plan.chapterType).toBe("payoff");
+      expect(validatePlan(out.beat.plan, rules).filter((f) => f.level === "block")).toEqual([]);
+    });
+
+    it("升级后流程档位变严格（§12.8：回收章强制 strict）", () => {
+      const out = applyActionToBeat({ beat: plainBeat, action, profile: workProfile, now: NOW }, rules);
+      expect(out.beat.budget!.tier).toBe("strict");
+    });
   });
 
   it("回收章的收束确实让预算变宽（§10.4 resolveCost 生效）", () => {

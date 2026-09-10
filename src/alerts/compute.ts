@@ -274,7 +274,10 @@ function characterAlerts(input: AlertComputeInput, rules: Rules): readonly Draft
 function finalize(draft: Draft, input: AlertComputeInput, a: AlertRules): AlertCandidate {
   const prev = input.states.get(draft.id);
   const migrationChanged = (prev?.migratedTo ?? null) !== draft.migratedTo;
-  const decayJumped = prev !== undefined && draft.decay - prev.lastDecay >= a.decayResetDelta;
+  // lastDecay 为 null 表示这条状态是用户点忽略/静音时刚建的，还没经过评估。
+  // 此时不能判"上升" —— 否则第一次忽略会被下一次计算立刻抹掉。
+  const decayJumped =
+    prev?.lastDecay != null && draft.decay - prev.lastDecay >= a.decayResetDelta;
 
   const fatigueCount = prev === undefined || migrationChanged || decayJumped ? 0 : prev.fatigueCount;
   // 忽略次数超出系数表长度时取末位（表已到最低档，再忽略不会更低）。

@@ -4,17 +4,28 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc -p web --noEmit",
     "test": "vitest run",
-    "acceptance:m1": "tsx src/harness/ten-chapters.ts"
+    "acceptance:m1": "tsx src/harness/ten-chapters.ts",
+    "seed": "tsx src/harness/seed-demo.ts",
+    "serve": "tsx src/server/main.ts",
+    "web": "vite --config web/vite.config.ts web",
+    "web:build": "vite build --config web/vite.config.ts web"
   },
   "devDependencies": {
+    "@types/node": "^22.20.2",
+    "@types/react": "^19.1.2",
+    "@types/react-dom": "^19.1.2",
+    "@vitejs/plugin-react": "^4.4.1",
     "tsx": "4.20.6",
     "typescript": "5.9.3",
+    "vite": "^6.3.5",
     "vitest": "3.2.4"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.124.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
     "yaml": "^2.8.1"
   }
 }
