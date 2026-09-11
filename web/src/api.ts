@@ -228,6 +228,60 @@ export interface ActionResult {
   alerts: { homepage: Alert[]; counts: { fullList: number; repairQueue: number } };
 }
 
+// ── 对话式主 Agent（Stage 2·切片 1）────────────────────────────────────
+
+/** 一次对话回合里发生的状态变化。与后端 AgentEffect 一一对应（报文层重新声明）。 */
+export type AgentEffect =
+  | { kind: "chapter_written"; chapter: number; draftId: string; status: string; acceptable: boolean }
+  | { kind: "chapter_adopted"; chapter: number; draftId: string; superseded: number; staleMarked: number[] }
+  | { kind: "plan_updated"; chapter: number; promotedToPayoff: boolean }
+  | { kind: "foreshadow_rescheduled"; foreshadowId: string; expectedBy: number }
+  | { kind: "foreshadow_abandoned"; foreshadowId: string }
+  | { kind: "idea_recorded"; id: string; text: string }
+  | { kind: "action_failed"; tool: string; message: string };
+
+export interface ConversationTurn {
+  role: "user" | "agent";
+  text: string;
+  at: string;
+  effects?: AgentEffect[];
+}
+
+export interface AlternativeIdea {
+  id: string;
+  text: string;
+  at: string;
+}
+
+export interface ConversationReply {
+  text: string;
+  effects: AgentEffect[];
+  toolRounds: number;
+}
+
+export interface ConversationHistory {
+  turns: ConversationTurn[];
+  ideas: AlternativeIdea[];
+}
+
+/** 草稿的对外视图（后端剔除了内部会话快照）。只声明 UI 用到的字段。 */
+export interface DraftView {
+  chapter: number;
+  draftId: string;
+  status: string;
+  body: string;
+  acceptable: boolean;
+  findings: GateFinding[];
+  error: { step: string; detail: string } | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AdoptResponse {
+  result: { changed: boolean; chapter: number; draftId: string; superseded: number; staleMarked: number[] };
+  alerts: { homepage: Alert[]; counts: { fullList: number; repairQueue: number } };
+}
+
 // ── 请求 ────────────────────────────────────────────────────────────────
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -261,6 +315,14 @@ export const api = {
   ignore: (alertId: string) => post<ActionResult>("/api/alerts/ignore", { alertId }),
   acknowledge: (alertId: string) => post<ActionResult>("/api/alerts/acknowledge", { alertId }),
   unacknowledge: (alertId: string) => post<ActionResult>("/api/alerts/unacknowledge", { alertId }),
+
+  // 对话式主 Agent 与章节草稿
+  conversationHistory: () => request<ConversationHistory>("/api/conversation"),
+  converse: (text: string) => post<ConversationReply>("/api/conversation", { text }),
+  chapterDrafts: (n: number) => request<DraftView[]>(`/api/chapter/drafts?n=${n}`),
+  chapterDraft: (n: number, id: string) => request<DraftView>(`/api/chapter/draft?n=${n}&id=${encodeURIComponent(id)}`),
+  adopt: (chapter: number, draftId: string) => post<AdoptResponse>("/api/chapter/adopt", { chapter, draftId }),
+  discard: (chapter: number, draftId: string) => post<{ changed: boolean }>("/api/chapter/discard", { chapter, draftId }),
 };
 
 function post<T>(path: string, body: unknown): Promise<T> {
