@@ -349,6 +349,9 @@ export function buildRules(root: unknown): Rules {
       maxToolIterations: num(root, "task.maxToolIterations"),
       maxAutoRevisions: num(root, "task.maxAutoRevisions"),
     }),
+    agent: Object.freeze({
+      maxConversationRounds: num(root, "agent.maxConversationRounds"),
+    }),
   });
 }
 

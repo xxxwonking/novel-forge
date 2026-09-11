@@ -14,6 +14,7 @@ import { Home } from "./pages/Home.js";
 import { AlertList } from "./pages/AlertList.js";
 import { ViewPage } from "./pages/ViewPage.js";
 import { Reader } from "./pages/Reader.js";
+import { Chat } from "./pages/Chat.js";
 
 const VIEWS = [
   { path: "/foreshadow", label: "伏笔时间线" },
@@ -96,6 +97,9 @@ export function App(): React.ReactElement {
             : `第 ${overview.data.currentChapter} 章 · 下一章 ${overview.data.nextChapter}`}
         </div>
 
+        <Link route={route} to="/chat" go={go}>
+          对话
+        </Link>
         <Link route={route} to="/" go={go}>
           首页
         </Link>
@@ -148,6 +152,9 @@ function Routed({ route, overview, onAction, onIgnore, onJump, refresh }: Routed
   const [path, search] = route.split("?");
   const query = new URLSearchParams(search ?? "");
 
+  if (path === "/chat") {
+    return <Chat onJump={onJump} refresh={refresh} />;
+  }
   if (path === "/" || path === "") {
     return <Home overview={overview} onAction={onAction} onIgnore={onIgnore} />;
   }

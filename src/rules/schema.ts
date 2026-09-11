@@ -160,6 +160,15 @@ export interface TaskRules {
 }
 
 /**
+ * 对话式主 Agent 的护栏（Stage 2·切片 1）。同 TaskRules，是循环上限而非派生阈值，
+ * 放进 rules 让 `src/agent` 里也没有魔法数字。
+ */
+export interface AgentRules {
+  /** 一次对话回合里工具调用的轮数上限。 */
+  readonly maxConversationRounds: number;
+}
+
+/**
  * 规则集全貌。
  *
  * `version` 是 ChapterBudget.derivedFrom.rulesVersion 的来源 —— 改系数后
@@ -196,6 +205,7 @@ export interface Rules {
   readonly anchor: AnchorRules;
   readonly tier: Readonly<Record<ChapterType, PipelineTier>>;
   readonly task: TaskRules;
+  readonly agent: AgentRules;
 }
 
 /** densityRules 里各 key 的稳定引用。渲染顺序与 rules.yaml 的声明顺序一致。 */

@@ -502,3 +502,35 @@ Mac 上 GitHub 的 HTTPS(443) 直连被掐、SSH 正常：git 用 SSH 远端；`
 - [ ] 再进行同一故事连续 3～5 章的质量验证，重点核对 C5 事件权重、事件拆分、伏笔兑现及人物一致性；Claude 与 10 章官方缓存实测继续暂缓。
 
 已有提交、合入和推送授权继续有效；后续按授权完成必要工作，不重新询问已经确认的模型、框架或独立代理要求。
+
+## 15. 2026-09-11 Stage 2·切片 1：对话式主 Agent（Mac 会话）
+
+**当前接续入口。** 本轮由当前代理独立实现、测试、自审，未调用 Codex/Gemini、未 spawn 子代理（沿用项目锁定规则）。基线 master `4df4a58`；分支 `stage2-conversation-agent` → **PR #2**（https://github.com/xxxwonking/novel-forge/pull/2），提交 `f54fde7`（引擎/agent + 服务端 + rules + 测试）、`b2313e5`（web），本节随后提交。
+
+Stage 2 =「作者通过对话完成首章」，切成三片、先做第 1 片（对话式主 Agent），切片 2/3 见文末。
+
+### 做了什么
+- 新增 `src/agent/`（6 模块）：`tools`（12 工具，固定顺序 + `EXPECTED_MAIN_AGENT_TOOL_ORDER`）、`tool-exec`（`executeMainTool` + `runAgentLoop` 手写 `while stop_reason==='tool_use'` 循环，复用 `client.call` 五坑处理，不引 SDK toolRunner）、`conversation-store`（`conversation.json`：turns + 备选 ideas）、`system-prompt`（§5 意图规则 + 两条护栏，纯函数）、`service`（装配→循环→落 turns→回复）、`types`（AgentEffect / ConversationTurn / …）。
+- 服务端：`ProjectSession.converse()/conversationTurns()/listIdeas()` + 懒 `getModelClient()`（只读作品无模型也能开会话）；`POST`/`GET /api/conversation`（POST 进 handleAsync）。`rules.agent.maxConversationRounds`（schema/load/rules.yaml；`src/agent` 同 `src/task` 不进"代码无数字"扫描）。
+- Web：`pages/Chat.tsx`（消息流 + effects 可点 chip：查看草稿/采用/采用并继续/跳原文 + 内联草稿查看）、`api.ts`（conversation + chapter 端点绑定）、`App.tsx`（/chat 路由 + 导航"对话"）、`styles.css`。
+
+### 关键决策（源码注释里都有）
+- **正式事实边界留在代码里（§12.0）**：Agent 选工具、代码校验并执行；写章→`session.writeChapter`（草稿/proposed），采用→`session.adopt`（按版本、幂等），计划类→`applyActionToBeat`/`appendEvents`（计划态）。**Agent 从不直接写正文或事件。**
+- **两条护栏**：读类工具零副作用（结构性保证）；`adopt_chapter` 必须带确切 draftId、含糊"继续"不自动采用（prompt + adopt 抛错双保险）。
+- 模型角色用 `judge`（haiku）：意图路由与短回复是判定型（§8.2）；真正创作在 `write_next_chapter` 触发的独立任务里仍是 opus。
+- 历史只回放文本、不回放回合内工具往返；每回合起干净的工具循环（切片 1 取舍）。
+- `write_next_chapter` 在对话回合内 await（与现 `/api/chapter/write` 同步语义一致）；ChapterWriter 与 MainAgentService 各自懒创建客户端（无状态配置载体，不共享实例无碍；测试注入 `writing.client` 时两者同一实例）。
+
+### 验证
+- typecheck（根+web）干净；`npm test` **602 通过**（574 基线 + 28 新增：agent-tools 3 / agent-tool-exec 12 / agent-service 7 / server-conversation 6）；`npm run web:build` 通过。
+- **真实模型 live 对话未验证**：Gemini chat 代理配置在 Windows 机（`.env.local` / `新建文本文档.txt`），本 Mac 无 → `converse` 会 503。逻辑由 mock 客户端测试覆盖。
+
+### 已知限制（非缺陷，切片内取舍）
+- 对话回合内 await 写章：真实模型会阻塞该 HTTP 请求（流式进度留后续切片）。
+- `plan_add_to_next_chapter` 传入不存在的情节线，会在写章装配期才报错（计划态可见可改）。
+- readSource 每回合按 nextChapter 建一次：回合内若先采用再读新章会读不到（次回合正常）。
+
+### 下一步（Stage 2 剩余两片）
+- **切片 2**：作品准备（新建作品 + 对话建设定/人物/地点/写作纪律/首章节拍）。
+- **切片 3**：完整结果页富 UI（摘要/关键变化/伏笔情节四象限 + 跳原文）、手动编辑后重新检查、"已安排/已解决"语义衔接。
+- 真机验收：待官方 key（M1 缓存）或在 Windows 机用 Gemini 跑一轮 对话→写章→采用→下一章。
