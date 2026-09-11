@@ -44,6 +44,9 @@ export async function handleAsync(session: ProjectSession, req: ApiRequest): Pro
   if (req.method === "POST" && req.path === "/api/chapter/write") {
     return chapterWrite(session, req.body);
   }
+  if (req.method === "POST" && req.path === "/api/conversation") {
+    return conversationSend(session, req.body);
+  }
   return handle(session, req);
 }
 
@@ -54,6 +57,8 @@ export function handle(session: ProjectSession, req: ApiRequest): ApiResponse {
     switch (path) {
       case "/api/overview":
         return ok(overview(session));
+      case "/api/conversation":
+        return ok({ turns: session.conversationTurns(), ideas: session.listIdeas() });
       case "/api/views":
         return ok(session.derived.views);
       case "/api/alerts":
@@ -412,6 +417,22 @@ async function chapterWrite(session: ProjectSession, body: unknown): Promise<Api
   };
   try {
     return ok(toDraftView(await session.writeChapter(options)));
+  } catch (error) {
+    if (error instanceof ChapterWriteError) return { status: error.status, body: { error: error.message } };
+    throw error;
+  }
+}
+
+/**
+ * 对话式主 Agent 的一轮消息（Stage 2·切片 1）。放在 handleAsync：它 await 模型，
+ * 可能内含一次写章。未配置模型时 converse 抛 ChapterWriteError(503)。
+ */
+async function conversationSend(session: ProjectSession, body: unknown): Promise<ApiResponse> {
+  if (!isRecord(body)) return bad("请求体必须是对象");
+  const text = body["text"];
+  if (typeof text !== "string" || text.trim() === "") return bad("缺少 text");
+  try {
+    return ok(await session.converse(text));
   } catch (error) {
     if (error instanceof ChapterWriteError) return { status: error.status, body: { error: error.message } };
     throw error;

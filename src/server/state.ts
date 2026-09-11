@@ -21,15 +21,23 @@ import { selectAlerts, type AlertSelection } from "../alerts/select.js";
 import { buildViewModel, type ViewModel } from "../view/models.js";
 import { loadRules } from "../rules/load.js";
 import type { Rules } from "../rules/schema.js";
-import type { AlertState } from "../types/projections.js";
+import type { AlertAction, AlertState } from "../types/projections.js";
 import type { ChapterBeat, WorkProfile } from "../types/beat.js";
 import type { WorkSetting, WritingDiscipline } from "../types/work.js";
 import type { SettingCard } from "../context/select-l3.js";
 import type { CharacterCard } from "../types/character.js";
-import type { AlertId, ChapterNo } from "../types/primitives.js";
-import type { C5Declaration } from "../types/events.js";
+import type { AlertId, ChapterNo, CharacterId, ForeshadowId, PlotLineId } from "../types/primitives.js";
+import type { C5Declaration, ForeshadowWeight } from "../types/events.js";
 import { ChapterWriter, type ChapterWriteOptions, type ChapterWriterOptions } from "./chapter-writer.js";
-import { ChapterWriteError } from "./chapter-input.js";
+import { ChapterWriteError, buildChapterReadSource } from "./chapter-input.js";
+import { ConversationStore } from "../agent/conversation-store.js";
+import { MainAgentService } from "../agent/service.js";
+import type { AgentActionOutcome, MainAgentToolContext, PlanAddInput } from "../agent/tool-exec.js";
+import type { MainAgentContextInfo } from "../agent/system-prompt.js";
+import type { AlternativeIdea, ConversationReply, ConversationTurn } from "../agent/types.js";
+import { applyActionToBeat } from "../alerts/apply.js";
+import { createModelClient } from "../client/create.js";
+import type { ModelClient } from "../client/model.js";
 
 export interface SessionDerived {
   readonly projections: Projections;
@@ -53,6 +61,8 @@ export class ProjectSession {
   private alertStates: Map<AlertId, AlertState>;
   private chapters: Map<ChapterNo, string>;
   private cache: SessionDerived | null = null;
+  private readonly conversation: ConversationStore;
+  private modelClient: ModelClient | undefined;
 
   constructor(
     root: string,
@@ -73,6 +83,8 @@ export class ProjectSession {
     this.chapters = new Map(snap.chapters);
     this.stream = EventStream.restore(snap.events);
     this.writer = new ChapterWriter(this, this.drafts, writing);
+    this.conversation = new ConversationStore(root);
+    this.modelClient = writing.client;
   }
 
   // ── 读 ────────────────────────────────────────────────────────────────
@@ -247,6 +259,201 @@ export class ProjectSession {
     );
   }
 
+  // ── 对话式主 Agent（Stage 2·切片 1）────────────────────────────────────
+
+  /**
+   * 一轮对话：主 Agent 理解意图、自主选工具，产出回复与本回合的 effects。
+   * 需要模型客户端（未配置抛 503）—— 只读浏览不经过这里，不受影响。
+   */
+  async converse(text: string): Promise<ConversationReply> {
+    const client = this.getModelClient();
+    const readSource = buildChapterReadSource(this, Math.max(this.nextChapter, 1));
+    const service = new MainAgentService({
+      client,
+      store: this.conversation,
+      ctx: this.buildAgentContext(readSource),
+      contextInfo: () => this.agentContextInfo(),
+      maxRounds: this.rules.agent.maxConversationRounds,
+    });
+    return service.send(text);
+  }
+
+  conversationTurns(): readonly ConversationTurn[] {
+    return this.conversation.load().turns;
+  }
+
+  listIdeas(): readonly AlternativeIdea[] {
+    return this.conversation.listIdeas();
+  }
+
+  /**
+   * 懒创建/复用模型客户端。与 ChapterWriter 各自懒创建（客户端是无状态配置载体，
+   * 不共享实例无碍）；测试注入 writing.client 时两者拿到同一实例。
+   * 不在构造期创建 —— 只读作品（如演示数据）没有配模型，构造期创建会 503 掉整个会话。
+   */
+  private getModelClient(): ModelClient {
+    if (this.modelClient === undefined) {
+      try {
+        this.modelClient = createModelClient();
+      } catch (error) {
+        throw new ChapterWriteError(503, `写章模型尚未配置：${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+    return this.modelClient;
+  }
+
+  private agentContextInfo(): MainAgentContextInfo {
+    const next = this.nextChapter;
+    const beat = this.beatFor(next);
+    const nextPlanReady = beat !== undefined && (beat.provenance === "committed" || beat.provenance === "authored");
+    const pendingDrafts = this.listDrafts(next).filter((d) => d.status !== "adopted" && d.status !== "discarded").length;
+    return {
+      title: this.setting.title,
+      genre: this.profile.genre,
+      platform: this.profile.platform,
+      currentChapter: this.currentChapter,
+      nextChapter: next,
+      nextPlanReady,
+      pendingDrafts,
+    };
+  }
+
+  /** 把主 Agent 工具绑到本会话受控入口。读侧复用写章 readSource（同一章号边界）。 */
+  private buildAgentContext(readSource: ReturnType<typeof buildChapterReadSource>): MainAgentToolContext {
+    const now = (): string => new Date().toISOString();
+    const fail = (tool: string, message: string): AgentActionOutcome => ({
+      message,
+      effect: { kind: "action_failed", tool, message },
+    });
+    return {
+      getOverview: () => {
+        const info = this.agentContextInfo();
+        const { foreshadows } = this.derived.projections;
+        const open = foreshadows.filter((f) => f.status === "open").length;
+        const overdue = foreshadows.filter((f) => f.status === "open" && (f.overdueBy as number) > 0).length;
+        return `《${info.title}》 题材=${info.genre} 平台=${info.platform}
+已写到第 ${info.currentChapter} 章；下一章第 ${info.nextChapter} 章，节拍${info.nextPlanReady ? "已确认" : "未确认"}。
+下一章待处理草稿 ${info.pendingDrafts} 份；未收伏笔 ${open} 条（逾期 ${overdue} 条）。`;
+      },
+      listChapterDrafts: (chapter) => {
+        const n = chapter ?? this.nextChapter;
+        const drafts = this.listDrafts(n);
+        if (drafts.length === 0) return `第 ${n} 章还没有草稿。`;
+        return JSON.stringify(
+          drafts.map((d) => ({
+            draftId: d.draftId,
+            status: d.status,
+            acceptable: d.acceptable,
+            words: d.body.length,
+            findings: d.findings.length,
+          })),
+        );
+      },
+      getChapterText: (chapter, excerpt) => readSource.loadChapter(chapter, excerpt),
+      getCharacter: (name) => readSource.loadCharacter(name),
+      listOpenForeshadows: (weight) => readSource.listOpenForeshadows(weight),
+      getNextPlan: () => {
+        const next = this.nextChapter;
+        const beat = this.beatFor(next);
+        if (beat === undefined) return `第 ${next} 章还没有节拍表。`;
+        const p = beat.plan;
+        const w = beat.budget?.words;
+        return JSON.stringify({
+          chapter: next,
+          confirmed: beat.provenance === "committed" || beat.provenance === "authored",
+          chapterType: p.chapterType,
+          coreEvent: p.coreEvent,
+          secondaryThread: p.secondaryThread,
+          stageFeedback: p.stageFeedback,
+          hook: p.hook,
+          resolves: p.resolves,
+          characters: p.characters,
+          locations: p.locations,
+          wordBudget: w === undefined ? null : { min: w.min, max: w.max, sweet: w.sweet },
+        });
+      },
+      addToNextChapter: async (input) => {
+        const next = this.nextChapter;
+        const beat = this.beatFor(next);
+        if (beat === undefined) return fail("plan_add_to_next_chapter", `第 ${next} 章还没有节拍表，先排章`);
+        const action = toAlertAction(input, next);
+        if (typeof action === "string") return fail("plan_add_to_next_chapter", action);
+        const applied = applyActionToBeat({ beat, action, profile: this.profile, now: now() }, this.rules);
+        if (applied.changed) this.putBeat(applied.beat);
+        return {
+          message: applied.changed
+            ? `已加入第 ${next} 章计划${applied.promotedToPayoff ? "；该章升级为回收章，字数预算随之放宽" : ""}`
+            : "该安排已在计划中，无需重复",
+          effect: { kind: "plan_updated", chapter: next, promotedToPayoff: applied.promotedToPayoff },
+        };
+      },
+      rescheduleForeshadow: async (foreshadowId, expectedBy) => {
+        this.appendEvents([
+          {
+            chapter: this.currentChapter,
+            origin: "user_edit",
+            provenance: "authored",
+            payload: { type: "foreshadow_rescheduled", foreshadowId: foreshadowId as ForeshadowId, expectedBy },
+          },
+        ]);
+        return {
+          message: `已把伏笔 ${foreshadowId} 的预期收束改到第 ${expectedBy} 章`,
+          effect: { kind: "foreshadow_rescheduled", foreshadowId, expectedBy },
+        };
+      },
+      abandonForeshadow: async (foreshadowId, reason) => {
+        this.appendEvents([
+          {
+            chapter: this.currentChapter,
+            origin: "user_edit",
+            provenance: "authored",
+            payload: {
+              type: "foreshadow_abandoned",
+              foreshadowId: foreshadowId as ForeshadowId,
+              reason: reason || "作者在对话中废弃",
+            },
+          },
+        ]);
+        return { message: `已废弃伏笔 ${foreshadowId}`, effect: { kind: "foreshadow_abandoned", foreshadowId } };
+      },
+      recordIdea: async (text) => {
+        const idea = this.conversation.recordIdea(text, now());
+        return { message: `已记为备选：${idea.text}`, effect: { kind: "idea_recorded", id: idea.id, text: idea.text } };
+      },
+      writeNextChapter: async () => {
+        try {
+          const draft = await this.writeChapter({ chapter: this.nextChapter });
+          return {
+            message: `已写第 ${draft.chapter} 章草稿 ${draft.draftId}，状态 ${draft.status}${draft.acceptable ? "（可采用）" : ""}`,
+            effect: {
+              kind: "chapter_written",
+              chapter: draft.chapter,
+              draftId: draft.draftId,
+              status: draft.status,
+              acceptable: draft.acceptable,
+            },
+          };
+        } catch (error) {
+          return fail("write_next_chapter", error instanceof Error ? error.message : String(error));
+        }
+      },
+      adoptChapter: async (draftId) => {
+        const m = /^ch(\d+)d\d+$/u.exec(draftId);
+        if (m?.[1] === undefined) return fail("adopt_chapter", `draftId 格式不对：${draftId}`);
+        const chapter = Number(m[1]);
+        try {
+          const r = this.adopt(chapter, draftId);
+          return {
+            message: r.changed ? `已采用第 ${chapter} 章的 ${draftId}` : `${draftId} 此前已采用`,
+            effect: { kind: "chapter_adopted", chapter, draftId, superseded: r.superseded, staleMarked: r.staleMarked },
+          };
+        } catch (error) {
+          return fail("adopt_chapter", error instanceof Error ? error.message : String(error));
+        }
+      },
+    };
+  }
+
   /** 写入本轮算出的告警状态（lastDecay / migratedTo 的推进）。 */
   syncAlertStates(): void {
     let changed = false;
@@ -311,6 +518,35 @@ export class ProjectSession {
         this.rules.anchor,
       ),
     };
+  }
+}
+
+/**
+ * PlanAddInput → AlertAction（三种 what）。返回错误字符串表示入参非法。
+ * 品牌 ID（ForeshadowId/PlotLineId/CharacterId）在此按用户输入断言 —— 真实存在性由
+ * applyActionToBeat 之后的写章/派生环节校验（引用不存在的 ID 会在写章装配时报错）。
+ */
+function toAlertAction(input: PlanAddInput, targetChapter: ChapterNo): AlertAction | string {
+  switch (input.what) {
+    case "resolution": {
+      if (input.weight !== "main" && input.weight !== "sub" && input.weight !== "detail") {
+        return "weight 必须是 main/sub/detail";
+      }
+      if (input.completeness !== "full" && input.completeness !== "partial") {
+        return "completeness 必须是 full/partial";
+      }
+      return {
+        kind: "add_resolution_to_beat",
+        targetChapter,
+        foreshadowId: (input.foreshadowId ?? "") as ForeshadowId,
+        weight: input.weight as ForeshadowWeight,
+        completeness: input.completeness,
+      };
+    }
+    case "advance":
+      return { kind: "add_advance_to_beat", targetChapter, plotLine: (input.plotLine ?? "") as PlotLineId };
+    case "character":
+      return { kind: "add_character_to_beat", targetChapter, characterId: (input.characterId ?? "") as CharacterId };
   }
 }
 

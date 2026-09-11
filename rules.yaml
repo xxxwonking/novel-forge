@@ -17,6 +17,11 @@ task:
   maxToolIterations: 6 # C4/C5 单次调用内工具循环的步数上限，超过即停、按现有内容继续
   maxAutoRevisions: 1 # 检查未过时时的自动修订次数上限（首版：一次）
 
+## 对话式主 Agent（Stage 2·切片 1）。循环步数上限，不是派生阈值 ——
+## 放这里让 src/agent 里也没有魔法数字，与 task 同源。
+agent:
+  maxConversationRounds: 8 # 一次对话回合里工具调用的轮数上限，超过即停并请用户把指令说具体
+
 ## §10.3 第 0 层：平台基准。base 是**事件章的中位数**，其他类型从它派生。
 ## 换平台只改一个数。
 platform:
