@@ -622,3 +622,19 @@ Stage 2 =「作者通过对话完成首章」，切成三片、先做第 1 片�
 5. 默认路由改 `/` → 对话页，首页移到 `/home`，同步 rail 顺序与 `Link` 的 active 判断（`to !== "/"` 那条逻辑要一并改）。
 6. diff 纯函数 + 单测；`Chat.tsx` 草稿面板加「对比上一版」视图（红绿破例 + 段内字级）。
 7. 全量 typecheck/测试/web:build + live 跑一遍「写章 → 自动修订 → 看红绿对比 → 采用 → 第 2 章」。
+
+### 推不上 GitHub 时的应急手段（2026-09-12 定位）
+本机 Clash 开 TUN + **fake-ip**，`github.com` 被劫持成 `198.18.0.x`（`dig @1.1.1.1` 也返回 fake-ip），GitHub 流量全部进 Clash 走"GitHub 规则指向的策略组"。**那条策略组坏掉时 HTTPS / SSH(22) / SSH(443) 一起死**，症状：`Connection closed by 198.18.0.x`、curl 恰好 5.00 秒超时、gh `EOF`、git 报 "correct access rights"。**换节点通常没用**（节点是好的，坏的是 GitHub 那条规则）。先分清：
+
+```
+curl -s -x http://127.0.0.1:7897 -o /dev/null -w '%{http_code}\n' --max-time 15 https://example.com/      # 通 → 节点好
+curl -s -x http://127.0.0.1:7897 -o /dev/null -w '%{http_code}\n' --max-time 20 https://api.github.com/   # 000/5s → GitHub 规则坏
+```
+
+绕过办法：直连 GitHub 真实 IP，`HostKeyAlias` 让 SSH 仍按 github.com 的主机密钥验证（不降安全性、不污染 known_hosts、不改任何配置）：
+
+```
+GIT_SSH_COMMAND="ssh -o HostKeyAlias=github.com" git push ssh://git@140.82.116.4/xxxwonking/novel-forge.git HEAD:<分支>
+```
+
+`140.82.116.4` / `140.82.112.4` / `140.82.113.4` 均验过可用；`fetch` 也要带同样的 `GIT_SSH_COMMAND`，否则主机键验证失败。**注意：这些 IP 是硬编码的，GitHub 换 IP 即失效** —— 失效时用未被劫持的 DNS 或 `https://api.github.com/meta` 的 `git` 段重新取。`gh` 不支持指定 IP，走的是同一条坏链路**无法绕过**，所以链路坏时只能做 git 操作，PR/issue 等 API 操作得等恢复；届时合并 PR 的备用路是本地 `git merge --no-ff` 后推 master，GitHub 会自动把 PR 标成 Merged。
