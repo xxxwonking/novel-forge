@@ -1,8 +1,8 @@
 # novel-forge 工作记忆
 
-更新时间：2026-09-10（Asia/Shanghai；Gemini chat 接入和真实单章恢复验证已完成；最新交接见第 14 节）
+更新时间：2026-09-11（Asia/Shanghai；Stage 2 切片 1 已合入 master，切片 2「作品准备」在分支 `stage2-work-preparation` 上完成；**最新交接见第 16 节**）
 
-记录范围：本文件汇总项目调研、用户流程设计、能力映射和开发进展。早前发布与复核记录在第 10、11 节；Mac 会话锁定 v1 决策并实现 Stage 1，见第 12 节；写章输入和 API 交付见第 13 节。**接手先读第 14 节：用户代理站的 Gemini 已通过 `/v1/chat/completions` 接入章节任务，真实生成 2287 字，修复返回格式兼容问题后只恢复 C5，通过检查、测试作品内采用和第二章读取验证。574 项测试、类型检查和前端构建通过，浏览器验证了阅读、体检和原文跳转，暂不调用 Claude。下一步是 Stage 2 文件级实施计划和产品界面接入。旧章节的历史待办以最新记录为准，不重新讨论已确认的框架与采用节奏。**
+记录范围：本文件汇总项目调研、用户流程设计、能力映射和开发进展。早前发布与复核记录在第 10、11 节；Mac 会话锁定 v1 决策并实现 Stage 1，见第 12 节；写章输入和 API 交付见第 13 节；Gemini chat 接入与真实单章验证见第 14 节；Stage 2 切片 1（对话式主 Agent）见第 15 节。**接手先读第 16 节：多作品工作区 + 对话式作品筹备已实现 —— 空工作区可新建作品（书名/题材/平台/目标字数），其余方向、人物、地点、情节线、写作纪律、首章节拍全部由对话工具落成，编号一律由代码分配，`plan_chapter` 过引用检查与 V2 校验才落盘；Web 有作品页与只读筹备面板。636 项测试、类型检查（根+web）、前端构建、HTTP 层 curl smoke 全通过；真实模型 live 对话仍未验证（代理配置在 Windows 机）。下一步是 Stage 2 切片 3（草稿结果富 UI）与 Windows 机上的真机全流程验收。旧章节的历史待办以最新记录为准，不重新讨论已确认的框架与采用节奏。**
 
 ## 1. 当前状态与接续位置
 
@@ -505,7 +505,7 @@ Mac 上 GitHub 的 HTTPS(443) 直连被掐、SSH 正常：git 用 SSH 远端；`
 
 ## 15. 2026-09-11 Stage 2·切片 1：对话式主 Agent（Mac 会话）
 
-**当前接续入口。** 本轮由当前代理独立实现、测试、自审，未调用 Codex/Gemini、未 spawn 子代理（沿用项目锁定规则）。基线 master `4df4a58`；分支 `stage2-conversation-agent` → **PR #2**（https://github.com/xxxwonking/novel-forge/pull/2），提交 `f54fde7`（引擎/agent + 服务端 + rules + 测试）、`b2313e5`（web），本节随后提交。
+本轮由当前代理独立实现、测试、自审，未调用 Codex/Gemini、未 spawn 子代理（沿用项目锁定规则）。基线 master `4df4a58`；分支 `stage2-conversation-agent` → **PR #2**（https://github.com/xxxwonking/novel-forge/pull/2），提交 `f54fde7`（引擎/agent + 服务端 + rules + 测试）、`b2313e5`（web），本节随后提交。**已合入 master `aeff8b3`。**
 
 Stage 2 =「作者通过对话完成首章」，切成三片、先做第 1 片（对话式主 Agent），切片 2/3 见文末。
 
@@ -534,3 +534,36 @@ Stage 2 =「作者通过对话完成首章」，切成三片、先做第 1 片�
 - **切片 2**：作品准备（新建作品 + 对话建设定/人物/地点/写作纪律/首章节拍）。
 - **切片 3**：完整结果页富 UI（摘要/关键变化/伏笔情节四象限 + 跳原文）、手动编辑后重新检查、"已安排/已解决"语义衔接。
 - 真机验收：待官方 key（M1 缓存）或在 Windows 机用 Gemini 跑一轮 对话→写章→采用→下一章。
+
+## 16. 2026-09-11 Stage 2·切片 2：作品准备（多作品 + 对话式筹备）（Mac 会话）
+
+**当前接续入口。** 同样由当前代理独立实现、测试、自审，未调用 Codex/Gemini、未 spawn 子代理。基线 master `aeff8b3`；分支 `stage2-work-preparation`。实施计划与决策全文见 `docs/superpowers/plans/2026-09-11-work-preparation.md`。
+
+### 做了什么
+- **多作品工作区**：`src/server/workspace.ts`（`Workspace` + `scaffoldSnapshot` + `isGenre/isPlatform`）。`api.ts` 前置 `handleWorkspace`：`/api/works*`（GET 列表 / POST 新建即激活 / POST select）落工作区，其余端点解析**活动作品**后交原 `handleAsync`，无活动作品回 **409**。既有端点与前端调用零改动。`http.ts`/`main.ts` 构造 Workspace、允许空目录。
+- **筹备写入口**：`persist.ts` +`writeSetting/writeProfile/writePlotLines`；`state.ts` +`putSetting/putProfile/upsertCharacter/upsertSetting/putPlotLine/planChapter`（派生预算 + `authored`）。
+- **筹备类工具 +7**（共 19，顺序仍由 `EXPECTED_MAIN_AGENT_TOOL_ORDER` 守）：`get_direction`/`set_direction`/`upsert_character`/`upsert_location`/`define_plotline`/`set_discipline`/`plan_chapter`。入参解析与合并在新模块 `src/agent/prep.ts`。
+- **系统提示就绪度**：`MainAgentContextInfo.prep` + `prepGaps()`，列缺项与已建对象的「编号 名字」；`GET /api/prep` 给前端同一份。
+- **Web**：`pages/Works.tsx`（列表/切换/新建 4 字段）、`App.tsx` `/works` 路由 + 无活动作品时强制停在该页、`useFetch` 暴露 `errorStatus`（`ApiError` 带状态码）、`Chat.tsx` 只读筹备面板 + 6 个新 effect chip。
+
+### 关键决策
+- **活动作品指针**而非每请求带 work id —— 单用户本地服务，换来既有端点/前端零改动；代价是同时只有一个活动作品。
+- **单作品模式回兼**：serve 的目录自身含 `setting.json` 即单作品（活动恒为它、禁新建），`npm run serve -- data/demo` 照旧。
+- **筹备只经对话，不做表单**：新建表单只收书名/题材/平台/目标字数（后两者决定预算与阈值派生，之后不改）；`scaffoldSnapshot` 的 premise/conflict 等**留空**，绝不编造内容。Web 筹备面板只读。
+- **编号由代码分配（§5.8）**：`nextId` 取同前缀最大序号 +1；模型只能引用系统提示里列出的编号，传未知 id → `action_failed`。人物/地点/情节线同名即视为同一对象。
+- **`plan_chapter` 两道闸**：① 引用的人物/场景/情节线/未收伏笔必须已存在；② `validatePlan` 有 block → `action_failed` 并转述打回项、**不落盘**。过闸才落 `authored`。
+- `set_discipline` 递增作者版本（`d1`→`a1`→`a2`），刻意冷一次 L1 缓存前缀。
+
+### 验证
+- typecheck（根+web）干净；`npm test` **636 通过**（602 基线 + 34：workspace 7 / server-works 6 / session-prep 4 / agent-prep-tools 14 / agent-system-prompt 3）；`npm run web:build` 通过。
+- HTTP 真实 smoke（临时工作区 + curl）：空列表 → 409 → 新建即激活 → `/api/prep` 列全部缺项 → overview 200 → 非法题材 400 → 第二本 + 切换 → 未知 id 404 → 落盘两目录。
+- **真实模型 live 对话仍未验证**（Gemini 代理配置在 Windows 机）。筹备逻辑由 mock 客户端端到端测试覆盖：脚本化 tool_use 经真实 `ProjectSession` 落盘并换会话回读。
+
+### 已知限制（非缺陷）
+- 同一 server 同时只有一个活动作品（多标签页切作品互相影响）。
+- 新建人物时 `addressForms` 自引用会失败（编号尚不存在），第二次调用可补。
+- 人物同名即更新，需要同名两人得先建再改名。
+
+### 下一步
+- **切片 3**：完整结果页富 UI（摘要/关键变化/伏笔情节四象限 + 跳原文）、手动编辑后重新检查、"已安排/已解决"语义衔接。
+- 真机验收：在 Windows 机用 Gemini 跑一轮 **新建作品 → 对话筹备到「筹备已齐」→ 写第 1 章 → 采用 → 第 2 章**。

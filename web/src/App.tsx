@@ -15,6 +15,7 @@ import { AlertList } from "./pages/AlertList.js";
 import { ViewPage } from "./pages/ViewPage.js";
 import { Reader } from "./pages/Reader.js";
 import { Chat } from "./pages/Chat.js";
+import { Works } from "./pages/Works.js";
 
 const VIEWS = [
   { path: "/foreshadow", label: "伏笔时间线" },
@@ -29,6 +30,11 @@ export function App(): React.ReactElement {
   const [nonce, setNonce] = useState(0);
 
   const overview = useFetch(() => api.overview(), [nonce]);
+  const works = useFetch(() => api.works(), [nonce]);
+
+  /** 无活动作品（409）时整站只能停在作品页 —— 其余页面没有可读的作品。 */
+  const noActiveWork = overview.error !== null && (overview.errorStatus === 409 || works.data?.activeId === null);
+  const activeWork = works.data?.works.find((w) => w.id === works.data?.activeId) ?? null;
 
   /** 全局重取。一键动作会同时改节拍表、事件流与告警，所以整体刷新。 */
   const refresh = useCallback(() => setNonce((n) => n + 1), []);
@@ -90,47 +96,66 @@ export function App(): React.ReactElement {
   return (
     <div className="shell">
       <nav className="rail">
-        <div className="rail-title">{overview.data?.title ?? "novel-forge"}</div>
+        <div className="rail-title">{overview.data?.title ?? activeWork?.title ?? "novel-forge"}</div>
         <div className="rail-sub">
-          {overview.data === null
-            ? "载入中"
-            : `第 ${overview.data.currentChapter} 章 · 下一章 ${overview.data.nextChapter}`}
+          {noActiveWork
+            ? "未选择作品"
+            : overview.data === null
+              ? "载入中"
+              : `第 ${overview.data.currentChapter} 章 · 下一章 ${overview.data.nextChapter}`}
         </div>
 
-        <Link route={route} to="/chat" go={go}>
-          对话
+        <Link route={route} to="/works" go={go} count={works.data?.works.length}>
+          作品
         </Link>
-        <Link route={route} to="/" go={go}>
-          首页
-        </Link>
-        <Link route={route} to="/alerts" go={go} count={overview.data?.counts.fullList}>
-          全部提示
-        </Link>
+        {!noActiveWork && (
+          <>
+            <Link route={route} to="/chat" go={go}>
+              对话
+            </Link>
+            <Link route={route} to="/" go={go}>
+              首页
+            </Link>
+            <Link route={route} to="/alerts" go={go} count={overview.data?.counts.fullList}>
+              全部提示
+            </Link>
 
-        <div className="rail-group">结构视图</div>
-        {VIEWS.map((v) => (
-          <Link key={v.path} route={route} to={v.path} go={go}>
-            {v.label}
-          </Link>
-        ))}
+            <div className="rail-group">结构视图</div>
+            {VIEWS.map((v) => (
+              <Link key={v.path} route={route} to={v.path} go={go}>
+                {v.label}
+              </Link>
+            ))}
 
-        <div className="rail-group">正文</div>
-        <Link route={route} to={`/chapter/${overview.data?.currentChapter ?? 1}`} go={go}>
-          章节与体检
-        </Link>
+            <div className="rail-group">正文</div>
+            <Link route={route} to={`/chapter/${overview.data?.currentChapter ?? 1}`} go={go}>
+              章节与体检
+            </Link>
+          </>
+        )}
       </nav>
 
       <main className="main">
-        {overview.error !== null && <div className="empty">读取失败：{overview.error}</div>}
-        {overview.data !== null && (
-          <Routed
-            route={route}
-            overview={overview.data}
-            onAction={onAction}
-            onIgnore={onIgnore}
-            onJump={onJump}
-            refresh={refresh}
-          />
+        {noActiveWork || route.split("?")[0] === "/works" ? (
+          works.data === null ? (
+            <div className="empty">{works.error ?? "载入作品列表…"}</div>
+          ) : (
+            <Works works={works.data} forced={noActiveWork} onChanged={refresh} go={go} />
+          )
+        ) : (
+          <>
+            {overview.error !== null && <div className="empty">读取失败：{overview.error}</div>}
+            {overview.data !== null && (
+              <Routed
+                route={route}
+                overview={overview.data}
+                onAction={onAction}
+                onIgnore={onIgnore}
+                onJump={onJump}
+                refresh={refresh}
+              />
+            )}
+          </>
         )}
       </main>
 

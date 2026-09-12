@@ -22,17 +22,28 @@ import { buildViewModel, type ViewModel } from "../view/models.js";
 import { loadRules } from "../rules/load.js";
 import type { Rules } from "../rules/schema.js";
 import type { AlertAction, AlertState } from "../types/projections.js";
-import type { ChapterBeat, WorkProfile } from "../types/beat.js";
+import type { ChapterBeat, ChapterPlan, WorkProfile } from "../types/beat.js";
 import type { WorkSetting, WritingDiscipline } from "../types/work.js";
 import type { SettingCard } from "../context/select-l3.js";
 import type { CharacterCard } from "../types/character.js";
-import type { AlertId, ChapterNo, CharacterId, ForeshadowId, PlotLineId } from "../types/primitives.js";
+import { deriveBudget } from "../beat/derive.js";
+import { validatePlan } from "../beat/validate.js";
+import type { AlertId, ChapterNo, CharacterId, ForeshadowId, PlotLineId, SettingId } from "../types/primitives.js";
 import type { C5Declaration, ForeshadowWeight } from "../types/events.js";
 import { ChapterWriter, type ChapterWriteOptions, type ChapterWriterOptions } from "./chapter-writer.js";
 import { ChapterWriteError, buildChapterReadSource } from "./chapter-input.js";
 import { ConversationStore } from "../agent/conversation-store.js";
 import { MainAgentService } from "../agent/service.js";
 import type { AgentActionOutcome, MainAgentToolContext, PlanAddInput } from "../agent/tool-exec.js";
+import {
+  DIRECTION_LABELS,
+  bumpDisciplineVersion,
+  mergeCharacter,
+  mergeLocation,
+  mergePlotLine,
+  nextId,
+  type DirectionInput,
+} from "../agent/prep.js";
 import type { MainAgentContextInfo } from "../agent/system-prompt.js";
 import type { AlternativeIdea, ConversationReply, ConversationTurn } from "../agent/types.js";
 import { applyActionToBeat } from "../alerts/apply.js";
@@ -167,6 +178,59 @@ export class ProjectSession {
     this.invalidate();
   }
 
+  // ── 筹备写入口（Stage 2·切片 2）。均经受控入口写盘 + 失效缓存，记 authored 可信度 ──
+
+  putSetting(setting: WorkSetting): void {
+    this.store.writeSetting(setting);
+    this.setting = setting;
+    this.invalidate();
+  }
+
+  putProfile(profile: WorkProfile): void {
+    this.store.writeProfile(profile);
+    this.profile = profile;
+    this.invalidate();
+  }
+
+  /** 新增或按 id 覆盖一张人物卡（设定块；state 由投影算出，不落盘）。 */
+  upsertCharacter(card: Omit<CharacterCard, "state">): void {
+    const rest = this.characters.filter((c) => c.id !== card.id);
+    this.characters = [...rest, card].sort((a, b) => a.id.localeCompare(b.id));
+    this.store.writeCharacters(this.characters);
+    this.invalidate();
+  }
+
+  /** 新增或按 id 覆盖一个地点/组织设定卡。 */
+  upsertSetting(card: SettingCard): void {
+    const rest = this.settings.filter((s) => s.id !== card.id);
+    this.putSettings([...rest, card].sort((a, b) => a.id.localeCompare(b.id)));
+  }
+
+  putPlotLine(def: PlotLineDef): void {
+    const rest = this.plotLines.filter((p) => p.id !== def.id);
+    this.plotLines = [...rest, def].sort((a, b) => a.id.localeCompare(b.id));
+    this.store.writePlotLines(this.plotLines);
+    this.invalidate();
+  }
+
+  /**
+   * 排一章节拍：派生预算 + 记为 authored（可写）。
+   * V2 合规校验由调用方（筹备工具层）先跑并拦 block —— 保证落盘的节拍必过 V2，
+   * `nextPlanReady` 才成立。
+   */
+  planChapter(chapter: ChapterNo, plan: ChapterPlan, now = new Date().toISOString()): ChapterBeat {
+    const beat: ChapterBeat = {
+      chapter,
+      volume: this.beatFor(chapter)?.volume ?? 1,
+      plan,
+      budget: deriveBudget(plan, this.profile, this.rules, { now }),
+      provenance: "authored",
+      updatedAt: now,
+    };
+    this.putBeat(beat);
+    return beat;
+  }
+
   putDiscipline(discipline: WritingDiscipline): void {
     this.store.writeDiscipline(discipline);
     this.discipline = discipline;
@@ -267,11 +331,10 @@ export class ProjectSession {
    */
   async converse(text: string): Promise<ConversationReply> {
     const client = this.getModelClient();
-    const readSource = buildChapterReadSource(this, Math.max(this.nextChapter, 1));
     const service = new MainAgentService({
       client,
       store: this.conversation,
-      ctx: this.buildAgentContext(readSource),
+      ctx: this.buildAgentContext(),
       contextInfo: () => this.agentContextInfo(),
       maxRounds: this.rules.agent.maxConversationRounds,
     });
@@ -302,7 +365,8 @@ export class ProjectSession {
     return this.modelClient;
   }
 
-  private agentContextInfo(): MainAgentContextInfo {
+  /** 主 Agent 的作品状态快照；/api/prep 也用它算筹备缺项。 */
+  agentContextInfo(): MainAgentContextInfo {
     const next = this.nextChapter;
     const beat = this.beatFor(next);
     const nextPlanReady = beat !== undefined && (beat.provenance === "committed" || beat.provenance === "authored");
@@ -315,16 +379,31 @@ export class ProjectSession {
       nextChapter: next,
       nextPlanReady,
       pendingDrafts,
+      prep: {
+        premiseSet: this.setting.premise.trim() !== "",
+        conflictSet: this.setting.centralConflict.trim() !== "",
+        characters: this.characters.map((c) => ({ id: c.id, name: c.name, tier: c.tier })),
+        locations: this.settings.map((s) => ({ id: s.id, name: s.name })),
+        plotLines: this.plotLines.map((p) => ({ id: p.id, label: p.label, weight: p.weight })),
+        disciplineVersion: this.discipline.version,
+      },
     };
   }
 
-  /** 把主 Agent 工具绑到本会话受控入口。读侧复用写章 readSource（同一章号边界）。 */
-  private buildAgentContext(readSource: ReturnType<typeof buildChapterReadSource>): MainAgentToolContext {
+  /**
+   * 把主 Agent 工具绑到本会话受控入口。读侧复用写章 readSource（同一章号边界）；
+   * 筹备类工具改了资料后重建它，同一回合内的后续读取不落后。
+   */
+  private buildAgentContext(): MainAgentToolContext {
     const now = (): string => new Date().toISOString();
     const fail = (tool: string, message: string): AgentActionOutcome => ({
       message,
       effect: { kind: "action_failed", tool, message },
     });
+    let readSource = buildChapterReadSource(this, Math.max(this.nextChapter, 1));
+    const refresh = (): void => {
+      readSource = buildChapterReadSource(this, Math.max(this.nextChapter, 1));
+    };
     return {
       getOverview: () => {
         const info = this.agentContextInfo();
@@ -366,11 +445,100 @@ export class ProjectSession {
           secondaryThread: p.secondaryThread,
           stageFeedback: p.stageFeedback,
           hook: p.hook,
+          events: p.events,
           resolves: p.resolves,
+          plants: p.plants,
           characters: p.characters,
           locations: p.locations,
           wordBudget: w === undefined ? null : { min: w.min, max: w.max, sweet: w.sweet },
         });
+      },
+      getDirection: () =>
+        JSON.stringify({ setting: this.setting, targetWords: this.profile.targetWords, discipline: this.discipline }),
+      setDirection: async (input) => {
+        this.putSetting({ ...this.setting, ...input });
+        refresh();
+        const fields = Object.keys(input) as (keyof DirectionInput)[];
+        return {
+          message: `已更新作品方向：${fields.map((f) => DIRECTION_LABELS[f]).join("、")}`,
+          effect: { kind: "setting_updated", fields },
+        };
+      },
+      upsertCharacter: async (input) => {
+        const byId = input.id === undefined ? undefined : this.characters.find((c) => c.id === input.id);
+        if (input.id !== undefined && byId === undefined) return fail("upsert_character", `人物 ${input.id} 不存在；新建请不要传 id`);
+        const existing =
+          byId ?? this.characters.find((c) => c.name === input.name || (input.name !== undefined && c.aliases.includes(input.name)));
+        const unknownTarget = (input.speech.addressForms ?? []).find(
+          (a) => a.target !== null && !this.characters.some((c) => c.id === a.target),
+        );
+        if (unknownTarget !== undefined) return fail("upsert_character", `称谓表引用的人物 ${unknownTarget.target} 不存在，先建该人物`);
+        const id = existing?.id ?? nextId("C", this.characters.map((c) => c.id));
+        const card = mergeCharacter(existing, input, id, now());
+        this.upsertCharacter(card);
+        refresh();
+        const created = existing === undefined;
+        return {
+          message: `${created ? "已新建人物" : "已更新人物"} ${card.name}（${card.id}，${card.tier}）`,
+          effect: { kind: "character_upserted", id: card.id, name: card.name, created },
+        };
+      },
+      upsertLocation: async (input) => {
+        const byId = input.id === undefined ? undefined : this.settings.find((s) => s.id === input.id);
+        if (input.id !== undefined && byId === undefined) return fail("upsert_location", `设定 ${input.id} 不存在；新建请不要传 id`);
+        const existing = byId ?? this.settings.find((s) => s.name === input.name);
+        const id = existing?.id ?? nextId("S", this.settings.map((s) => s.id));
+        const card = mergeLocation(existing, input, id);
+        this.upsertSetting(card);
+        refresh();
+        const created = existing === undefined;
+        return {
+          message: `${created ? "已新建" : "已更新"}${card.kind === "location" ? "地点" : "组织"} ${card.name}（${card.id}）`,
+          effect: { kind: "location_upserted", id: card.id, name: card.name, created },
+        };
+      },
+      definePlotLine: async (input) => {
+        const byId = input.id === undefined ? undefined : this.plotLines.find((p) => p.id === input.id);
+        if (input.id !== undefined && byId === undefined) return fail("define_plotline", `情节线 ${input.id} 不存在；新建请不要传 id`);
+        const existing = byId ?? this.plotLines.find((p) => p.label === input.label);
+        const id = existing?.id ?? nextId("P", this.plotLines.map((p) => p.id));
+        const def = mergePlotLine(existing, input, id);
+        this.putPlotLine(def);
+        refresh();
+        const created = existing === undefined;
+        return {
+          message: `${created ? "已定义情节线" : "已更新情节线"} ${def.label}（${def.id}，${def.weight}）`,
+          effect: { kind: "plotline_defined", id: def.id, label: def.label, created },
+        };
+      },
+      setDiscipline: async (rules) => {
+        const version = bumpDisciplineVersion(this.discipline.version);
+        this.putDiscipline({ version, rules });
+        return {
+          message: `已更新写作纪律，共 ${rules.length} 条（版本 ${version}）`,
+          effect: { kind: "discipline_updated", version, count: rules.length },
+        };
+      },
+      planChapter: async ({ chapter: requested, plan }) => {
+        const chapter = requested ?? this.nextChapter;
+        if (chapter < this.nextChapter) {
+          return fail("plan_chapter", `第 ${chapter} 章已有正文，只能排第 ${this.nextChapter} 章及之后`);
+        }
+        const missing = this.planReferenceErrors(plan);
+        if (missing !== null) return fail("plan_chapter", missing);
+        const findings = validatePlan(plan, this.rules);
+        const blocks = findings.filter((f) => f.level === "block");
+        if (blocks.length > 0) return fail("plan_chapter", `节拍未通过校验，未写入：\n${blocks.map((f) => f.message).join("\n")}`);
+        const beat = this.planChapter(chapter, plan, now());
+        refresh();
+        const warnings = findings.filter((f) => f.level === "warn");
+        const w = beat.budget?.words;
+        return {
+          message:
+            `已排第 ${chapter} 章节拍（${plan.chapterType}${w === undefined ? "" : `，字数预算 ${w.min}-${w.max}`}）` +
+            (warnings.length === 0 ? "" : `；提醒：${warnings.map((f) => f.message).join("；")}`),
+          effect: { kind: "chapter_planned", chapter, chapterType: plan.chapterType, warnings: warnings.length },
+        };
       },
       addToNextChapter: async (input) => {
         const next = this.nextChapter;
@@ -452,6 +620,25 @@ export class ProjectSession {
         }
       },
     };
+  }
+
+  /** 节拍引用的人物/场景/情节线/伏笔必须已存在 —— 写章装配时同样会拦，这里提前到排章时说清。 */
+  private planReferenceErrors(plan: ChapterPlan): string | null {
+    const problems: string[] = [];
+    const missing = <T extends string>(ids: readonly T[], known: readonly string[]): T[] => ids.filter((id) => !known.includes(id));
+    const chars = missing(plan.characters, this.characters.map((c) => c.id));
+    if (chars.length > 0) problems.push(`人物 ${chars.join("、")} 不存在（先 upsert_character）`);
+    const locs = missing(plan.locations, this.settings.map((s) => s.id));
+    if (locs.length > 0) problems.push(`场景 ${locs.join("、")} 不存在（先 upsert_location）`);
+    const lines = missing(
+      plan.events.flatMap((e) => (e.plotLine === null ? [] : [e.plotLine])),
+      this.plotLines.map((p) => p.id),
+    );
+    if (lines.length > 0) problems.push(`情节线 ${lines.join("、")} 不存在（先 define_plotline）`);
+    const open = this.derived.projections.foreshadows.filter((f) => f.status === "open").map((f) => f.id);
+    const fs = missing(plan.resolves.map((r) => r.foreshadowId), open);
+    if (fs.length > 0) problems.push(`伏笔 ${fs.join("、")} 不是未收伏笔，不能安排收束`);
+    return problems.length === 0 ? null : problems.join("；");
   }
 
   /** 写入本轮算出的告警状态（lastDecay / migratedTo 的推进）。 */
