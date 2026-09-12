@@ -1,6 +1,6 @@
 # novel-forge 工作记忆
 
-更新时间：2026-09-12（Asia/Shanghai；切片 2「作品准备」已在分支 `stage2-work-preparation` 完成并通过真机 live 验收，PR #3 待合；下一轮范围与配色/粒度决策已由用户拍定；**最新交接见第 17 节**）
+更新时间：2026-09-12（Asia/Shanghai；切片 2 已交付、PR #3 待合；**§17 拍定的三项决策已全部实现并 live 验收通过，最新交接见第 18 节**）
 
 记录范围：本文件汇总项目调研、用户流程设计、能力映射和开发进展。早前发布与复核记录在第 10、11 节；Mac 会话锁定 v1 决策并实现 Stage 1，见第 12 节；写章输入和 API 交付见第 13 节；Gemini chat 接入与真实单章验证见第 14 节；Stage 2 切片 1（对话式主 Agent）见第 15 节；切片 2（多作品 + 对话式筹备，含 live 验收全过程）见第 16 节。**接手先读第 17 节：切片 2 已交付（PR #3 待合），并已用真实 Gemini 跑通「空工作区 → 对话筹备到筹备已齐 → 真实生成第 1 章 2562 字草稿 → 未就绪的采用请求按设计被拒」。第 17 节同时记了用户新提的两个问题的核实结论（默认进对话只做了一半；红绿新旧对比没有，且自动修订根本未接线、模型还承诺了不存在的修订能力=真缺陷）、用户已拍的三项决策（全做／diff 破例用红绿／段落级+段内字级）、Phase 1 已查明的实现要点与 7 项待办。旧章节的历史待办以最新记录为准，不重新讨论已确认的框架与采用节奏。**
 
@@ -638,3 +638,30 @@ GIT_SSH_COMMAND="ssh -o HostKeyAlias=github.com" git push ssh://git@140.82.116.4
 ```
 
 `140.82.116.4` / `140.82.112.4` / `140.82.113.4` 均验过可用；`fetch` 也要带同样的 `GIT_SSH_COMMAND`，否则主机键验证失败。**注意：这些 IP 是硬编码的，GitHub 换 IP 即失效** —— 失效时用未被劫持的 DNS 或 `https://api.github.com/meta` 的 `git` 段重新取。`gh` 不支持指定 IP，走的是同一条坏链路**无法绕过**，所以链路坏时只能做 git 操作，PR/issue 等 API 操作得等恢复；届时合并 PR 的备用路是本地 `git merge --no-ff` 后推 master，GitHub 会自动把 PR 标成 Merged。
+
+## 18. 2026-09-12 自动修订 / 红绿新旧对比 / 默认进对话（Mac 会话）
+
+**当前接续入口。** 同样由当前代理独立实现并自审，未调用 Codex/Gemini、未 spawn 子代理。基线：`stage2-work-preparation` 的 `6294ff2`（PR #3 之上）；本轮提交在分支 **`stage2-auto-revision`**（本地，未推送，见文末）。
+
+### 做了什么（§17 的 7 项待办全部完成）
+- **草稿修订快照**：`ChapterDraft.revisions: DraftRevision[]`（每条 = 被替换掉的那版 body + 当时 findings + reason + at）。`DraftStore` 把快照正文另存 `drafts/ch{n}/{id}.r{k}.txt`，JSON 里不含任何正文；旧草稿缺字段回读补 `[]`。`DraftError.step` 加 `C7`。
+- **C7 修订步骤**：`pipeline.ts` 加 `C7_TASK`（只改被指出处、其余一字不动、只输出完整正文）；`steps.ts` 加 `reviseChapterBody`——**续接在 C4 之后而非 C5 之后**（正文一改声明必重做，旧声明进上下文只会误导），C4/C7 共用 `runWriteTurn`。问题清单只带 block/warn；字数越界时附**净增/净减硬指标**（`wordCountDirective`：数字来自 `route_patch/route_trim` 的 measured/threshold，要求"只增不减/只删不增"）——这条是 live 实测后加的：模型按含标点字符估篇幅、系统按内容字数计，只说"补 113 字"它会改写而不增写，净增≈0；加硬指标后一次修订即从 2275→2441 字过线。
+- **图接线** `graph.ts`：`step_check →(needs_revision 且 revisions.length < rules.task.maxAutoRevisions)→ step_revise → step_declare`，修订后清空 declaration/findings 逼重算；`revisions`/`routeAction` 通道；**修订调用失败不降级为 failed**（停回 needs_revision，error.step=C7，作者手里的稿子不作废）；resume 带回 `revisions` 所以额度不会被反复恢复刷掉。`ChapterTaskServiceDeps` 加 `maxRevisions`（chapter-writer 从 rules 传）。
+- **修掉"模型承诺不存在的能力"**：新工具 `rewrite_chapter_draft`（走 `writeChapter({newDraft:true})`，新 draftId、旧稿保留）；`write_next_chapter` 描述与系统提示写明"修订在任务内自动进行、有上限；作者侧只有重写一版/自己改，没有'再优化一下'"；工具结果文案带修订次数与剩余 block 数。`AgentEffect.chapter_written` 加 `revisions`。live 验证：问"你能不能自己优化到 ready"，模型如实答"无法局部修改，只能重写或你手改"。
+- **默认进对话**：`useRoute(fallback)`，空 hash / `#/` 都落 `/chat`；首页移到 `/home`；`Link` active 改精确/子路径匹配。
+- **新旧对比**：`src/task/diff.ts` 纯函数——段落 LCS 配对 → 相邻删/增按位配成 replace → 段内字级 LCS（先剪公共前后缀，>1e6 格退化整段替换）+ **孤岛清理**（夹在两处改动之间、不长于两侧的相同片段并入改动，避免"还在鞘里→已经出鞘"碎成四块）；字数口径同 `countWords`。`GET /api/chapter/diff?n&id[&rev]`。前端 `DraftPanel` 加"对比上一版"切换，`DiffView` 段落级去留 + 改写段内字级高亮 + 连续 >3 段未改动折叠；红绿破例已记在 `styles.css` 文件头注释与 `--diff-*` 变量。
+
+### 验证
+- typecheck（根+web）干净；`npm test` **660 通过**（636 基线 + 24：draft-diff 11 / draft-store 2 / chapter-task 5 / server-drafts 3 / agent-tool-exec 1 / agent-system-prompt 1 / server-conversation 1）；`web:build` 通过。
+- **live 全流程通过（gemini-3-flash，工作区 `~/.claude/jobs/a6d62123/tmp/ws-live2`，接着 §16 的《青州旧事》跑）**：问"能否自己优化"→如实拒绝；`rewrite` → ch1d2 自动修订 1 次仍差 273 字（暴露上面的字数口径问题）→ 加硬指标 → ch1d4 修订 1 次后 **ready**（2275→2441 字，+186/−20，改 6 段）；浏览器点"查看草稿与改动→对比上一版"红绿渲染正确、折叠可展开；"采用 ch1d4" → workVersion 1、events 4 条、下一章 2；一句话排第 2 章 + 写 → ch2d1 ready（无需修订）。
+- 测试 fixture 新增 `padToBudget()`（writing-fixtures）：不关心闸门的用例喂达标正文，否则短样例会触发自动修订多吃两次模型调用。
+
+### 已知观察（非本轮缺陷）
+- `density_over` 在 setup 章几乎必报（模型给布局章塞 2-3 个事件，密度 0.9+ vs 上限 0.4），它是 warn 不挡采用；修订清单会把它带给模型但模型改不动"密度"。是否在排章期提醒"布局章少塞事件"，或把密度上限的派生再校准，留给内容层观察期。
+- `c5_anchor_unresolvable` 常见（模型声明的 quote 不在正文里）——第 2 章 3 条。锚点无法跳读但不挡采用。
+- 采用后 `adopt` 原样保留 `revisions`（`{...draft, status:"adopted"}`），已采用章仍可看对比。
+
+### 下一步
+1. 提交已在本地分支 `stage2-auto-revision`；**未推送**。推送后开 PR #4（base 建议 `stage2-work-preparation`，或等 PR #3 合入后 rebase 到 master）。gh/git 走法见 §17 末与 `github-gh-proxy-env` 记忆。
+2. 切片 3（结果页富 UI：摘要/关键变化/伏笔情节四象限 + 跳原文、手动编辑后重检、"已安排/已解决"语义衔接）。
+3. 本机复现 live：`npm run web:build && npm run serve -- ~/.claude/jobs/a6d62123/tmp/ws-live2`，浏览器开 `http://127.0.0.1:5174/`（直接落对话页），ch1d2/ch1d3/ch1d4 都有"对比上一版"。
