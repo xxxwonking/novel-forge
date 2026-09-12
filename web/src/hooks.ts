@@ -69,15 +69,23 @@ export function useWidth<T extends HTMLElement>(): [React.RefObject<T | null>, n
   return [ref, width];
 }
 
-/** 极简哈希路由。深链接（#/views/foreshadow）要能直接打开与后退。 */
-export function useRoute(): [string, (to: string) => void] {
-  const [hash, setHash] = useState(() => window.location.hash.slice(1) || "/");
+/**
+ * 极简哈希路由。深链接（#/views/foreshadow）要能直接打开与后退。
+ * 空 hash 与裸 `#/` 都落到 `fallback` —— 应用的默认入口由 App 决定，不在这里写死。
+ */
+export function useRoute(fallback: string): [string, (to: string) => void] {
+  const read = (): string => {
+    const hash = window.location.hash.slice(1);
+    return hash === "" || hash === "/" ? fallback : hash;
+  };
+  const [hash, setHash] = useState(read);
 
   useEffect(() => {
-    const onChange = (): void => setHash(window.location.hash.slice(1) || "/");
+    const onChange = (): void => setHash(read());
     window.addEventListener("hashchange", onChange);
     return () => window.removeEventListener("hashchange", onChange);
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fallback]);
 
   return [
     hash,

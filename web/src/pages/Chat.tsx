@@ -7,7 +7,15 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import { api, type AgentEffect, type ConversationTurn, type DraftView, type PrepPayload } from "../api.js";
+import {
+  api,
+  type AgentEffect,
+  type ConversationTurn,
+  type DiffParagraph,
+  type DraftDiffPayload,
+  type DraftView,
+  type PrepPayload,
+} from "../api.js";
 import { useFetch } from "../hooks.js";
 
 export interface ChatProps {
@@ -297,8 +305,13 @@ function EffectChip({
       return (
         <div className="effect">
           <span className="tag">草稿 {effect.draftId}</span>
-          <span className="muted">第 {effect.chapter} 章 · {effect.status}</span>
-          <button data-quiet="true" onClick={() => onView(effect.chapter, effect.draftId)}>查看草稿</button>
+          <span className="muted">
+            第 {effect.chapter} 章 · {effect.status}
+            {effect.revisions > 0 ? ` · 自动修订 ${effect.revisions} 次` : ""}
+          </span>
+          <button data-quiet="true" onClick={() => onView(effect.chapter, effect.draftId)}>
+            {effect.revisions > 0 ? "查看草稿与改动" : "查看草稿"}
+          </button>
           {effect.acceptable && (
             <button data-primary="true" onClick={() => onAdopt(effect.chapter, effect.draftId)}>采用</button>
           )}
@@ -373,12 +386,45 @@ function DraftPanel({
   onAdopt: (chapter: number, draftId: string) => void;
   onJump: (chapter: number, quote: string) => void;
 }): React.ReactElement {
+  const [diff, setDiff] = useState<DraftDiffPayload | null>(null);
+  const [diffError, setDiffError] = useState<string | null>(null);
+  const panelRef = useRef<HTMLDivElement | null>(null);
+  const revised = draft.revisions.length;
+
+  // 面板挂在消息流之后、sticky 的输入框之上：不滚过去的话它的头部会被输入框盖住。
+  useEffect(() => {
+    setDiff(null);
+    setDiffError(null);
+    panelRef.current?.scrollIntoView({ block: "start", behavior: "smooth" });
+  }, [draft.draftId]);
+
+  const toggleDiff = async (): Promise<void> => {
+    if (diff !== null) {
+      setDiff(null);
+      return;
+    }
+    try {
+      setDiff(await api.chapterDiff(draft.chapter, draft.draftId));
+      setDiffError(null);
+    } catch (e) {
+      setDiffError((e as Error).message);
+    }
+  };
+
   return (
-    <div className="chart" style={{ padding: "14px 16px", marginTop: 12 }}>
+    <div ref={panelRef} className="chart" style={{ padding: "14px 16px", marginTop: 12, scrollMarginTop: 12 }}>
       <div className="row" style={{ marginBottom: 8 }}>
         <span className="tag">草稿 {draft.draftId}</span>
-        <span className="muted">第 {draft.chapter} 章 · {draft.status} · {draft.body.length} 字</span>
+        <span className="muted">
+          第 {draft.chapter} 章 · {draft.status} · {draft.body.length} 字
+          {revised > 0 ? ` · 自动修订 ${revised} 次` : ""}
+        </span>
         <span style={{ flex: 1 }} />
+        {revised > 0 && (
+          <button data-quiet="true" onClick={() => void toggleDiff()}>
+            {diff === null ? "对比上一版" : "看当前正文"}
+          </button>
+        )}
         {draft.acceptable && (
           <button data-primary="true" onClick={() => onAdopt(draft.chapter, draft.draftId)}>采用这一版</button>
         )}
@@ -390,6 +436,7 @@ function DraftPanel({
           <div className="finding-msg">{draft.error.detail}</div>
         </div>
       )}
+      {diffError !== null && <div className="finding" data-level="block" style={{ marginBottom: 8 }}>{diffError}</div>}
       {draft.findings.length > 0 && (
         <div className="findings" style={{ marginBottom: 10 }}>
           {draft.findings.map((f, i) => (
@@ -400,11 +447,91 @@ function DraftPanel({
           ))}
         </div>
       )}
-      <div className="prose" style={{ maxHeight: 360, overflow: "auto", maxWidth: "100%" }}>
-        {draft.body.split(/\n+/u).map((p, i) => (p.trim() === "" ? null : <p key={i}>{p}</p>))}
-      </div>
+      {diff !== null ? (
+        <DiffView diff={diff} />
+      ) : (
+        <div className="prose" style={{ maxHeight: 360, overflow: "auto", maxWidth: "100%" }}>
+          {draft.body.split(/\n+/u).map((p, i) => (p.trim() === "" ? null : <p key={i}>{p}</p>))}
+        </div>
+      )}
       <div className="row" style={{ marginTop: 8 }}>
         <button data-quiet="true" onClick={() => onJump(draft.chapter, "")}>在正文页打开该章</button>
+      </div>
+    </div>
+  );
+}
+
+/** 连续未改动的段落超过这个数就折叠，只留首尾各一段做上下文。 */
+const FOLD_THRESHOLD = 3;
+
+type DiffBlock = { kind: "para"; index: number } | { kind: "fold"; from: number; to: number };
+
+function foldUnchanged(paragraphs: readonly DiffParagraph[]): DiffBlock[] {
+  const blocks: DiffBlock[] = [];
+  let i = 0;
+  while (i < paragraphs.length) {
+    if (paragraphs[i]?.op !== "equal") {
+      blocks.push({ kind: "para", index: i });
+      i += 1;
+      continue;
+    }
+    let j = i;
+    while (j < paragraphs.length && paragraphs[j]?.op === "equal") j += 1;
+    if (j - i > FOLD_THRESHOLD) {
+      blocks.push({ kind: "para", index: i }, { kind: "fold", from: i + 1, to: j - 1 }, { kind: "para", index: j - 1 });
+    } else {
+      for (let k = i; k < j; k++) blocks.push({ kind: "para", index: k });
+    }
+    i = j;
+  }
+  return blocks;
+}
+
+/**
+ * 新旧对比：段落级去留 + 改写段内的字级高亮。红绿是刻意的破例（见 styles.css 开头）：
+ * 删除=红底、新增=绿底是通用的增删语义，与行情涨跌无关。
+ */
+function DiffView({ diff }: { diff: DraftDiffPayload }): React.ReactElement {
+  const [opened, setOpened] = useState<ReadonlySet<number>>(new Set());
+  const blocks = foldUnchanged(diff.paragraphs);
+
+  const para = (index: number): React.ReactNode => {
+    const p = diff.paragraphs[index];
+    if (p === undefined) return null;
+    return (
+      <p key={index} data-op={p.op}>
+        {p.op === "replace"
+          ? p.spans.map((s, i) => (s.op === "equal" ? s.text : <span key={i} data-op={s.op}>{s.text}</span>))
+          : p.spans.map((s) => s.text).join("")}
+      </p>
+    );
+  };
+
+  return (
+    <div className="diff">
+      <div className="row diff-head">
+        <span className="tag" data-tone="warn">第 {diff.revision}/{diff.total} 次修订</span>
+        <span className="muted">{diff.reason} · {diff.beforeWords} → {diff.afterWords} 字</span>
+        <span className="diff-stat" data-op="insert">+{diff.inserted}</span>
+        <span className="diff-stat" data-op="delete">−{diff.deleted}</span>
+        <span className="muted">改动 {diff.changed} 段</span>
+      </div>
+      <div className="prose diff-body" style={{ maxHeight: 420, overflow: "auto", maxWidth: "100%" }}>
+        {blocks.map((b) =>
+          b.kind === "para" ? (
+            para(b.index)
+          ) : opened.has(b.from) ? (
+            Array.from({ length: b.to - b.from }, (_, k) => para(b.from + k))
+          ) : (
+            <button
+              key={`fold-${b.from}`}
+              className="diff-fold"
+              onClick={() => setOpened((prev) => new Set(prev).add(b.from))}
+            >
+              … {b.to - b.from} 段未改动，点开查看
+            </button>
+          ),
+        )}
       </div>
     </div>
   );

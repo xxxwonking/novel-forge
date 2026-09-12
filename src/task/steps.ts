@@ -1,5 +1,5 @@
 /**
- * 章节任务的三个可复用步骤（Stage 1）：write / declare / check。
+ * 章节任务的可复用步骤：write / declare / check / revise。
  *
  * 它们是 LangGraph 章节图（graph.ts）的节点主体。与 `chapter/pipeline.ts` 的
  * `runChapter` 的关系：
@@ -14,7 +14,7 @@ import type Anthropic from "@anthropic-ai/sdk";
 import type { CallOptions } from "../client/claude.js";
 import type { ModelClient } from "../client/model.js";
 import { assemble, type AssembledRequest } from "../context/assemble.js";
-import { C5_TASK, textOf, type ChapterRunInput } from "../chapter/pipeline.js";
+import { C5_TASK, C7_TASK, textOf, type ChapterRunInput } from "../chapter/pipeline.js";
 import { C5_OUTPUT_SCHEMA, parseC5, type ParseResult } from "../chapter/c5-schema.js";
 import { checkPromisedResolutions, crossCheckC5 } from "../chapter/c5-crosscheck.js";
 import { gateChapter, type ChapterGateResult } from "../gate/code-channel.js";
@@ -37,6 +37,7 @@ export type WriteResult =
       readonly kind: "ok";
       readonly body: string;
       readonly req: AssembledRequest;
+      /** 产出当前正文的那次响应。修订轮复用同一字段 —— 它的语义是「续接点」。 */
       readonly c4Response: Anthropic.Message;
       /** 传给最终 C4 调用的消息（含工具往返），C5 同会话第二轮据此续接。 */
       readonly sessionMessages: readonly Anthropic.MessageParam[];
@@ -52,15 +53,93 @@ export async function writeChapterBody(
   maxToolRounds: number,
 ): Promise<WriteResult> {
   const req = assemble(input.assembleInput);
-  const callOpts: CallOptions = {
+  return runWriteTurn(client, callOptionsFor(input, req, req.messages), req, ctx, maxToolRounds, "C4");
+}
+
+// ── C7：按检查结果自动修订（同会话续轮）─────────────────────────────────
+
+/**
+ * 在写完正文的同一会话里追加一轮，让模型按 C6/C7 的问题清单改出新正文。
+ *
+ * 续接点是 **C4 之后而非 C5 之后**：正文一改，结构声明必然要重做，把旧声明
+ * 带进上下文只会让模型照着已经不成立的事实修。缓存前缀也因此保持不变。
+ */
+export async function reviseChapterBody(
+  client: ModelClient,
+  input: ChapterRunInput,
+  write: Extract<WriteResult, { kind: "ok" }>,
+  findings: readonly GateFinding[],
+  ctx: ToolContext,
+  maxToolRounds: number,
+): Promise<WriteResult> {
+  const messages: Anthropic.MessageParam[] = [
+    ...write.sessionMessages,
+    { role: "assistant", content: write.c4Response.content },
+    { role: "user", content: [{ type: "text", text: revisionTask(findings) }] },
+  ];
+  return runWriteTurn(client, callOptionsFor(input, write.req, messages), write.req, ctx, maxToolRounds, "C7");
+}
+
+/** 只带 block/warn：info 是提示、pass 是已主动放行，要求模型去改它们等于制造假工作。 */
+function revisionTask(findings: readonly GateFinding[]): string {
+  const items = findings
+    .filter((f) => f.level === "block" || f.level === "warn")
+    .map((f) => `- 【${f.level === "block" ? "必改" : "建议"}】${f.message}`);
+  return [C7_TASK, "", "问题清单：", ...items, ...wordCountDirective(findings)].join("\n");
+}
+
+/**
+ * 字数越界时给出**净增 / 净减**的硬指标。
+ *
+ * 模型按含标点的字符数估算篇幅，检查却按内容字数计，所以它总觉得"已经够了"：
+ * 只说"补 113 字"，它会改写句子而不是增写，实测净增接近零（live 验收观察）。
+ * 要求只增不减 / 只删不增，净变化量才等于新增 / 删除量。数字全部来自 finding。
+ */
+function wordCountDirective(findings: readonly GateFinding[]): readonly string[] {
+  const patch = findings.find((f) => f.rule === "route_patch");
+  if (patch?.measured !== undefined && patch.threshold !== undefined) {
+    return [
+      "",
+      `字数硬指标：系统只计汉字与西文词、不计标点空白，本版实测 ${patch.measured} 字，下限 ${patch.threshold}。`,
+      `这次只增不减 —— 不改写、不删任何现有句子，只在事件推进处插入新内容，新增合计不少于 ${patch.threshold - patch.measured} 字，宁多勿少。`,
+    ];
+  }
+  const trim = findings.find((f) => f.rule === "route_trim");
+  if (trim?.measured !== undefined && trim.threshold !== undefined) {
+    return [
+      "",
+      `字数硬指标：系统只计汉字与西文词、不计标点空白，本版实测 ${trim.measured} 字，上限 ${trim.threshold}。`,
+      `这次只删不增 —— 不新增任何句子，删减合计不少于 ${trim.measured - trim.threshold} 字。`,
+    ];
+  }
+  return [];
+}
+
+function callOptionsFor(
+  input: ChapterRunInput,
+  req: AssembledRequest,
+  messages: readonly Anthropic.MessageParam[],
+): CallOptions {
+  return {
     role: "creative",
     effort: "xhigh",
     thinking: true,
     maxTokens: input.maxOutputTokens ?? C4_MAX_TOKENS,
     tools: req.tools,
     system: req.system,
-    messages: req.messages,
+    messages,
   };
+}
+
+/** 一轮「带工具循环的产文调用」。C4 与 C7 只差 messages 与失败文案里的步骤名。 */
+async function runWriteTurn(
+  client: ModelClient,
+  callOpts: CallOptions,
+  req: AssembledRequest,
+  ctx: ToolContext,
+  maxToolRounds: number,
+  step: "C4" | "C7",
+): Promise<WriteResult> {
   const loop = await runToolLoop(client, callOpts, ctx, maxToolRounds);
   const r = loop.result;
 
@@ -71,7 +150,7 @@ export async function writeChapterBody(
   if (body.trim() === "") {
     return {
       kind: "failed",
-      detail: loop.hitCap ? "C4 工具调用达上限仍未产出正文" : "C4 返回空正文",
+      detail: loop.hitCap ? `${step} 工具调用达上限仍未产出正文` : `${step} 返回空正文`,
     };
   }
   return {

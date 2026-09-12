@@ -18,6 +18,7 @@ import { adoptDraft } from "../src/task/adopt.js";
 import { EventStream, commitDeclaration } from "../src/store/event-stream.js";
 import { ClaudeClient, type CallOptions, type CallResult } from "../src/client/claude.js";
 import type { ChapterRunInput } from "../src/chapter/pipeline.js";
+import { loadRules } from "../src/rules/load.js";
 import { buildL2Snapshot } from "../src/context/build-l2.js";
 import { selectL3 } from "../src/context/select-l3.js";
 import { WRITING_DISCIPLINE } from "../src/context/discipline.js";
@@ -31,6 +32,7 @@ import {
   previousChapterText,
   settings,
   volumeSummaries,
+  workProfile,
   workSetting,
 } from "./fixtures.js";
 
@@ -132,8 +134,8 @@ afterEach(() => {
   rmSync(root, { recursive: true, force: true });
 });
 
-function service(client: ClaudeClient): ChapterTaskService {
-  return new ChapterTaskService({ client, draftStore: store, readSource: READ, maxToolRounds: 6 });
+function service(client: ClaudeClient, maxRevisions = 1): ChapterTaskService {
+  return new ChapterTaskService({ client, draftStore: store, readSource: READ, maxToolRounds: 6, maxRevisions });
 }
 
 describe("ChapterTaskService.run：顺利路径", () => {
@@ -213,6 +215,101 @@ describe("ChapterTaskService：C5 失败与恢复（gap ①）", () => {
     expect(draft.body).toBe("");
     expect(draft.session).toBeNull();
     expect(draft.error?.detail).toContain("无法生成");
+  });
+});
+
+describe("自动修订（rules.task.maxAutoRevisions）", () => {
+  /** 带闸门的输入：PROSE 只有三行，字数远低于预算下限 ⇒ C7 必给 route_patch(block)。 */
+  function gated(): ChapterRunInput {
+    return { ...runInput(), gate: { profile: workProfile, rules: loadRules() } };
+  }
+
+  it("检查未过 → 改一次 → 重新声明重新检查，旧正文进 revisions", async () => {
+    const revised = `${PROSE}\n他把账本翻到最后一页，缺口的毛边还新。`;
+    const { client, calls } = fakeClient([
+      { kind: "ok", message: textMessage(PROSE) },
+      { kind: "ok", message: textMessage(C5_JSON) },
+      { kind: "ok", message: textMessage(revised) },
+      { kind: "ok", message: textMessage(C5_JSON) },
+    ]);
+    const draft = await service(client).run(gated());
+
+    expect(calls).toHaveLength(4); // C4 → C5 → C7 → C5
+    expect(draft.body).toBe(revised);
+    expect(draft.revisions).toHaveLength(1);
+    expect(draft.revisions[0]?.body).toBe(PROSE);
+    expect(draft.revisions[0]?.findings.some((f) => f.level === "block")).toBe(true);
+    expect(draft.revisions[0]?.reason).toContain("补写");
+    // 声明与检查是重算的，不是沿用修订前那份。
+    expect(draft.declaration).not.toBeNull();
+    expect(store.loadDraft(53, draft.draftId)?.revisions[0]?.body).toBe(PROSE);
+  });
+
+  it("修订轮的请求带着 C7 问题清单，并续在 C4 会话之后", async () => {
+    const { client, calls } = fakeClient([
+      { kind: "ok", message: textMessage(PROSE) },
+      { kind: "ok", message: textMessage(C5_JSON) },
+      { kind: "ok", message: textMessage(`${PROSE}\n补了一句。`) },
+      { kind: "ok", message: textMessage(C5_JSON) },
+    ]);
+    await service(client).run(gated());
+
+    const revisionCall = calls[2];
+    const last = JSON.stringify(revisionCall?.messages.at(-1));
+    expect(last).toContain("问题清单");
+    expect(last).toContain("按优先级补写");
+    // 字数不足时给净增硬指标（数字来自 route_patch 的 measured/threshold）。
+    expect(last).toContain("只增不减");
+    expect(last).toMatch(/新增合计不少于 \d+ 字/u);
+    // 续接点是 C4 之后：倒数第二条是那次产出正文的 assistant 回合。
+    expect(JSON.stringify(revisionCall?.messages.at(-2))).toContain("断剑崩成两截");
+  });
+
+  it("额度用尽不再改：maxRevisions=0 时停在 needs_revision", async () => {
+    const { client, calls } = fakeClient([
+      { kind: "ok", message: textMessage(PROSE) },
+      { kind: "ok", message: textMessage(C5_JSON) },
+    ]);
+    const draft = await service(client, 0).run(gated());
+
+    expect(calls).toHaveLength(2);
+    expect(draft.status).toBe("needs_revision");
+    expect(draft.revisions).toEqual([]);
+  });
+
+  it("修订调用失败不作废原稿：仍是 needs_revision，正文与 C5 声明都在", async () => {
+    const { client } = fakeClient([
+      { kind: "ok", message: textMessage(PROSE) },
+      { kind: "ok", message: textMessage(C5_JSON) },
+      { kind: "error", error: { type: "status", status: 500, message: "boom", retryable: true } },
+    ]);
+    const draft = await service(client).run(gated());
+
+    expect(draft.status).toBe("needs_revision");
+    expect(draft.body).toBe(PROSE);
+    expect(draft.declaration).not.toBeNull();
+    expect(draft.revisions).toEqual([]);
+    expect(draft.error?.step).toBe("C7");
+  });
+
+  it("resume 不重置修订额度：已改过一次的草稿恢复后不再自动改", async () => {
+    const revised = `${PROSE}\n他把账本翻到最后一页。`;
+    const first = fakeClient([
+      { kind: "ok", message: textMessage(PROSE) },
+      { kind: "ok", message: textMessage(C5_JSON) },
+      { kind: "ok", message: textMessage(revised) },
+      { kind: "error", error: { type: "status", status: 500, message: "boom", retryable: true } },
+    ]);
+    const failed = await service(first.client).run(gated());
+    expect(failed.status).toBe("failed"); // 修订后的 C5 挂了
+    expect(failed.revisions).toHaveLength(1);
+
+    const again = fakeClient([{ kind: "ok", message: textMessage(C5_JSON) }]);
+    const resumed = await service(again.client).resume(gated(), failed.draftId);
+
+    expect(again.calls).toHaveLength(1); // 只补跑 C5，没有第二次修订
+    expect(resumed.status).toBe("needs_revision");
+    expect(resumed.revisions).toHaveLength(1);
   });
 });
 

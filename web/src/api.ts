@@ -232,7 +232,7 @@ export interface ActionResult {
 
 /** 一次对话回合里发生的状态变化。与后端 AgentEffect 一一对应（报文层重新声明）。 */
 export type AgentEffect =
-  | { kind: "chapter_written"; chapter: number; draftId: string; status: string; acceptable: boolean }
+  | { kind: "chapter_written"; chapter: number; draftId: string; status: string; acceptable: boolean; revisions: number }
   | { kind: "chapter_adopted"; chapter: number; draftId: string; superseded: number; staleMarked: number[] }
   | { kind: "plan_updated"; chapter: number; promotedToPayoff: boolean }
   | { kind: "foreshadow_rescheduled"; foreshadowId: string; expectedBy: number }
@@ -270,6 +270,14 @@ export interface ConversationHistory {
   ideas: AlternativeIdea[];
 }
 
+/** 一次自动修订前的快照（被替换掉的那一版）。 */
+export interface DraftRevisionView {
+  body: string;
+  findings: GateFinding[];
+  reason: string;
+  at: string;
+}
+
 /** 草稿的对外视图（后端剔除了内部会话快照）。只声明 UI 用到的字段。 */
 export interface DraftView {
   chapter: number;
@@ -278,9 +286,30 @@ export interface DraftView {
   body: string;
   acceptable: boolean;
   findings: GateFinding[];
+  revisions: DraftRevisionView[];
   error: { step: string; detail: string } | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export type DiffOp = "equal" | "insert" | "delete";
+export interface DiffSpan { op: DiffOp; text: string }
+export interface DiffParagraph { op: DiffOp | "replace"; spans: DiffSpan[] }
+
+/** GET /api/chapter/diff：某次自动修订的前后对比。 */
+export interface DraftDiffPayload {
+  draftId: string;
+  chapter: number;
+  revision: number;
+  total: number;
+  reason: string;
+  at: string;
+  beforeWords: number;
+  afterWords: number;
+  paragraphs: DiffParagraph[];
+  inserted: number;
+  deleted: number;
+  changed: number;
 }
 
 export interface AdoptResponse {
@@ -392,6 +421,8 @@ export const api = {
   converse: (text: string) => post<ConversationReply>("/api/conversation", { text }),
   chapterDrafts: (n: number) => request<DraftView[]>(`/api/chapter/drafts?n=${n}`),
   chapterDraft: (n: number, id: string) => request<DraftView>(`/api/chapter/draft?n=${n}&id=${encodeURIComponent(id)}`),
+  chapterDiff: (n: number, id: string, rev?: number) =>
+    request<DraftDiffPayload>(`/api/chapter/diff?n=${n}&id=${encodeURIComponent(id)}${rev === undefined ? "" : `&rev=${rev}`}`),
   adopt: (chapter: number, draftId: string) => post<AdoptResponse>("/api/chapter/adopt", { chapter, draftId }),
   discard: (chapter: number, draftId: string) => post<{ changed: boolean }>("/api/chapter/discard", { chapter, draftId }),
 

@@ -23,6 +23,8 @@ export type AgentEffect =
       readonly draftId: DraftId;
       readonly status: ChapterDraftStatus;
       readonly acceptable: boolean;
+      /** 任务内自动修订的次数。>0 时前端提示可看新旧对比。 */
+      readonly revisions: number;
     }
   | {
       readonly kind: "chapter_adopted";

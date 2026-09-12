@@ -400,6 +400,29 @@ export class ProjectSession {
       message,
       effect: { kind: "action_failed", tool, message },
     });
+    /** 写章/重写共用的结果文案：把修订次数与剩余问题说给模型，它才不会承诺"再改改"。 */
+    const written = (draft: ChapterDraft): AgentActionOutcome => {
+      const blocks = draft.findings.filter((f) => f.level === "block").length;
+      const revised = draft.revisions.length > 0 ? `，任务内已自动修订 ${draft.revisions.length} 次` : "";
+      const tail = draft.acceptable
+        ? "（可采用）"
+        : draft.error?.step === "C7"
+          ? `（${draft.error.detail}；仍有 ${blocks} 项必改，作者可选择重写一版或自行修改）`
+          : draft.status === "needs_revision"
+            ? `（仍有 ${blocks} 项必改，自动修订额度已用完；作者可选择重写一版或自行修改）`
+            : "";
+      return {
+        message: `已写第 ${draft.chapter} 章草稿 ${draft.draftId}，状态 ${draft.status}${revised}${tail}`,
+        effect: {
+          kind: "chapter_written",
+          chapter: draft.chapter,
+          draftId: draft.draftId,
+          status: draft.status,
+          acceptable: draft.acceptable,
+          revisions: draft.revisions.length,
+        },
+      };
+    };
     let readSource = buildChapterReadSource(this, Math.max(this.nextChapter, 1));
     const refresh = (): void => {
       readSource = buildChapterReadSource(this, Math.max(this.nextChapter, 1));
@@ -590,19 +613,16 @@ export class ProjectSession {
       },
       writeNextChapter: async () => {
         try {
-          const draft = await this.writeChapter({ chapter: this.nextChapter });
-          return {
-            message: `已写第 ${draft.chapter} 章草稿 ${draft.draftId}，状态 ${draft.status}${draft.acceptable ? "（可采用）" : ""}`,
-            effect: {
-              kind: "chapter_written",
-              chapter: draft.chapter,
-              draftId: draft.draftId,
-              status: draft.status,
-              acceptable: draft.acceptable,
-            },
-          };
+          return written(await this.writeChapter({ chapter: this.nextChapter }));
         } catch (error) {
           return fail("write_next_chapter", error instanceof Error ? error.message : String(error));
+        }
+      },
+      rewriteChapterDraft: async (chapter) => {
+        try {
+          return written(await this.writeChapter({ chapter: chapter ?? this.nextChapter, newDraft: true }));
+        } catch (error) {
+          return fail("rewrite_chapter_draft", error instanceof Error ? error.message : String(error));
         }
       },
       adoptChapter: async (draftId) => {

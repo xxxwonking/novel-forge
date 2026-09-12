@@ -24,8 +24,14 @@ const VIEWS = [
   { path: "/relations", label: "关系图" },
 ] as const;
 
+/**
+ * 默认落在对话页：作者的主流程是「说一句 → 落资料/写章/采用」，而 §12.6.7 的
+ * 告警首页在新书上基本是空的。首页保留在 /home，写到中后期再回来看告警。
+ */
+const DEFAULT_ROUTE = "/chat";
+
 export function App(): React.ReactElement {
-  const [route, go] = useRoute();
+  const [route, go] = useRoute(DEFAULT_ROUTE);
   const [toast, showToast] = useToast();
   const [nonce, setNonce] = useState(0);
 
@@ -113,7 +119,7 @@ export function App(): React.ReactElement {
             <Link route={route} to="/chat" go={go}>
               对话
             </Link>
-            <Link route={route} to="/" go={go}>
+            <Link route={route} to="/home" go={go}>
               首页
             </Link>
             <Link route={route} to="/alerts" go={go} count={overview.data?.counts.fullList}>
@@ -180,7 +186,7 @@ function Routed({ route, overview, onAction, onIgnore, onJump, refresh }: Routed
   if (path === "/chat") {
     return <Chat onJump={onJump} refresh={refresh} />;
   }
-  if (path === "/" || path === "") {
+  if (path === "/home") {
     return <Home overview={overview} onAction={onAction} onIgnore={onIgnore} />;
   }
   if (path === "/alerts") {
@@ -211,7 +217,9 @@ function Link({
   count?: number | undefined;
   children: React.ReactNode;
 }): React.ReactElement {
-  const active = route === to || (to !== "/" && route.startsWith(to));
+  // 精确匹配或子路径（/chapter/3 命中 /chapter/、?query 不影响），不做裸前缀 ——
+  // 否则 /home 会点亮 /h 之类的巧合前缀。
+  const active = route === to || route.startsWith(`${to}/`) || route.startsWith(`${to}?`);
   return (
     <a
       href={`#${to}`}

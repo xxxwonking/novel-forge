@@ -18,6 +18,8 @@ import type { AlertAction, AlertState } from "../types/projections.js";
 import type { AlertId, ChapterNo, TextAnchor } from "../types/primitives.js";
 import type { EventWeight } from "../types/events.js";
 import type { ChapterDraft } from "../task/types.js";
+import { diffDraft } from "../task/diff.js";
+import { countWords } from "../text/measure.js";
 import { ChapterWriteError } from "./chapter-input.js";
 import type { ChapterWriteOptions } from "./chapter-writer.js";
 import { prepGaps } from "../agent/system-prompt.js";
@@ -93,6 +95,8 @@ export function handle(session: ProjectSession, req: ApiRequest): ApiResponse {
         return chapterDrafts(session, req.query);
       case "/api/chapter/draft":
         return chapterDraft(session, req.query);
+      case "/api/chapter/diff":
+        return chapterDiff(session, req.query);
       default:
         return missing(`未知端点 ${path}`);
     }
@@ -486,6 +490,35 @@ function chapterDraft(session: ProjectSession, query: URLSearchParams): ApiRespo
   if (n === null || id === null) return bad("缺少参数 n / id");
   const d = session.getDraft(n, id);
   return d === undefined ? missing(`草稿不存在：ch${n}/${id}`) : ok(toDraftView(d));
+}
+
+/**
+ * 一份草稿第 rev 次自动修订的前后对比（rev 从 1 起，缺省取最后一次）。
+ * "后"是下一次修订前的快照，最后一次的"后"就是草稿当前正文。
+ */
+function chapterDiff(session: ProjectSession, query: URLSearchParams): ApiResponse {
+  const n = intParam(query, "n");
+  const id = query.get("id");
+  if (n === null || id === null) return bad("缺少参数 n / id");
+  const d = session.getDraft(n, id);
+  if (d === undefined) return missing(`草稿不存在：ch${n}/${id}`);
+  const total = d.revisions.length;
+  if (total === 0) return missing(`草稿 ${id} 未经修订，没有可对比的版本`);
+  const rev = query.has("rev") ? intParam(query, "rev") : total;
+  const before = rev === null ? undefined : d.revisions[rev - 1];
+  if (before === undefined) return bad(`rev 必须在 1 到 ${total} 之间`);
+  const after = d.revisions[rev as number]?.body ?? d.body;
+  return ok({
+    draftId: d.draftId,
+    chapter: d.chapter,
+    revision: rev,
+    total,
+    reason: before.reason,
+    at: before.at,
+    beforeWords: countWords(before.body),
+    afterWords: countWords(after),
+    ...diffDraft(before.body, after),
+  });
 }
 
 /** 采用一份草稿。未就绪会抛，归 400（附可读原因）。成功后带上刷新的首页。 */

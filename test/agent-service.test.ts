@@ -61,7 +61,8 @@ function ctxWith(over: Partial<MainAgentToolContext> = {}): MainAgentToolContext
     rescheduleForeshadow: async (foreshadowId, expectedBy) => ({ message: "已改期", effect: { kind: "foreshadow_rescheduled", foreshadowId, expectedBy } }),
     abandonForeshadow: async (foreshadowId) => ({ message: "已废弃", effect: { kind: "foreshadow_abandoned", foreshadowId } }),
     recordIdea: async (text) => ({ message: "已记录", effect: { kind: "idea_recorded", id: "idea1", text } }),
-    writeNextChapter: async () => ({ message: "已写草稿", effect: { kind: "chapter_written", chapter: 3, draftId: "ch3d1", status: "ready", acceptable: true } }),
+    writeNextChapter: async () => ({ message: "已写草稿", effect: { kind: "chapter_written", chapter: 3, draftId: "ch3d1", status: "ready", acceptable: true, revisions: 0 } }),
+    rewriteChapterDraft: async (chapter) => ({ message: "已另写一版", effect: { kind: "chapter_written", chapter: chapter ?? 3, draftId: "ch3d2", status: "ready", acceptable: true, revisions: 0 } }),
     adoptChapter: async (draftId) => ({ message: "已采用", effect: { kind: "chapter_adopted", chapter: 3, draftId, superseded: 0, staleMarked: [] } }),
     ...over,
   };
@@ -100,7 +101,7 @@ describe("MainAgentService.send", () => {
       "按计划写下一章",
     );
     expect(writeNextChapter).toHaveBeenCalledOnce();
-    expect(reply.effects).toEqual([{ kind: "chapter_written", chapter: 3, draftId: "ch3d1", status: "ready", acceptable: true }]);
+    expect(reply.effects).toEqual([{ kind: "chapter_written", chapter: 3, draftId: "ch3d1", status: "ready", acceptable: true, revisions: 0 }]);
     expect(store.load().turns[1]?.effects).toHaveLength(1);
   });
 

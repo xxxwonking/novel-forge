@@ -55,4 +55,11 @@ describe("系统提示的筹备状态", () => {
   it("纯函数：同一状态两次渲染逐字一致", () => {
     expect(text(READY)).toBe(text(READY));
   });
+
+  it("只承诺工具能做到的事：说清自动修订在任务内、作者侧只有重写", () => {
+    const t = text(READY);
+    expect(t).toContain("自动修订");
+    expect(t).toContain("rewrite_chapter_draft");
+    expect(t).toContain("不要承诺");
+  });
 });

@@ -73,6 +73,7 @@ export interface MainAgentToolContext {
   readonly abandonForeshadow: (foreshadowId: string, reason: string) => Promise<AgentActionOutcome>;
   readonly recordIdea: (text: string) => Promise<AgentActionOutcome>;
   readonly writeNextChapter: () => Promise<AgentActionOutcome>;
+  readonly rewriteChapterDraft: (chapter: number | null) => Promise<AgentActionOutcome>;
   readonly adoptChapter: (draftId: string) => Promise<AgentActionOutcome>;
 }
 
@@ -206,6 +207,11 @@ export async function executeMainTool(
     // ── 任务类：走受控入口 ──────────────────────────────────────────────
     case "write_next_chapter":
       return action(await ctx.writeNextChapter());
+    case "rewrite_chapter_draft": {
+      const chapter = input["chapter"];
+      if (chapter !== undefined && !Number.isInteger(chapter)) return { result: err("chapter 必须是章号") };
+      return action(await ctx.rewriteChapterDraft(typeof chapter === "number" ? chapter : null));
+    }
     case "adopt_chapter": {
       const draftId = readStr("draftId");
       if (draftId === "") return { result: err("缺少 draftId；先用 list_chapter_drafts 确认要采用哪一版") };

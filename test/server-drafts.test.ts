@@ -50,6 +50,7 @@ function ready(draftId: DraftId, body: string, summary: string): ChapterDraft {
     findings: [],
     acceptable: true,
     proposals: [],
+    revisions: [],
     session: null,
     baseVersion: 0,
     baseAdoptedThrough: 52,
@@ -167,5 +168,45 @@ describe("章节草稿端点", () => {
     const { session } = seed();
     expect(post(session, "/api/chapter/adopt", { chapter: 53 }).status).toBe(400);
     expect(get(session, "/api/chapter/drafts").status).toBe(400);
+  });
+});
+
+describe("GET /api/chapter/diff", () => {
+  const revised = (): ChapterDraft => ({
+    ...ready("ch53d3", "甲\n乙改过了\n丙\n丁", "C"),
+    status: "needs_revision",
+    acceptable: false,
+    revisions: [
+      { body: "甲\n乙\n丙", findings: [{ rule: "route_patch", level: "block", message: "还差 900 字" }], reason: "字数不足，按优先级补写", at: "2026-09-12T00:00:00.000Z" },
+    ],
+  });
+
+  it("缺省对比最后一次修订与当前正文，带原因、字数与统计", () => {
+    const { session, drafts } = seed();
+    drafts.saveDraft(revised());
+    const res = get(session, "/api/chapter/diff", { n: "53", id: "ch53d3" });
+    expect(res.status).toBe(200);
+    const body = res.body as Record<string, unknown> & { paragraphs: { op: string }[] };
+    expect(body).toMatchObject({ draftId: "ch53d3", revision: 1, total: 1, reason: "字数不足，按优先级补写", beforeWords: 3, afterWords: 7, inserted: 4, deleted: 0, changed: 2 });
+    expect(body.paragraphs.map((p) => p.op)).toEqual(["equal", "replace", "equal", "insert"]);
+  });
+
+  it("未经修订的草稿 → 404；rev 越界 → 400；草稿不存在 → 404", () => {
+    const { session, drafts } = seed();
+    expect(get(session, "/api/chapter/diff", { n: "53", id: "ch53d1" }).status).toBe(404);
+    drafts.saveDraft(revised());
+    expect(get(session, "/api/chapter/diff", { n: "53", id: "ch53d3", rev: "2" }).status).toBe(400);
+    expect(get(session, "/api/chapter/diff", { n: "53", id: "ch53d3", rev: "0" }).status).toBe(400);
+    expect(get(session, "/api/chapter/diff", { n: "53", id: "ch53d3", rev: "abc" }).status).toBe(400);
+    expect(get(session, "/api/chapter/diff", { n: "53", id: "ch53d9" }).status).toBe(404);
+    expect(get(session, "/api/chapter/diff", { n: "53" }).status).toBe(400);
+  });
+
+  it("草稿详情带 revisions 快照，前端据此决定是否显示对比入口", () => {
+    const { session, drafts } = seed();
+    drafts.saveDraft(revised());
+    const res = get(session, "/api/chapter/draft", { n: "53", id: "ch53d3" });
+    expect((res.body as ChapterDraft).revisions).toHaveLength(1);
+    expect((res.body as ChapterDraft).revisions[0]?.body).toBe("甲\n乙\n丙");
   });
 });

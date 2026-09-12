@@ -5,6 +5,9 @@
  * 长时间盯着看的界面，所以是暗色底 + 低饱和。三个语义色只有三种：
  * 逾期/断裂用琥珀到砖红的暖色，正常用青灰，已了结用低对比灰。
  * 刻意不用绿色 —— 这不是行情界面，"绿=好"在阅读结构图时没有意义。
+ *
+ * 唯一的破例是草稿新旧对比（.diff）：删除=红底、新增=绿底。那是通用的增删
+ * 语义（任何 diff 工具都这么读），与行情涨跌无关，且只出现在对比视图里。
  */
 
 :root {
@@ -28,6 +31,14 @@
   --alarm: #c05a44;
   --calm: #4d7f8c;
   --done: #4a4b54;
+
+  /* 仅供 .diff 使用的增删色（见文件头的破例说明） */
+  --diff-ins: #3f9a5a;
+  --diff-del: #c9524a;
+  --diff-ins-bg: #3f9a5a2e;
+  --diff-del-bg: #c9524a2e;
+  --diff-ins-strong: #3f9a5a66;
+  --diff-del-strong: #c9524a66;
 
   --radius: 3px;
   --mono: ui-monospace, "SF Mono", Menlo, "Cascadia Mono", monospace;
@@ -691,4 +702,61 @@ th.num {
 
 .prep dd {
   margin: 0;
+}
+
+/* ── 草稿新旧对比（红绿破例，见文件头）────────────────────────────────── */
+
+.diff-head {
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+
+.diff-stat {
+  font: 12px var(--mono);
+}
+
+.diff-stat[data-op="insert"] {
+  color: var(--diff-ins);
+}
+
+.diff-stat[data-op="delete"] {
+  color: var(--diff-del);
+}
+
+.diff-body p[data-op="insert"] {
+  background: var(--diff-ins-bg);
+  box-shadow: inset 3px 0 0 var(--diff-ins);
+  padding-left: 8px;
+}
+
+.diff-body p[data-op="delete"] {
+  background: var(--diff-del-bg);
+  box-shadow: inset 3px 0 0 var(--diff-del);
+  padding-left: 8px;
+  text-decoration: line-through;
+  color: var(--ink-dim);
+}
+
+.diff-body span[data-op="insert"] {
+  background: var(--diff-ins-strong);
+  border-radius: 2px;
+}
+
+.diff-body span[data-op="delete"] {
+  background: var(--diff-del-strong);
+  border-radius: 2px;
+  text-decoration: line-through;
+  color: var(--ink-dim);
+}
+
+.diff-fold {
+  display: block;
+  width: 100%;
+  margin: 0 0 1em;
+  padding: 4px 0;
+  border: 1px dashed var(--line-bright);
+  background: transparent;
+  color: var(--ink-faint);
+  font: 12px var(--mono);
+  text-align: center;
 }

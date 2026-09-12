@@ -318,8 +318,18 @@ export const MAIN_AGENT_TOOLS: readonly Anthropic.Tool[] = [
   {
     name: "write_next_chapter",
     description:
-      "按已确认的下一章节拍表发起写章任务，产出一份待采用草稿（正文+结构声明+检查）。仅当用户明确要求写章时调用；查询、讨论、规划都不要调用它。若已有正在生成的任务，会返回其进度而非另起一轮。",
+      "按已确认的下一章节拍表发起写章任务，产出一份待采用草稿（正文+结构声明+检查）。任务内部会按检查结果自动修订，次数有上限；到上限仍未通过就停在 needs_revision 交作者处理。仅当用户明确要求写章时调用；查询、讨论、规划都不要调用它。该章已有待处理草稿时会原样返回那份草稿而不重写——要重来用 rewrite_chapter_draft。",
     input_schema: { type: "object", properties: {}, required: [] },
+  },
+  {
+    name: "rewrite_chapter_draft",
+    description:
+      "放弃当前待处理草稿的内容，为同一章从头另写一版（新的 draftId，旧稿保留可查）。这是作者对一份未就绪/不满意草稿唯一的“再来一次”手段——你没有其他修改草稿的工具，不要承诺“我再优化一下”。仅当用户明确要求重写/再写一版时调用。",
+    input_schema: {
+      type: "object",
+      properties: { chapter: { type: "number", description: "章号，缺省为下一章" } },
+      required: [],
+    },
   },
   {
     name: "adopt_chapter",
@@ -353,5 +363,6 @@ export const EXPECTED_MAIN_AGENT_TOOL_ORDER: readonly string[] = [
   "plan_abandon_foreshadow",
   "record_alternative_idea",
   "write_next_chapter",
+  "rewrite_chapter_draft",
   "adopt_chapter",
 ] as const;

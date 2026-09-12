@@ -15,7 +15,10 @@ import { loadRules } from "../src/rules/load.js";
 import { deriveBudget } from "../src/beat/derive.js";
 import { countWords } from "../src/text/measure.js";
 import type { ChapterDraft } from "../src/task/types.js";
-import { C5_JSON, PROSE, WRITE_BEAT, fakeClient, modelMessage, modelText, savedDraft, writingSnapshot } from "./writing-fixtures.js";
+import { C5_JSON, PROSE, WRITE_BEAT, fakeClient, modelMessage, modelText, padToBudget, savedDraft, writingSnapshot } from "./writing-fixtures.js";
+
+/** 达标长度的样例正文：不触发 C7 的 route_patch，因而不会牵动自动修订。 */
+const FULL_PROSE = padToBudget();
 
 const roots: string[] = [];
 const servers: Server[] = [];
@@ -41,25 +44,29 @@ const FAILURE: CallResult = { kind: "error", error: { type: "connection", status
 
 describe("POST /api/chapter/write", () => {
   it("从项目运行章节图并返回草稿，正式事件、正文和作品版本不受生成影响", async () => {
-    const model = fakeClient([modelText(PROSE), modelText(C5_JSON)]);
+    const patched = `${PROSE}\n他把账本翻到最后一页，缺口的毛边还新。`;
+    const model = fakeClient([modelText(PROSE), modelText(C5_JSON), modelText(patched), modelText(C5_JSON)]);
     const { session, store, drafts } = seed(model.client);
     const before = store.load();
     const response = await write(session, { chapter: 3 });
     expect(response.status).toBe(200);
     const draft = response.body as ChapterDraft;
     expect(draft.chapter).toBe(3);
-    expect(draft.body).toBe(PROSE);
     expect(draft.declaration?.foreshadowResolved[0]?.foreshadowId).toBe("F01");
-    // 短测试正文确实进入 C6，不能绕过字数检查而伪装成 ready。
+    // 短测试正文确实进入 C6，不能绕过字数检查而伪装成 ready；
+    // 未过即自动修订一次（rules.task.maxAutoRevisions=1），改前那版存进 revisions。
     expect(draft.status).toBe("needs_revision");
     expect(draft.acceptable).toBe(false);
+    expect(draft.body).toBe(patched);
+    expect(draft.revisions).toHaveLength(1);
+    expect(draft.revisions[0]?.body).toBe(PROSE);
     expect(draft).not.toHaveProperty("session");
     expect(draft).not.toHaveProperty("writeContext");
     expect(store.load().events).toEqual(before.events);
     expect(store.load().chapters).toEqual(before.chapters);
     expect(drafts.workVersion()).toBe(0);
     expect(drafts.loadDraft(3, draft.draftId)?.session).not.toBeNull();
-    expect(model.calls).toHaveLength(2);
+    expect(model.calls).toHaveLength(4); // C4 → C5 → C7 → C5
   });
 
   it("写作工具读到真实人物/组织/前章，提议只进入草稿", async () => {
@@ -70,7 +77,7 @@ describe("POST /api/chapter/write", () => {
         { type: "tool_use", id: "chapter", name: "load_chapter", caller: { type: "direct" }, input: { chapter: 2 } },
         { type: "tool_use", id: "proposal", name: "propose_character_update", caller: { type: "direct" }, input: { name: "李长风", field: "profile.wants", value: "追查失窃账页", reason: "见章末" } },
       ], "tool_use") },
-      modelText(PROSE), modelText(C5_JSON),
+      modelText(FULL_PROSE), modelText(C5_JSON),
     ]);
     const { session } = seed(model.client);
     const before = session.meta.characters;
@@ -85,11 +92,7 @@ describe("POST /api/chapter/write", () => {
   });
 
   it("达标草稿采用后，下一章读取新正文与正式人物状态", async () => {
-    const snapshot = writingSnapshot();
-    const target = deriveBudget(WRITE_BEAT.plan, snapshot.profile, loadRules()).words.sweet;
-    let prose = `${PROSE}\n李长风的毒伤已经痊愈。`;
-    // 仅为默认代码闸门提供足量文本；这不是创作质量验收。
-    while (countWords(prose) < target) prose += "\n他沿着石壁逐一查看架上的木匣，把封口和旧图上的记号对照，随后记下匣底的编号。";
+    const prose = padToBudget(`${PROSE}\n李长风的毒伤已经痊愈。`);
     const c5 = JSON.stringify({ ...JSON.parse(C5_JSON), character_states: [{ character_id: "C01", field: "condition", from: "毒伤尚未痊愈", to: "毒伤已经痊愈", quote: "李长风的毒伤已经痊愈" }] });
     const model = fakeClient([modelText(prose), modelText(c5)]);
     const { root, session, drafts } = seed(model.client);
@@ -102,7 +105,10 @@ describe("POST /api/chapter/write", () => {
     expect(drafts.workVersion()).toBe(1);
 
     session.putBeat({ ...WRITE_BEAT, chapter: 4, plan: { ...WRITE_BEAT.plan, chapterType: "event", resolves: [], coreEvent: "血刀客查阅账本" } });
-    const next = fakeClient([modelText("血刀客翻开了旧账本。首页留着三叔的名字。"), modelText(JSON.stringify({ ...JSON.parse(C5_JSON), events: [], foreshadow_resolved: [], character_states: [] }))]);
+    // 第 4 章的样例正文偏短，会触发一次自动修订 —— 这里只关心装配进去的上下文，补足调用即可。
+    const nextC5 = modelText(JSON.stringify({ ...JSON.parse(C5_JSON), events: [], foreshadow_resolved: [], character_states: [] }));
+    const nextProse = modelText("血刀客翻开了旧账本。首页留着三叔的名字。");
+    const next = fakeClient([nextProse, nextC5, nextProse, nextC5]);
     const continued = await write(new ProjectSession(root, loadRules(), { client: next.client }), { chapter: 4 });
     expect(continued.status).toBe(200);
     expect(JSON.stringify(next.calls[0]?.messages)).toContain("李长风 | 主角 | 毒伤已经痊愈");
@@ -111,20 +117,20 @@ describe("POST /api/chapter/write", () => {
   });
 
   it("C5 失败保留正文，重新打开项目后只恢复声明步骤", async () => {
-    const first = fakeClient([modelText(PROSE), FAILURE]);
+    const first = fakeClient([modelText(FULL_PROSE), FAILURE]);
     const { root, session, drafts } = seed(first.client);
     const response = await write(session, { chapter: 3 });
     const failed = response.body as ChapterDraft;
     expect(failed.status).toBe("failed");
     expect(failed.error?.step).toBe("C5");
-    expect(drafts.loadDraft(3, failed.draftId)?.body).toBe(PROSE);
+    expect(drafts.loadDraft(3, failed.draftId)?.body).toBe(FULL_PROSE);
 
     const second = fakeClient([modelText(C5_JSON)]);
     const reopened = new ProjectSession(root, loadRules(), { client: second.client });
     const resumed = await write(reopened, { chapter: 3, draftId: failed.draftId });
     expect(resumed.status).toBe(200);
     expect((resumed.body as ChapterDraft).draftId).toBe(failed.draftId);
-    expect((resumed.body as ChapterDraft).body).toBe(PROSE);
+    expect((resumed.body as ChapterDraft).body).toBe(FULL_PROSE);
     expect((resumed.body as ChapterDraft).declaration).not.toBeNull();
     expect(second.calls).toHaveLength(1);
     expect(second.calls[0]?.outputSchema).toBeDefined();
@@ -136,14 +142,14 @@ describe("POST /api/chapter/write", () => {
     const first = fakeClient([FAILURE]);
     const { root, session } = seed(first.client);
     const failed = (await write(session, { chapter: 3, maxOutputTokens: 9000 })).body as ChapterDraft;
-    const second = fakeClient([modelText(PROSE), modelText(C5_JSON)]);
+    const second = fakeClient([modelText(FULL_PROSE), modelText(C5_JSON)]);
     const resumed = await write(new ProjectSession(root, loadRules(), { client: second.client }), { chapter: 3 });
     expect((resumed.body as ChapterDraft).draftId).toBe(failed.draftId);
     expect(second.calls[0]?.maxTokens).toBe(9000);
   });
 
   it("普通重复请求返回现有结果，newDraft 才另写一版", async () => {
-    const model = fakeClient([modelText(PROSE), modelText(C5_JSON), modelText(PROSE), modelText(C5_JSON)]);
+    const model = fakeClient([modelText(FULL_PROSE), modelText(C5_JSON), modelText(FULL_PROSE), modelText(C5_JSON)]);
     const { session, drafts } = seed(model.client);
     const first = await write(session, { chapter: 3 });
     const repeated = await write(session, { chapter: 3 });
@@ -160,7 +166,7 @@ describe("POST /api/chapter/write", () => {
     const { root, session } = seed(first.client);
     await write(session, { chapter: 3, maxOutputTokens: 9000 });
     await write(session, { chapter: 3, maxOutputTokens: 12000 });
-    const second = fakeClient([modelText(PROSE), modelText(C5_JSON)]);
+    const second = fakeClient([modelText(FULL_PROSE), modelText(C5_JSON)]);
     await write(new ProjectSession(root, loadRules(), { client: second.client }), { chapter: 3 });
     expect(second.calls[0]?.maxTokens).toBe(12000);
   });
@@ -269,7 +275,7 @@ describe("运行中的请求与状态", () => {
       expect(conflict.status).toBe(409);
       const discarded = handle(session, { method: "POST", path: "/api/chapter/discard", query: new URLSearchParams(), body: { chapter: 3, draftId: running[0]!.draftId } });
       expect(discarded.status).toBe(409);
-    } finally { model.release(modelText(PROSE)); }
+    } finally { model.release(modelText(FULL_PROSE)); }
     expect(await repeated).toEqual(await first);
     expect(model.calls).toHaveLength(2);
     expect(drafts.listDrafts(3)).toHaveLength(1);
@@ -282,11 +288,11 @@ describe("运行中的请求与状态", () => {
     try {
       await vi.waitFor(() => expect(model.calls).toHaveLength(1));
       session.putBeat({ ...WRITE_BEAT, plan: { ...WRITE_BEAT.plan, hook: "密库石门从身后落下" } });
-    } finally { model.release(modelText(PROSE)); }
+    } finally { model.release(modelText(FULL_PROSE)); }
     const response = await pending;
     const draft = response.body as ChapterDraft;
     expect(draft.status).toBe("stale");
-    expect(draft.body).toBe(PROSE);
+    expect(draft.body).toBe(FULL_PROSE);
     expect(drafts.loadDraft(3, draft.draftId)?.status).toBe("stale");
     const adopted = handle(session, { method: "POST", path: "/api/chapter/adopt", query: new URLSearchParams(), body: { chapter: 3, draftId: draft.draftId } });
     expect(adopted.status).toBe(400);
@@ -305,19 +311,19 @@ describe("运行中的请求与状态", () => {
       await vi.waitFor(() => expect(model.calls).toHaveLength(1));
       controller.abort();
       await request;
-    } finally { model.release(modelText(PROSE)); }
-    await vi.waitFor(() => expect(drafts.latestDraft(3)?.status).toBe("needs_revision"));
+    } finally { model.release(modelText(FULL_PROSE)); }
+    await vi.waitFor(() => expect(drafts.latestDraft(3)?.status).toBe("ready"));
     const response = await fetch(`${url}/api/chapter/drafts?n=3`);
     const list = await response.json() as ChapterDraft[];
     expect(list).toHaveLength(1);
-    expect(list[0]?.body).toBe(PROSE);
+    expect(list[0]?.body).toBe(FULL_PROSE);
     expect(model.calls).toHaveLength(2);
   });
 });
 
 describe("HTTP 写章传输", () => {
   it("真实 HTTP 等待异步任务完成，既有查询继续可用", async () => {
-    const model = fakeClient([modelText(PROSE), modelText(C5_JSON)]);
+    const model = fakeClient([modelText(FULL_PROSE), modelText(C5_JSON)]);
     const { root } = seed();
     const server = serve({ projectRoot: root, port: 0, client: model.client });
     servers.push(server);
@@ -326,7 +332,7 @@ describe("HTTP 写章传输", () => {
     const response = await fetch(`${url}/api/chapter/write`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ chapter: 3 }) });
     expect(response.status).toBe(200);
     const draft = await response.json() as ChapterDraft;
-    expect(draft.body).toBe(PROSE);
+    expect(draft.body).toBe(FULL_PROSE);
     expect(draft).not.toHaveProperty("session");
     const detail = await fetch(`${url}/api/chapter/draft?n=3&id=${draft.draftId}`);
     expect(await detail.json()).toEqual(draft);

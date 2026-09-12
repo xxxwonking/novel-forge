@@ -6,15 +6,16 @@
  * （草稿号/版本号这类序号不是 §10.1 的派生阈值）。
  *
  * 布局（都在项目 root 下，`data/` 不入 git）：
- *   drafts/ch{n}/{draftId}.json   草稿元数据（不含正文）
- *   drafts/ch{n}/{draftId}.txt    草稿正文（纯文本，沿用「正文不塞 JSON」原则）
- *   work-meta.json                作品版本号（每次采用 +1，staleness 判据）
+ *   drafts/ch{n}/{draftId}.json      草稿元数据（不含任何正文）
+ *   drafts/ch{n}/{draftId}.txt       草稿当前正文
+ *   drafts/ch{n}/{draftId}.r{k}.txt  第 k 次自动修订前的正文快照
+ *   work-meta.json                   作品版本号（每次采用 +1，staleness 判据）
  */
 
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ChapterNo } from "../types/primitives.js";
-import type { ChapterDraft, DraftId } from "./types.js";
+import type { ChapterDraft, DraftId, DraftRevision } from "./types.js";
 
 const DRAFT_DIR = "drafts";
 const META_FILE = "work-meta.json";
@@ -24,8 +25,15 @@ interface WorkMeta {
   readonly workVersion: number;
 }
 
-/** 落盘的草稿元数据 —— 正文单独存 .txt，其余进 JSON。 */
-type DraftMeta = Omit<ChapterDraft, "body">;
+/**
+ * 落盘的草稿元数据 —— 正文一律另存 .txt，JSON 里只留结构。
+ *
+ * 修订快照同样脱掉 body：它们也是正文，塞进 JSON 会让元数据文件随修订次数
+ * 膨胀成不可读的大块转义文本。`revisions` 缺失即旧版草稿（回读补空数组）。
+ */
+type DraftMeta = Omit<ChapterDraft, "body" | "revisions"> & {
+  readonly revisions?: readonly Omit<DraftRevision, "body">[];
+};
 
 export class DraftStore {
   constructor(private readonly root: string) {}
@@ -71,19 +79,26 @@ export class DraftStore {
   saveDraft(draft: ChapterDraft): void {
     const dir = this.chapterDir(draft.chapter);
     mkdirSync(dir, { recursive: true });
-    const { body, ...meta } = draft;
+    const { body, revisions, ...rest } = draft;
+    const meta: DraftMeta = {
+      ...rest,
+      revisions: revisions.map(({ body: _body, ...r }) => r),
+    };
     writeFileSync(join(dir, `${draft.draftId}.json`), `${JSON.stringify(meta, null, 2)}\n`, "utf8");
     writeFileSync(join(dir, `${draft.draftId}.txt`), body, "utf8");
+    revisions.forEach((r, i) => writeFileSync(join(dir, revisionFile(draft.draftId, i)), r.body, "utf8"));
   }
 
   loadDraft(chapter: ChapterNo, draftId: DraftId): ChapterDraft | undefined {
     const dir = this.chapterDir(chapter);
     const metaPath = join(dir, `${draftId}.json`);
     if (!existsSync(metaPath)) return undefined;
-    const meta = JSON.parse(readFileSync(metaPath, "utf8")) as DraftMeta;
-    const bodyPath = join(dir, `${draftId}.txt`);
-    const body = existsSync(bodyPath) ? readFileSync(bodyPath, "utf8") : "";
-    return { ...meta, body };
+    const { revisions = [], ...meta } = JSON.parse(readFileSync(metaPath, "utf8")) as DraftMeta;
+    return {
+      ...meta,
+      body: readText(join(dir, `${draftId}.txt`)),
+      revisions: revisions.map((r, i) => ({ ...r, body: readText(join(dir, revisionFile(draftId, i))) })),
+    };
   }
 
   /** 该章全部草稿，按创建时间升序（末尾即最新）。 */
@@ -116,4 +131,14 @@ export class DraftStore {
 
 function draftSequence(draftId: DraftId): number {
   return Number(/^ch\d+d(\d+)$/u.exec(draftId)?.[1] ?? 0);
+}
+
+/** 修订快照的正文文件名。序号从 1 起，与作者看到的「第几版」一致。 */
+function revisionFile(draftId: DraftId, index: number): string {
+  return `${draftId}.r${index + 1}.txt`;
+}
+
+/** 正文文件缺失不算错误：元数据是权威，正文丢了也要让草稿能被读出来看见。 */
+function readText(path: string): string {
+  return existsSync(path) ? readFileSync(path, "utf8") : "";
 }
