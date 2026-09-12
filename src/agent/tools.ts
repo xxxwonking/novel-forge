@@ -5,8 +5,10 @@
  * 这是**对话编排**的工具，不走缓存装配路径。但仍固定顺序、由 EXPECTED 常量守住，
  * 保持与写作工具同一套纪律（改动工具集必须同步改 EXPECTED，测试逼你确认一次）。
  *
- * 三类，副作用策略分明：
+ * 四类，副作用策略分明：
  *   读类（get_/list_）—— 零副作用，从项目快照取数。
+ *   筹备类（set_/upsert_/define_/plan_chapter，切片 2）—— 改 L1/资料/节拍，authored 可信度，
+ *     编号由代码分配（§5.8）；不入事件流。
  *   计划类（plan_）—— 改下一章节拍表 / 伏笔安排，属"计划态"（§7.3），非正式正文事实。
  *   任务类（write_/adopt_）—— 走 ProjectSession 受控入口：写章产出草稿（proposed），
  *     采用按版本、幂等。Agent 永不直接改正式事实（§12.0）。
@@ -65,6 +67,202 @@ export const MAIN_AGENT_TOOLS: readonly Anthropic.Tool[] = [
     name: "get_next_plan",
     description: "读取下一章的节拍表（章节类型、核心事件、要收的伏笔、点名人物、派生字数预算）。写下一章或讨论下一章方向前调用。",
     input_schema: { type: "object", properties: {}, required: [] },
+  },
+  {
+    name: "get_direction",
+    description:
+      "读取作品方向与写作纪律的当前全文：前提、核心冲突、视角/时态、主角性格与禁忌、金手指及其限制、世界观要点、开局情境、风格关键词、感情线、禁忌、目标字数，以及写作纪律条目。修改这些内容前先读，避免覆盖已有条目。",
+    input_schema: { type: "object", properties: {}, required: [] },
+  },
+  {
+    name: "set_direction",
+    description:
+      "设定或修改作品方向（作品级设定，整本书恒定）。只传要改的字段；数组字段整体替换，先 get_direction 读现状再改。书名/题材/平台不在此改。仅当作者明确表达了决定时调用，讨论可能性时不要调用。",
+    input_schema: {
+      type: "object",
+      properties: {
+        premise: { type: "string", description: "全书要讲的一句话" },
+        centralConflict: { type: "string", description: "核心冲突" },
+        pov: { type: "string", enum: ["first", "third_limited", "third_omniscient"], description: "叙事视角" },
+        tense: { type: "string", enum: ["past", "present"] },
+        protagonistTraits: { type: "array", items: { type: "string" }, description: "主角性格标签" },
+        protagonistForbidden: { type: "array", items: { type: "string" }, description: "主角明确禁止的行为" },
+        specialAbility: { type: "string", description: "金手指/特殊能力" },
+        abilityLimits: { type: "array", items: { type: "string" }, description: "能力的限制（无限制即无冲突）" },
+        worldRules: { type: "array", items: { type: "string" }, description: "世界观要点，每条一句" },
+        openingSituation: { type: "string", description: "故事起点的时间与地点（故事内时间）" },
+        styleKeywords: { type: "array", items: { type: "string" } },
+        romanceLine: { type: "string", description: "感情线定位" },
+        taboos: { type: "array", items: { type: "string" }, description: "这本书绝对不写的东西" },
+      },
+      required: [],
+    },
+  },
+  {
+    name: "upsert_character",
+    description:
+      "新建或修改一张人物卡。新建：不传 id，必给 name 与 tier，编号由系统分配（C01、C02…）；修改：传 id（同名也视为同一人物），只传要改的字段，数组字段整体替换。speech 是可被机器检查的说话方式，尽量给 exemplars（真实例句）。",
+    input_schema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "人物编号，仅修改时传" },
+        name: { type: "string" },
+        aliases: { type: "array", items: { type: "string" } },
+        tier: { type: "string", enum: ["protagonist", "major", "minor", "extra"], description: "出场权重" },
+        role: { type: "string", description: "一句话定位" },
+        appearance: {
+          type: "array",
+          description: "可比对的外貌属性",
+          items: {
+            type: "object",
+            properties: {
+              key: { type: "string", description: "如 眼睛颜色 / 惯用手" },
+              value: { type: "string" },
+              immutable: { type: "boolean", description: "不可变属性 true（瞳色），会变的 false（伤势）；默认 true" },
+            },
+            required: ["key", "value"],
+          },
+        },
+        traits: { type: "array", items: { type: "string" }, description: "性格标签" },
+        forbiddenBehaviors: { type: "array", items: { type: "string" }, description: "明确禁止的行为" },
+        wants: { type: "string", description: "表层诉求" },
+        fears: { type: "string", description: "深层恐惧" },
+        background: { type: "string" },
+        speech: {
+          type: "object",
+          properties: {
+            sentenceLength: {
+              type: "object",
+              description: "台词句长区间（字）",
+              properties: { min: { type: "integer" }, max: { type: "integer" } },
+              required: ["min", "max"],
+            },
+            verbalTics: { type: "array", items: { type: "string" }, description: "口头习惯语" },
+            signatureLexicon: { type: "array", items: { type: "string" }, description: "专属词汇" },
+            forbiddenLexicon: { type: "array", items: { type: "string" }, description: "禁用词" },
+            addressForms: {
+              type: "array",
+              description: "称谓表",
+              items: {
+                type: "object",
+                properties: {
+                  target: { type: ["string", "null"], description: "目标人物编号，null 表示对所有人的默认称谓" },
+                  form: { type: "string" },
+                  condition: { type: "string", description: "仅在特定情境下使用，可空" },
+                },
+                required: ["target", "form"],
+              },
+            },
+            syntaxBias: {
+              type: "object",
+              description: "句式占比目标（0-1）",
+              properties: { question: { type: "number" }, imperative: { type: "number" }, elliptical: { type: "number" } },
+              required: ["question", "imperative", "elliptical"],
+            },
+            register: { type: "string", enum: ["vulgar", "colloquial", "neutral", "formal", "literary", "archaic"], description: "语域" },
+            emotionalExpression: { type: "string", enum: ["suppressed", "direct", "ironic", "explosive", "oblique"], description: "情绪表达方式" },
+            exemplars: { type: "array", items: { type: "string" }, description: "正例台词 2-5 条" },
+            counterExemplars: { type: "array", items: { type: "string" }, description: "反例台词 0-3 条" },
+          },
+          required: [],
+        },
+      },
+      required: [],
+    },
+  },
+  {
+    name: "upsert_location",
+    description:
+      "新建或修改一个地点/组织设定卡。新建：不传 id，必给 name，编号由系统分配（S01…）；修改：传 id（同名视为同一处），只传要改的字段。facts 是可核对的事实条目，整体替换。",
+    input_schema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "编号，仅修改时传" },
+        name: { type: "string" },
+        kind: { type: "string", enum: ["location", "organization"], description: "默认 location" },
+        description: { type: "string" },
+        facts: { type: "array", items: { type: "string" }, description: "可核对的事实，每条一句" },
+      },
+      required: [],
+    },
+  },
+  {
+    name: "define_plotline",
+    description:
+      "定义或修改一条情节线（主线/支线/细节线），编号由系统分配（P01…）；修改时传 id 或同名 label。节拍表里的事件要归属到情节线，先定义再排章。",
+    input_schema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "编号，仅修改时传" },
+        label: { type: "string", description: "情节线名称" },
+        weight: { type: "string", enum: ["main", "sub", "detail"], description: "默认 sub" },
+      },
+      required: [],
+    },
+  },
+  {
+    name: "set_discipline",
+    description:
+      "整体替换写作纪律条目（全书写作时常驻的硬规则，如视角纪律、禁写句式）。先 get_direction 读现有条目，改动后把完整列表传回；版本号由系统递增。",
+    input_schema: {
+      type: "object",
+      properties: { rules: { type: "array", items: { type: "string" }, description: "完整的纪律条目列表" } },
+      required: ["rules"],
+    },
+  },
+  {
+    name: "plan_chapter",
+    description:
+      "为某一章排节拍表（默认下一章），整体覆盖该章现有计划。events 每条要归属情节线；characters/locations 引用已存在的编号。写入前做合规校验：阶段反馈写“继续铺垫”类推迟、章末钩子用“更大的风暴”类空钩会被打回，需重填。仅当作者确认了本章安排时调用。",
+    input_schema: {
+      type: "object",
+      properties: {
+        chapter: { type: "integer", description: "章号，默认下一章" },
+        chapterType: { type: "string", enum: ["transition", "setup", "event", "payoff", "climax"] },
+        coreEvent: { type: "string", description: "核心事件一句话" },
+        secondaryThread: { type: "string", description: "次级推进，可空" },
+        stageFeedback: { type: "string", description: "本章给读者的具体兑现或升级" },
+        hook: { type: "string", description: "章末钩子：具体的动作、信息或抉择落点" },
+        events: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              kind: { type: "string", enum: ["action", "info", "relation", "resource", "decision"] },
+              summary: { type: "string", description: "含具体变化的一句话" },
+              weight: { type: "integer", enum: [1, 2, 3], description: "3 改变全书格局 / 2 改变本卷局面 / 1 局部推进" },
+              plotLine: { type: ["string", "null"], description: "归属情节线编号" },
+            },
+            required: ["kind", "summary", "weight"],
+          },
+        },
+        resolves: {
+          type: "array",
+          description: "本章要收的伏笔（须是已埋设的未收伏笔）",
+          items: {
+            type: "object",
+            properties: {
+              foreshadowId: { type: "string" },
+              weight: { type: "string", enum: ["main", "sub", "detail"] },
+              completeness: { type: "string", enum: ["full", "partial"] },
+            },
+            required: ["foreshadowId", "weight", "completeness"],
+          },
+        },
+        plants: {
+          type: "array",
+          description: "本章计划要埋的伏笔",
+          items: {
+            type: "object",
+            properties: { label: { type: "string" }, weight: { type: "string", enum: ["main", "sub", "detail"] } },
+            required: ["label", "weight"],
+          },
+        },
+        characters: { type: "array", items: { type: "string" }, description: "出场人物编号" },
+        locations: { type: "array", items: { type: "string" }, description: "场景编号" },
+      },
+      required: ["chapterType", "coreEvent", "stageFeedback", "hook"],
+    },
   },
   {
     name: "plan_add_to_next_chapter",
@@ -143,6 +341,13 @@ export const EXPECTED_MAIN_AGENT_TOOL_ORDER: readonly string[] = [
   "get_character",
   "list_open_foreshadows",
   "get_next_plan",
+  "get_direction",
+  "set_direction",
+  "upsert_character",
+  "upsert_location",
+  "define_plotline",
+  "set_discipline",
+  "plan_chapter",
   "plan_add_to_next_chapter",
   "plan_reschedule_foreshadow",
   "plan_abandon_foreshadow",

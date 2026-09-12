@@ -7,6 +7,8 @@
  *
  * 副作用边界（本模块的核心纪律）：
  *   - 读类工具是纯查询，从 ctx 取数即回传，**不产生 effect**。
+ *   - 筹备类工具（切片 2）改作品方向/人物/地点/情节线/纪律/节拍，编号由代码分配；
+ *     入参解析在 prep.ts，写入经 ctx 走 ProjectSession 受控入口。
  *   - 动作类工具经 ctx 走 ProjectSession 受控入口，各产出**恰好一个 effect**
  *     （成功或 action_failed）。Agent 永不直接写正式事实（§12.0）。
  *   - executeMainTool 层的输入校验错误（枚举非法/缺必填）回 is_error 但不产 effect
@@ -17,6 +19,19 @@ import type Anthropic from "@anthropic-ai/sdk";
 import { appendTurn, type CallOptions } from "../client/claude.js";
 import type { ModelClient } from "../client/model.js";
 import type { ChapterExcerpt, ForeshadowFilter } from "../task/tool-exec.js";
+import {
+  parseCharacter,
+  parseDirection,
+  parseDisciplineRules,
+  parseLocation,
+  parsePlan,
+  parsePlotLine,
+  type CharacterInput,
+  type DirectionInput,
+  type LocationInput,
+  type PlanChapterInput,
+  type PlotLineInput,
+} from "./prep.js";
 import type { AgentEffect } from "./types.js";
 
 /** 计划类工具的入参（三种 what 对应三类 AlertAction，具体构造在 ctx 里）。 */
@@ -46,6 +61,13 @@ export interface MainAgentToolContext {
   readonly getCharacter: (name: string) => string | null;
   readonly listOpenForeshadows: (weight: ForeshadowFilter) => string;
   readonly getNextPlan: () => string;
+  readonly getDirection: () => string;
+  readonly setDirection: (input: DirectionInput) => Promise<AgentActionOutcome>;
+  readonly upsertCharacter: (input: CharacterInput) => Promise<AgentActionOutcome>;
+  readonly upsertLocation: (input: LocationInput) => Promise<AgentActionOutcome>;
+  readonly definePlotLine: (input: PlotLineInput) => Promise<AgentActionOutcome>;
+  readonly setDiscipline: (rules: readonly string[]) => Promise<AgentActionOutcome>;
+  readonly planChapter: (input: PlanChapterInput) => Promise<AgentActionOutcome>;
   readonly addToNextChapter: (input: PlanAddInput) => Promise<AgentActionOutcome>;
   readonly rescheduleForeshadow: (foreshadowId: string, expectedBy: number) => Promise<AgentActionOutcome>;
   readonly abandonForeshadow: (foreshadowId: string, reason: string) => Promise<AgentActionOutcome>;
@@ -110,6 +132,34 @@ export async function executeMainTool(
       return { result: ok(ctx.listOpenForeshadows(asFilter(readStr("weight")))) };
     case "get_next_plan":
       return { result: ok(ctx.getNextPlan()) };
+    case "get_direction":
+      return { result: ok(ctx.getDirection()) };
+
+    // ── 筹备类：改 L1/资料/节拍，authored；形状错误回 is_error 不产 effect ─
+    case "set_direction": {
+      const parsed = parseDirection(input);
+      return typeof parsed === "string" ? { result: err(parsed) } : action(await ctx.setDirection(parsed));
+    }
+    case "upsert_character": {
+      const parsed = parseCharacter(input);
+      return typeof parsed === "string" ? { result: err(parsed) } : action(await ctx.upsertCharacter(parsed));
+    }
+    case "upsert_location": {
+      const parsed = parseLocation(input);
+      return typeof parsed === "string" ? { result: err(parsed) } : action(await ctx.upsertLocation(parsed));
+    }
+    case "define_plotline": {
+      const parsed = parsePlotLine(input);
+      return typeof parsed === "string" ? { result: err(parsed) } : action(await ctx.definePlotLine(parsed));
+    }
+    case "set_discipline": {
+      const parsed = parseDisciplineRules(input);
+      return typeof parsed === "string" ? { result: err(parsed) } : action(await ctx.setDiscipline(parsed));
+    }
+    case "plan_chapter": {
+      const parsed = parsePlan(input);
+      return typeof parsed === "string" ? { result: err(parsed) } : action(await ctx.planChapter(parsed));
+    }
 
     // ── 计划类：改节拍/伏笔安排（计划态）───────────────────────────────
     case "plan_add_to_next_chapter": {

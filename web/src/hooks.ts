@@ -1,14 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { ApiError } from "./api.js";
 
 /** 一次性拉取 + 手动重取。三态（加载/错误/数据）在每个页面都要用。 */
 export function useFetch<T>(fn: () => Promise<T>, deps: readonly unknown[] = []): {
   data: T | null;
   error: string | null;
+  /** HTTP 状态码（仅 ApiError 有）。409「未选择作品」要与其他失败区分。 */
+  errorStatus: number | null;
   loading: boolean;
   reload: () => void;
 } {
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [errorStatus, setErrorStatus] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [nonce, setNonce] = useState(0);
 
@@ -26,10 +30,14 @@ export function useFetch<T>(fn: () => Promise<T>, deps: readonly unknown[] = [])
         if (alive) {
           setData(v);
           setError(null);
+          setErrorStatus(null);
         }
       })
       .catch((e: unknown) => {
-        if (alive) setError((e as Error).message);
+        if (alive) {
+          setError((e as Error).message);
+          setErrorStatus(e instanceof ApiError ? e.status : null);
+        }
       })
       .finally(() => {
         if (alive) setLoading(false);
@@ -40,7 +48,7 @@ export function useFetch<T>(fn: () => Promise<T>, deps: readonly unknown[] = [])
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nonce, ...deps]);
 
-  return { data, error, loading, reload: useCallback(() => setNonce((n) => n + 1), []) };
+  return { data, error, errorStatus, loading, reload: useCallback(() => setNonce((n) => n + 1), []) };
 }
 
 /** 容器宽度。SVG 要按可用宽度算刻度，而不是写死一个值。 */

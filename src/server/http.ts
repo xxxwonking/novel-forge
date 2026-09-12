@@ -13,8 +13,8 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { extname, join, normalize, resolve } from "node:path";
-import { ProjectSession } from "./state.js";
-import { handleAsync, type ApiRequest } from "./api.js";
+import { Workspace } from "./workspace.js";
+import { handleWorkspace, type ApiRequest } from "./api.js";
 import type { ChapterWriterOptions } from "./chapter-writer.js";
 
 const LOCALHOST = "127.0.0.1";
@@ -36,18 +36,21 @@ export interface ServeOptions extends ChapterWriterOptions {
 }
 
 export function serve(options: ServeOptions): ReturnType<typeof createServer> {
-  const session = new ProjectSession(options.projectRoot, undefined, options);
+  const workspace = new Workspace(options.projectRoot, options);
   const staticDir = options.staticDir !== undefined ? resolve(options.staticDir) : undefined;
 
   const server = createServer((req, res) => {
-    void route(session, staticDir, req, res).catch((e: unknown) => {
+    void route(workspace, staticDir, req, res).catch((e: unknown) => {
       send(res, 500, { error: (e as Error).message });
     });
   });
 
   server.listen(options.port, LOCALHOST, () => {
     const where = `http://${LOCALHOST}:${options.port}`;
-    process.stdout.write(`novel-forge 已启动：${where}\n项目：${options.projectRoot}\n`);
+    const { works, activeId } = workspace.list();
+    process.stdout.write(
+      `novel-forge 已启动：${where}\n工作区：${options.projectRoot}（${works.length} 部作品${activeId === null ? "，未选择" : `，当前：${activeId}`}）\n`,
+    );
     if (staticDir === undefined || !existsSync(staticDir)) {
       process.stdout.write("（未找到前端构建产物，当前只提供 /api）\n");
     }
@@ -57,7 +60,7 @@ export function serve(options: ServeOptions): ReturnType<typeof createServer> {
 }
 
 async function route(
-  session: ProjectSession,
+  workspace: Workspace,
   staticDir: string | undefined,
   req: IncomingMessage,
   res: ServerResponse,
@@ -71,7 +74,7 @@ async function route(
       query: url.searchParams,
       body: req.method === "POST" ? await readJson(req) : undefined,
     };
-    const result = await handleAsync(session, apiRequest);
+    const result = await handleWorkspace(workspace, apiRequest);
     send(res, result.status, result.body);
     return;
   }

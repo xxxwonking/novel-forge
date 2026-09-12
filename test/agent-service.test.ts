@@ -22,6 +22,14 @@ const INFO: MainAgentContextInfo = {
   nextChapter: 3,
   nextPlanReady: true,
   pendingDrafts: 0,
+  prep: {
+    premiseSet: true,
+    conflictSet: true,
+    characters: [{ id: "C01", name: "李长风", tier: "protagonist" }],
+    locations: [],
+    plotLines: [{ id: "P01", label: "追查旧案", weight: "main" }],
+    disciplineVersion: "d1",
+  },
 };
 
 function toolUse(name: string, input: unknown) {
@@ -42,6 +50,13 @@ function ctxWith(over: Partial<MainAgentToolContext> = {}): MainAgentToolContext
     getCharacter: () => "CARD",
     listOpenForeshadows: () => "FS",
     getNextPlan: () => "PLAN",
+    getDirection: () => "DIRECTION",
+    setDirection: async (input) => ({ message: "已更新方向", effect: { kind: "setting_updated", fields: Object.keys(input) } }),
+    upsertCharacter: async (input) => ({ message: "已新建人物", effect: { kind: "character_upserted", id: "C01", name: input.name ?? "", created: true } }),
+    upsertLocation: async (input) => ({ message: "已新建地点", effect: { kind: "location_upserted", id: "S01", name: input.name ?? "", created: true } }),
+    definePlotLine: async (input) => ({ message: "已定义情节线", effect: { kind: "plotline_defined", id: "P01", label: input.label ?? "", created: true } }),
+    setDiscipline: async (rules) => ({ message: "已更新纪律", effect: { kind: "discipline_updated", version: "a1", count: rules.length } }),
+    planChapter: async ({ chapter, plan }) => ({ message: "已排章", effect: { kind: "chapter_planned", chapter: chapter ?? 1, chapterType: plan.chapterType, warnings: 0 } }),
     addToNextChapter: async () => ({ message: "计划已更新", effect: { kind: "plan_updated", chapter: 3, promotedToPayoff: false } }),
     rescheduleForeshadow: async (foreshadowId, expectedBy) => ({ message: "已改期", effect: { kind: "foreshadow_rescheduled", foreshadowId, expectedBy } }),
     abandonForeshadow: async (foreshadowId) => ({ message: "已废弃", effect: { kind: "foreshadow_abandoned", foreshadowId } }),

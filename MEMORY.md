@@ -1,8 +1,8 @@
 # novel-forge 工作记忆
 
-更新时间：2026-09-10（Asia/Shanghai；Gemini chat 接入和真实单章恢复验证已完成；最新交接见第 14 节）
+更新时间：2026-09-12（Asia/Shanghai；切片 2「作品准备」已在分支 `stage2-work-preparation` 完成并通过真机 live 验收，PR #3 待合；下一轮范围与配色/粒度决策已由用户拍定；**最新交接见第 17 节**）
 
-记录范围：本文件汇总项目调研、用户流程设计、能力映射和开发进展。早前发布与复核记录在第 10、11 节；Mac 会话锁定 v1 决策并实现 Stage 1，见第 12 节；写章输入和 API 交付见第 13 节。**接手先读第 14 节：用户代理站的 Gemini 已通过 `/v1/chat/completions` 接入章节任务，真实生成 2287 字，修复返回格式兼容问题后只恢复 C5，通过检查、测试作品内采用和第二章读取验证。574 项测试、类型检查和前端构建通过，浏览器验证了阅读、体检和原文跳转，暂不调用 Claude。下一步是 Stage 2 文件级实施计划和产品界面接入。旧章节的历史待办以最新记录为准，不重新讨论已确认的框架与采用节奏。**
+记录范围：本文件汇总项目调研、用户流程设计、能力映射和开发进展。早前发布与复核记录在第 10、11 节；Mac 会话锁定 v1 决策并实现 Stage 1，见第 12 节；写章输入和 API 交付见第 13 节；Gemini chat 接入与真实单章验证见第 14 节；Stage 2 切片 1（对话式主 Agent）见第 15 节；切片 2（多作品 + 对话式筹备，含 live 验收全过程）见第 16 节。**接手先读第 17 节：切片 2 已交付（PR #3 待合），并已用真实 Gemini 跑通「空工作区 → 对话筹备到筹备已齐 → 真实生成第 1 章 2562 字草稿 → 未就绪的采用请求按设计被拒」。第 17 节同时记了用户新提的两个问题的核实结论（默认进对话只做了一半；红绿新旧对比没有，且自动修订根本未接线、模型还承诺了不存在的修订能力=真缺陷）、用户已拍的三项决策（全做／diff 破例用红绿／段落级+段内字级）、Phase 1 已查明的实现要点与 7 项待办。旧章节的历史待办以最新记录为准，不重新讨论已确认的框架与采用节奏。**
 
 ## 1. 当前状态与接续位置
 
@@ -505,7 +505,7 @@ Mac 上 GitHub 的 HTTPS(443) 直连被掐、SSH 正常：git 用 SSH 远端；`
 
 ## 15. 2026-09-11 Stage 2·切片 1：对话式主 Agent（Mac 会话）
 
-**当前接续入口。** 本轮由当前代理独立实现、测试、自审，未调用 Codex/Gemini、未 spawn 子代理（沿用项目锁定规则）。基线 master `4df4a58`；分支 `stage2-conversation-agent` → **PR #2**（https://github.com/xxxwonking/novel-forge/pull/2），提交 `f54fde7`（引擎/agent + 服务端 + rules + 测试）、`b2313e5`（web），本节随后提交。
+本轮由当前代理独立实现、测试、自审，未调用 Codex/Gemini、未 spawn 子代理（沿用项目锁定规则）。基线 master `4df4a58`；分支 `stage2-conversation-agent` → **PR #2**（https://github.com/xxxwonking/novel-forge/pull/2），提交 `f54fde7`（引擎/agent + 服务端 + rules + 测试）、`b2313e5`（web），本节随后提交。**已合入 master `aeff8b3`。**
 
 Stage 2 =「作者通过对话完成首章」，切成三片、先做第 1 片（对话式主 Agent），切片 2/3 见文末。
 
@@ -534,3 +534,107 @@ Stage 2 =「作者通过对话完成首章」，切成三片、先做第 1 片�
 - **切片 2**：作品准备（新建作品 + 对话建设定/人物/地点/写作纪律/首章节拍）。
 - **切片 3**：完整结果页富 UI（摘要/关键变化/伏笔情节四象限 + 跳原文）、手动编辑后重新检查、"已安排/已解决"语义衔接。
 - 真机验收：待官方 key（M1 缓存）或在 Windows 机用 Gemini 跑一轮 对话→写章→采用→下一章。
+
+## 16. 2026-09-11 Stage 2·切片 2：作品准备（多作品 + 对话式筹备）（Mac 会话）
+
+**当前接续入口。** 同样由当前代理独立实现、测试、自审，未调用 Codex/Gemini、未 spawn 子代理。基线 master `aeff8b3`；分支 `stage2-work-preparation`。实施计划与决策全文见 `docs/superpowers/plans/2026-09-11-work-preparation.md`。
+
+### 做了什么
+- **多作品工作区**：`src/server/workspace.ts`（`Workspace` + `scaffoldSnapshot` + `isGenre/isPlatform`）。`api.ts` 前置 `handleWorkspace`：`/api/works*`（GET 列表 / POST 新建即激活 / POST select）落工作区，其余端点解析**活动作品**后交原 `handleAsync`，无活动作品回 **409**。既有端点与前端调用零改动。`http.ts`/`main.ts` 构造 Workspace、允许空目录。
+- **筹备写入口**：`persist.ts` +`writeSetting/writeProfile/writePlotLines`；`state.ts` +`putSetting/putProfile/upsertCharacter/upsertSetting/putPlotLine/planChapter`（派生预算 + `authored`）。
+- **筹备类工具 +7**（共 19，顺序仍由 `EXPECTED_MAIN_AGENT_TOOL_ORDER` 守）：`get_direction`/`set_direction`/`upsert_character`/`upsert_location`/`define_plotline`/`set_discipline`/`plan_chapter`。入参解析与合并在新模块 `src/agent/prep.ts`。
+- **系统提示就绪度**：`MainAgentContextInfo.prep` + `prepGaps()`，列缺项与已建对象的「编号 名字」；`GET /api/prep` 给前端同一份。
+- **Web**：`pages/Works.tsx`（列表/切换/新建 4 字段）、`App.tsx` `/works` 路由 + 无活动作品时强制停在该页、`useFetch` 暴露 `errorStatus`（`ApiError` 带状态码）、`Chat.tsx` 只读筹备面板 + 6 个新 effect chip。
+
+### 关键决策
+- **活动作品指针**而非每请求带 work id —— 单用户本地服务，换来既有端点/前端零改动；代价是同时只有一个活动作品。
+- **单作品模式回兼**：serve 的目录自身含 `setting.json` 即单作品（活动恒为它、禁新建），`npm run serve -- data/demo` 照旧。
+- **筹备只经对话，不做表单**：新建表单只收书名/题材/平台/目标字数（后两者决定预算与阈值派生，之后不改）；`scaffoldSnapshot` 的 premise/conflict 等**留空**，绝不编造内容。Web 筹备面板只读。
+- **编号由代码分配（§5.8）**：`nextId` 取同前缀最大序号 +1；模型只能引用系统提示里列出的编号，传未知 id → `action_failed`。人物/地点/情节线同名即视为同一对象。
+- **`plan_chapter` 两道闸**：① 引用的人物/场景/情节线/未收伏笔必须已存在；② `validatePlan` 有 block → `action_failed` 并转述打回项、**不落盘**。过闸才落 `authored`。
+- `set_discipline` 递增作者版本（`d1`→`a1`→`a2`），刻意冷一次 L1 缓存前缀。
+
+### 验证
+- typecheck（根+web）干净；`npm test` **636 通过**（602 基线 + 34：workspace 7 / server-works 6 / session-prep 4 / agent-prep-tools 14 / agent-system-prompt 3）；`npm run web:build` 通过。
+- HTTP 真实 smoke（临时工作区 + curl）：空列表 → 409 → 新建即激活 → `/api/prep` 列全部缺项 → overview 200 → 非法题材 400 → 第二本 + 切换 → 未知 id 404 → 落盘两目录。
+- **真机 live 全流程已通过（2026-09-12，Mac）**。用户把代理配置放在仓库根 `.env.proxy`（git 已忽略、不入提交），据此生成 `.env.local`（`NOVEL_MODEL_PROVIDER=chat`、`CHAT_MODEL=gemini-3-flash`；密钥与地址只留本地，不写进记忆与提交）。跑的是「空工作区 → 成书」：
+  1. 新建《青州旧事》（mystery/fanqie）→ 回合 1 一句话交代方向，模型调 `set_direction` 落 6 个字段（5s）。
+  2. 回合 2 建人物 → `C01 沈砚` / `C02 沈敬堂`；回合 3 → `S01 城南旧巷` / `S02 青州府衙` / `P01 追查灭门旧案(main)` / `P02 信任崩塌(sub)`。**编号全部由代码分配，模型只引用不自造**，后续回合引用编号均正确。
+  3. 回合 4 排第 1 章 → 过引用检查与 V2 校验，0 warn，落 `authored` + 派生预算 2300-2900；`/api/prep` 的 `gaps` 归空、`nextPlanReady` 为 true。
+  4. 回合 5「按计划写第一章」→ 真实生成 2562 字草稿 `ch1d1`，2 轮工具；C6 检查给出 4 项（1 block：字数按口径差 155 字；1 warn 密度 0.93 超上限 0.4；1 warn 锚点引用了未写出的内容；1 info），状态 `needs_revision`、`acceptable=false`。
+  5. 随后说「采用 ch1d1」→ **按设计被拒**：`action_failed`「草稿未就绪，不能采用」，Agent 如实转述并给出修订/查看两个选项，没有假装成功。
+- 上条同时证实：切片 1 的两条护栏（未就绪不可采用、失败如实转述）在真实模型下成立。**未验证**：自动修订到 `ready` 后的采用与第 2 章续写（下一步做）。
+
+### 已知限制（非缺陷）
+- 同一 server 同时只有一个活动作品（多标签页切作品互相影响）。
+- 新建人物时 `addressForms` 自引用会失败（编号尚不存在），第二次调用可补。
+- 人物同名即更新，需要同名两人得先建再改名。
+
+### 下一步
+- **先接着 live 跑完**：让 Agent 自动修订 `ch1d1` 到 `ready` → 采用 → 排第 2 章 → 续写，验证「采用并继续」与跨章衔接。
+- **切片 3**：完整结果页富 UI（摘要/关键变化/伏笔情节四象限 + 跳原文）、手动编辑后重新检查、"已安排/已解决"语义衔接。
+- 内容层观察（非缺陷）：模型给 setup 章排了 3 个事件，导致写完后密度 0.93 超上限 0.4 —— V2 在排章时不看密度（它只有事件计划、没有正文），密度由 C6 写后判定，分工是对的；但系统提示里可以考虑提醒「布局章别塞太多事件」。
+
+### 本机运行方式（Mac）
+`npm run serve -- <一个空目录>` 起多作品工作区（端口 5174，会自动读 `.env.local`）；`.env.proxy` 是用户放的代理配置原始笔记（非 dotenv 格式），`.env.local` 由它生成。前端需先 `npm run web:build`，否则只提供 `/api`。
+
+## 17. 2026-09-12 切片 2 交付完成 + 下一轮（默认对话流 / 自动修订 / 新旧对比）已定方案（Mac 会话）
+
+**当前接续入口。** 同样由当前代理独立产出并自审，未调用 Codex/Gemini、未 spawn 子代理。
+
+### 已交付（切片 2，分支 `stage2-work-preparation`）
+- 提交 `b563ce2`（功能：多作品工作区 + 对话式筹备）、`2ce69f1`（docs：live 验收记录），已推 origin，**PR #3** https://github.com/xxxwonking/novel-forge/pull/3 （含带表格的 live 验收 comment）。**尚未合入 master。**
+- 常规检查：typecheck（根+web）、636 测试、`web:build`、HTTP curl smoke 全通过。真机 live 全流程见第 16 节。
+
+### 本机运行（Mac）
+- 代理配置：用户放在仓库根 `.env.proxy`（**非 dotenv 格式**，是 baseurl/apikey + 模型清单的笔记；git 已忽略）。据它生成了 `.env.local`（`NOVEL_MODEL_PROVIDER=chat`、`CHAT_MODEL=gemini-3-flash`，权限 600）。**密钥与地址只留本机，不写进记忆与提交。**
+- 起服务：`npm run serve -- <一个空目录>` → 端口 **5174**（不是 4173），自动读 `.env.local`；前端需先 `npm run web:build`，否则只提供 `/api`。
+
+### 用户本轮提的两个问题与核实结论
+1. **「默认进入对话流」做好了吗 → 只做了一半。** 通的：导航首项是「对话」；无活动作品强制停在作品页；作品页新建/打开后 `go("/chat")`。**没做的**：默认 hash 仍是 `/` → 首页（`web/src/hooks.ts:74`、`App.tsx:183`），刷新或直开 `localhost:5174` 落在首页告警，而新书首页基本是空的。原因是当时按 §12.6.7「打开项目是告警呈现时机」保留了旧默认。
+2. **「AI 改稿有没有红绿新旧对比」→ 没有，且前提也没接线。**
+   - 草稿面板只有状态/字数/findings/正文全文，**无任何 diff**。
+   - **自动修订根本未接线**（`src/task/graph.ts:12-13` 明写「暂不接线…check 未过即停在 needs_revision，交用户处理」）。
+   - **真缺陷（必修）**：live 测试里模型主动承诺「你可以让我自动优化到 ready」，但工具集无修订工具，`write_next_chapter` 再调一次只会原样返回同一份草稿（`src/server/chapter-writer.ts:72`）—— 模型在承诺不存在的能力，违反提示里「不要假装成功」。
+
+### 用户已拍的三项决策（勿再讨论）
+1. **范围 = 全做**：① 默认进对话；② 自动修订接线（让「AI 发现问题→自己改」真实存在）；③ 草稿新旧对比。
+2. **diff 配色 = 为 diff 破例用红绿**（删除=红底、新增=绿底）。注意这**打破** `web/src/styles.css` 开头「刻意不用绿色 —— 这不是行情界面」的约定；实现时必须在该注释处记下破例理由（diff 红绿是通用增删语义，与行情涨跌无关）。
+3. **对比粒度 = 段落级 + 段内字级**（先按段落配对，改动过的段落内部再做字级高亮）。
+
+### Phase 1 已检索到的实现要点（接手直接用，不必重查）
+- **任务图** `src/task/graph.ts`：`StateGraph` 三节点 `step_write → step_declare → step_check`，`gate()` 条件边遇 `outcome !== null` 即 END；节点带幂等跳过（resume 用）；`MemorySaver` 只管进程内线程态，跨重启靠草稿。接修订需加 `step_revise` 与 `step_check → (acceptable? END : step_revise)` 的条件边 + 修订计数通道。
+- **步骤** `src/task/steps.ts`：`writeChapterBody`(role=creative/effort=xhigh/thinking，带工具循环)、`declareStructure`(同会话第二轮 + `C5_OUTPUT_SCHEMA`)、`checkChapter`(C6 `gateChapter` + C7 `routeChapter`，`canAccept` = 无 block)。输出规模常量 `C4_MAX_TOKENS=16_000`/`C5_MAX_TOKENS=4_000` 就在本文件（`src/task` 不进「代码无数字」扫描）。
+- **修订 prompt 的现成输入**：`src/gate/route.ts` 的 `routeChapter` 已产出 `action`(patch/trim/split/pass/ok) + `targets`（来自 `rules.patchPriority`），`route_patch` 的 message 就是「按优先级补写 / 禁止用来补字数的东西」。修订任务文案应仿 `C4_TASK`/`C5_TASK` 放在 `src/chapter/pipeline.ts:28/38` 同处（叫 `C7_TASK`）。
+- **上限已在配置**：`rules.task.maxAutoRevisions: 1`（rules.yaml:18），无需新增字段。
+- **草稿存储** `src/task/draft-store.ts`：`drafts/ch{n}/{draftId}.json`（元数据）+ `.txt`（正文分开存）；`nextDraftId` 取最大序号+1；`listDrafts` 按 createdAt 升序。`service.drive()` 对 graph.stream 的每个 state 都 `saveDraft` 一次。
+- **测试布局**：无 `vitest.config.*`，web 下无测试文件 → diff 若要单测，实现放 `src/`、测试放 `test/`。注意 `src/text` 与 `src/gate` **在**「代码无数字」扫描名单内，`src/task` 不在。
+
+### 待定（我倾向的方案，未与用户确认）
+- **修订产物放哪**：倾向**同一草稿内保存修订前快照**（给 `ChapterDraft` 加 `revisions: readonly {body, findings, at}[]`，每条是改动前的 body），而不是另起 `ch1d2`。理由：一次写章请求 = 一份草稿（现语义），diff 就地可得、草稿列表不被一次任务的多轮修订刷爆；按版本采用的语义不受影响。约 2.5KB/次，`maxAutoRevisions=1` 下开销可忽略。
+- diff 算法：段落 LCS 配对 + 改动段内字级 LCS，纯函数无依赖，放 `src/` 便于单测；web 侧只渲染。
+
+### 待办（按序）
+1. `ChapterDraft.revisions` + `DraftStore` 落盘/回读（含旧草稿缺字段兼容）。
+2. `C7_TASK` 修订文案 + `reviseChapterBody` 步骤（吃 body + findings + route.targets，产新 body）。
+3. `graph.ts` 加 `step_revise` 与回到 `step_declare`/`step_check` 的边（修订后正文变了，声明与检查都要重算）+ `revisionCount` 通道与 `maxAutoRevisions` 上限。
+4. 修掉「模型承诺不存在能力」：系统提示与 `write_next_chapter` 描述说清修订由任务内自动完成、作者侧只能「重写一版」；必要时给 Agent 加一个显式的「重写/修订当前草稿」工具。
+5. 默认路由改 `/` → 对话页，首页移到 `/home`，同步 rail 顺序与 `Link` 的 active 判断（`to !== "/"` 那条逻辑要一并改）。
+6. diff 纯函数 + 单测；`Chat.tsx` 草稿面板加「对比上一版」视图（红绿破例 + 段内字级）。
+7. 全量 typecheck/测试/web:build + live 跑一遍「写章 → 自动修订 → 看红绿对比 → 采用 → 第 2 章」。
+
+### 推不上 GitHub 时的应急手段（2026-09-12 定位）
+本机 Clash 开 TUN + **fake-ip**，`github.com` 被劫持成 `198.18.0.x`（`dig @1.1.1.1` 也返回 fake-ip），GitHub 流量全部进 Clash 走"GitHub 规则指向的策略组"。**那条策略组坏掉时 HTTPS / SSH(22) / SSH(443) 一起死**，症状：`Connection closed by 198.18.0.x`、curl 恰好 5.00 秒超时、gh `EOF`、git 报 "correct access rights"。**换节点通常没用**（节点是好的，坏的是 GitHub 那条规则）。先分清：
+
+```
+curl -s -x http://127.0.0.1:7897 -o /dev/null -w '%{http_code}\n' --max-time 15 https://example.com/      # 通 → 节点好
+curl -s -x http://127.0.0.1:7897 -o /dev/null -w '%{http_code}\n' --max-time 20 https://api.github.com/   # 000/5s → GitHub 规则坏
+```
+
+绕过办法：直连 GitHub 真实 IP，`HostKeyAlias` 让 SSH 仍按 github.com 的主机密钥验证（不降安全性、不污染 known_hosts、不改任何配置）：
+
+```
+GIT_SSH_COMMAND="ssh -o HostKeyAlias=github.com" git push ssh://git@140.82.116.4/xxxwonking/novel-forge.git HEAD:<分支>
+```
+
+`140.82.116.4` / `140.82.112.4` / `140.82.113.4` 均验过可用；`fetch` 也要带同样的 `GIT_SSH_COMMAND`，否则主机键验证失败。**注意：这些 IP 是硬编码的，GitHub 换 IP 即失效** —— 失效时用未被劫持的 DNS 或 `https://api.github.com/meta` 的 `git` 段重新取。`gh` 不支持指定 IP，走的是同一条坏链路**无法绕过**，所以链路坏时只能做 git 操作，PR/issue 等 API 操作得等恢复；届时合并 PR 的备用路是本地 `git merge --no-ff` 后推 master，GitHub 会自动把 PR 标成 Merged。

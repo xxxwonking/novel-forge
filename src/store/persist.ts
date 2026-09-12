@@ -226,6 +226,18 @@ export class ProjectStore {
     this.writeJson(FILES.discipline, discipline);
   }
 
+  writeSetting(setting: WorkSetting): void {
+    this.writeJson(FILES.setting, setting);
+  }
+
+  writeProfile(profile: WorkProfile): void {
+    this.writeJson(FILES.profile, profile);
+  }
+
+  writePlotLines(plotLines: readonly PlotLineDef[]): void {
+    this.writeJson(FILES.plotLines, plotLines);
+  }
+
   // ── 原语 ──────────────────────────────────────────────────────────────
 
   private readJson<T>(name: string): T {

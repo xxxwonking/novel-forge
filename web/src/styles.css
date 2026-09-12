@@ -631,3 +631,64 @@ th.num {
   outline: none;
   border-color: var(--calm);
 }
+
+/* ── 作品页 / 筹备面板（Stage 2·切片 2）──────────────────────────────── */
+
+.form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 12px;
+  align-items: end;
+  max-width: 820px;
+}
+
+.form label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font: 11px var(--mono);
+  color: var(--ink-faint);
+}
+
+.form input,
+.form select {
+  font: 14px var(--sans);
+  color: var(--ink);
+  background: var(--bg-sunken);
+  border: 1px solid var(--line-bright);
+  border-radius: var(--radius);
+  padding: 7px 10px;
+}
+
+.form input:focus,
+.form select:focus {
+  outline: none;
+  border-color: var(--calm);
+}
+
+.prep {
+  background: var(--bg-raised);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--sub);
+  border-radius: var(--radius);
+  padding: 9px 13px;
+  margin-bottom: 14px;
+  font-size: 13px;
+}
+
+.prep dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 14px;
+  margin: 10px 0 0;
+}
+
+.prep dt {
+  color: var(--ink-faint);
+  font: 11px var(--mono);
+  padding-top: 2px;
+}
+
+.prep dd {
+  margin: 0;
+}

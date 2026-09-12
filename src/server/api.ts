@@ -7,6 +7,7 @@
  */
 
 import { ProjectSession } from "./state.js";
+import { Workspace, isGenre, isPlatform } from "./workspace.js";
 import { applyActionToBeat, acknowledgeAlert, ignoreAlert, initialAlertState, unacknowledgeAlert } from "../alerts/apply.js";
 import { anchorContext, resolveAnchor } from "../anchor/resolve.js";
 import { gateChapter } from "../gate/code-channel.js";
@@ -19,6 +20,7 @@ import type { EventWeight } from "../types/events.js";
 import type { ChapterDraft } from "../task/types.js";
 import { ChapterWriteError } from "./chapter-input.js";
 import type { ChapterWriteOptions } from "./chapter-writer.js";
+import { prepGaps } from "../agent/system-prompt.js";
 
 export interface ApiRequest {
   readonly method: string;
@@ -39,6 +41,20 @@ const missing = (message: string): ApiResponse => ({ status: 404, body: { error:
 /** 锚点上下文窗口（字）。布局参数，不是规则常量，所以不进 rules.yaml。 */
 const CONTEXT_WINDOW = 60;
 
+/**
+ * 工作区入口：/api/works* 直接落在工作区；其余端点作用在「活动作品」上，
+ * 无活动作品回 409。既有 handle/handleAsync 与全部端点逻辑零改动。
+ */
+export async function handleWorkspace(workspace: Workspace, req: ApiRequest): Promise<ApiResponse> {
+  if (req.method === "GET" && req.path === "/api/works") return ok(workspace.list());
+  if (req.method === "POST" && req.path === "/api/works") return worksCreate(workspace, req.body);
+  if (req.method === "POST" && req.path === "/api/works/select") return worksSelect(workspace, req.body);
+
+  const session = workspace.active();
+  if (session === null) return { status: 409, body: { error: "未选择作品；先新建或选择一个作品" } };
+  return handleAsync(session, req);
+}
+
 /** HTTP 的统一入口：写章等待异步任务，其余端点沿用同步处理。 */
 export async function handleAsync(session: ProjectSession, req: ApiRequest): Promise<ApiResponse> {
   if (req.method === "POST" && req.path === "/api/chapter/write") {
@@ -57,6 +73,8 @@ export function handle(session: ProjectSession, req: ApiRequest): ApiResponse {
     switch (path) {
       case "/api/overview":
         return ok(overview(session));
+      case "/api/prep":
+        return ok(prep(session));
       case "/api/conversation":
         return ok({ turns: session.conversationTurns(), ideas: session.listIdeas() });
       case "/api/views":
@@ -131,6 +149,23 @@ function overview(session: ProjectSession): unknown {
         (p) => p.lastAdvancedAt > 0 && (p.currentGap as number) > (p.gapLimit as number),
       ).length,
     },
+  };
+}
+
+/** 筹备面板（Stage 2·切片 2）：缺项 + 已建资料的只读摘要。写入只经对话工具。 */
+function prep(session: ProjectSession): unknown {
+  const info = session.agentContextInfo();
+  const { setting, discipline, settings, profile, characters, plotLines } = session.meta;
+  return {
+    gaps: prepGaps(info),
+    nextChapter: info.nextChapter,
+    nextPlanReady: info.nextPlanReady,
+    setting,
+    targetWords: profile.targetWords,
+    discipline,
+    characters: characters.map((c) => ({ id: c.id, name: c.name, tier: c.tier, role: c.profile.role })),
+    locations: settings.map((s) => ({ id: s.id, name: s.name, kind: s.kind })),
+    plotLines,
   };
 }
 
@@ -486,6 +521,43 @@ function draftRef(body: unknown): { chapter: ChapterNo; draftId: string } | stri
   if (typeof chapter !== "number") return "缺少 chapter";
   if (typeof draftId !== "string") return "缺少 draftId";
   return { chapter, draftId };
+}
+
+// ── 作品端点（Stage 2·切片 2）──────────────────────────────────────────
+
+/** 新建作品并自动激活。返回新 id + 最新列表/活动，省前端一次往返。 */
+function worksCreate(workspace: Workspace, body: unknown): ApiResponse {
+  if (!isRecord(body)) return bad("请求体必须是对象");
+  const { title, genre, platform, targetWords } = body;
+  if (typeof title !== "string" || title.trim() === "") return bad("缺少 title");
+  if (!isGenre(genre)) return bad("genre 非法");
+  if (!isPlatform(platform)) return bad("platform 非法");
+  if (targetWords !== undefined && (typeof targetWords !== "number" || !Number.isFinite(targetWords) || targetWords <= 0)) {
+    return bad("targetWords 必须是正数");
+  }
+  try {
+    const id = workspace.create({
+      title,
+      genre,
+      platform,
+      ...(targetWords === undefined ? {} : { targetWords }),
+    });
+    return ok({ id, ...workspace.list() });
+  } catch (e) {
+    return bad((e as Error).message);
+  }
+}
+
+function worksSelect(workspace: Workspace, body: unknown): ApiResponse {
+  if (!isRecord(body)) return bad("请求体必须是对象");
+  const id = body["id"];
+  if (typeof id !== "string") return bad("缺少 id");
+  try {
+    workspace.select(id);
+    return ok(workspace.list());
+  } catch (e) {
+    return missing((e as Error).message);
+  }
 }
 
 // ── 小工具 ──────────────────────────────────────────────────────────────

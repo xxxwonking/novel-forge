@@ -238,6 +238,12 @@ export type AgentEffect =
   | { kind: "foreshadow_rescheduled"; foreshadowId: string; expectedBy: number }
   | { kind: "foreshadow_abandoned"; foreshadowId: string }
   | { kind: "idea_recorded"; id: string; text: string }
+  | { kind: "setting_updated"; fields: string[] }
+  | { kind: "character_upserted"; id: string; name: string; created: boolean }
+  | { kind: "location_upserted"; id: string; name: string; created: boolean }
+  | { kind: "plotline_defined"; id: string; label: string; created: boolean }
+  | { kind: "discipline_updated"; version: string; count: number }
+  | { kind: "chapter_planned"; chapter: number; chapterType: string; warnings: number }
   | { kind: "action_failed"; tool: string; message: string };
 
 export interface ConversationTurn {
@@ -282,14 +288,79 @@ export interface AdoptResponse {
   alerts: { homepage: Alert[]; counts: { fullList: number; repairQueue: number } };
 }
 
+// ── 作品与筹备（Stage 2·切片 2）────────────────────────────────────────
+
+export type Genre = "xuanhuan" | "xianxia" | "urban" | "scifi" | "mystery" | "rulehorror";
+export type Platform = "fanqie" | "feilu" | "qidian" | "unpublished";
+
+export interface WorkSummary {
+  id: string;
+  title: string;
+  genre: Genre;
+  platform: Platform;
+  currentChapter: number;
+  chapterCount: number;
+}
+
+export interface WorksPayload {
+  works: WorkSummary[];
+  activeId: string | null;
+}
+
+export interface WorkSeed {
+  title: string;
+  genre: Genre;
+  platform: Platform;
+  targetWords?: number;
+}
+
+/** 筹备面板：缺项 + 已建资料的只读摘要。写入只经对话。 */
+export interface PrepPayload {
+  gaps: string[];
+  nextChapter: number;
+  nextPlanReady: boolean;
+  setting: {
+    title: string;
+    premise: string;
+    centralConflict: string;
+    pov: string;
+    tense: string;
+    protagonistTraits: string[];
+    protagonistForbidden: string[];
+    specialAbility: string;
+    abilityLimits: string[];
+    worldRules: string[];
+    openingSituation: string;
+    styleKeywords: string[];
+    romanceLine: string;
+    taboos: string[];
+  };
+  targetWords: number;
+  discipline: { version: string; rules: string[] };
+  characters: { id: string; name: string; tier: CharacterTier; role: string }[];
+  locations: { id: string; name: string; kind: "location" | "organization" }[];
+  plotLines: { id: string; label: string; weight: ForeshadowWeight }[];
+}
+
 // ── 请求 ────────────────────────────────────────────────────────────────
+
+/** 带状态码的请求错误：409（未选择作品）要和其他失败区分开处理。 */
+export class ApiError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, init);
   const body: unknown = await res.json().catch(() => ({}));
   if (!res.ok) {
     const message = isRecord(body) && typeof body["error"] === "string" ? body["error"] : `HTTP ${res.status}`;
-    throw new Error(message);
+    throw new ApiError(res.status, message);
   }
   return body as T;
 }
@@ -323,6 +394,12 @@ export const api = {
   chapterDraft: (n: number, id: string) => request<DraftView>(`/api/chapter/draft?n=${n}&id=${encodeURIComponent(id)}`),
   adopt: (chapter: number, draftId: string) => post<AdoptResponse>("/api/chapter/adopt", { chapter, draftId }),
   discard: (chapter: number, draftId: string) => post<{ changed: boolean }>("/api/chapter/discard", { chapter, draftId }),
+
+  // 作品与筹备
+  works: () => request<WorksPayload>("/api/works"),
+  createWork: (seed: WorkSeed) => post<WorksPayload & { id: string }>("/api/works", seed),
+  selectWork: (id: string) => post<WorksPayload>("/api/works/select", { id }),
+  prep: () => request<PrepPayload>("/api/prep"),
 };
 
 function post<T>(path: string, body: unknown): Promise<T> {

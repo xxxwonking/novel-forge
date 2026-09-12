@@ -13,7 +13,7 @@
 
 import type { IsoTimestamp } from "../types/primitives.js";
 import type { ChapterDraftStatus, DraftId } from "../task/types.js";
-import type { ChapterNo } from "../types/primitives.js";
+import type { ChapterNo, CharacterId, PlotLineId, SettingId } from "../types/primitives.js";
 
 /** 一次对话回合里发生的状态变化。只记真实副作用与失败，不记纯问答。 */
 export type AgentEffect =
@@ -35,6 +35,13 @@ export type AgentEffect =
   | { readonly kind: "foreshadow_rescheduled"; readonly foreshadowId: string; readonly expectedBy: ChapterNo }
   | { readonly kind: "foreshadow_abandoned"; readonly foreshadowId: string }
   | { readonly kind: "idea_recorded"; readonly id: string; readonly text: string }
+  // 筹备类（Stage 2·切片 2）：改 L1/资料，authored 可信度，不入事件流。
+  | { readonly kind: "setting_updated"; readonly fields: readonly string[] }
+  | { readonly kind: "character_upserted"; readonly id: CharacterId; readonly name: string; readonly created: boolean }
+  | { readonly kind: "location_upserted"; readonly id: SettingId; readonly name: string; readonly created: boolean }
+  | { readonly kind: "plotline_defined"; readonly id: PlotLineId; readonly label: string; readonly created: boolean }
+  | { readonly kind: "discipline_updated"; readonly version: string; readonly count: number }
+  | { readonly kind: "chapter_planned"; readonly chapter: ChapterNo; readonly chapterType: string; readonly warnings: number }
   /** 动作类工具被拒或失败（如采用一份未就绪草稿、写章 409）。让 Agent 如实转述。 */
   | { readonly kind: "action_failed"; readonly tool: string; readonly message: string };
 
