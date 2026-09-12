@@ -41,7 +41,9 @@
 
 - typecheck（根 + web）干净；`npm test` **636 通过**（602 基线 + 34：workspace 7 / server-works 6 / session-prep 4 / agent-prep-tools 14 / agent-system-prompt 3）；`npm run web:build` 通过。
 - HTTP 层真实 smoke（临时工作区起服务 + curl）：空列表 → 409 → 新建即激活 → `/api/prep` 列全部缺项 → overview 200 → 非法题材 400 → 第二本 + 切换 → 未知 id 404 → 落盘两个作品目录。
-- **真实模型 live 对话仍未验证**（同切片 1：Gemini 代理配置在 Windows 机）。筹备逻辑由 mock 客户端的端到端测试覆盖（脚本化 tool_use 经真实 `ProjectSession` 落盘并回读）。
+- **真机 live 全流程（2026-09-12，Mac，真实 Gemini via chat 代理）**：新建《青州旧事》→ 5 个回合对话筹备（方向 6 字段 / C01+C02 人物 / S01+S02 地点 / P01+P02 情节线 / 第 1 章节拍 0 warn 落 authored）→ `gaps` 归空、`nextPlanReady` 为 true → 「按计划写第一章」真实生成 2562 字草稿 `ch1d1`（2 轮工具），C6 给出 4 项（1 block 字数差 155、1 warn 密度 0.93 超 0.4、1 warn 锚点引用未写出内容、1 info），状态 `needs_revision` → 随后「采用 ch1d1」**按设计被拒**（`action_failed`「草稿未就绪」），Agent 如实转述并给出修订/查看选项。
+  - 全程编号由代码分配、模型只引用不自造，无一次 ID 伪造。
+  - 尚未 live 验证：自动修订到 `ready` 后的采用与第 2 章续写。
 
 ## 已知限制
 
