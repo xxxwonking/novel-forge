@@ -1,8 +1,8 @@
 # novel-forge 工作记忆
 
-更新时间：2026-09-12（Asia/Shanghai；Stage 2 切片 1 已合入 master，切片 2「作品准备」在分支 `stage2-work-preparation` 上完成并通过真机 live 验收；**最新交接见第 16 节**）
+更新时间：2026-09-12（Asia/Shanghai；切片 2「作品准备」已在分支 `stage2-work-preparation` 完成并通过真机 live 验收，PR #3 待合；下一轮范围与配色/粒度决策已由用户拍定；**最新交接见第 17 节**）
 
-记录范围：本文件汇总项目调研、用户流程设计、能力映射和开发进展。早前发布与复核记录在第 10、11 节；Mac 会话锁定 v1 决策并实现 Stage 1，见第 12 节；写章输入和 API 交付见第 13 节；Gemini chat 接入与真实单章验证见第 14 节；Stage 2 切片 1（对话式主 Agent）见第 15 节。**接手先读第 16 节：多作品工作区 + 对话式作品筹备已实现并在 Mac 上用真实 Gemini 跑通「空工作区 → 新建作品 → 五个回合对话筹备到筹备已齐 → 真实生成第 1 章 2562 字草稿」；草稿因 C6 检查未就绪、随后的采用请求按设计被拒。编号一律由代码分配，`plan_chapter` 过引用检查与 V2 校验才落盘；Web 有作品页与只读筹备面板。636 项测试、类型检查（根+web）、前端构建、HTTP curl smoke 全通过。下一步：live 接着跑自动修订到 ready → 采用 → 第 2 章，然后做切片 3（草稿结果富 UI）。旧章节的历史待办以最新记录为准，不重新讨论已确认的框架与采用节奏。**
+记录范围：本文件汇总项目调研、用户流程设计、能力映射和开发进展。早前发布与复核记录在第 10、11 节；Mac 会话锁定 v1 决策并实现 Stage 1，见第 12 节；写章输入和 API 交付见第 13 节；Gemini chat 接入与真实单章验证见第 14 节；Stage 2 切片 1（对话式主 Agent）见第 15 节；切片 2（多作品 + 对话式筹备，含 live 验收全过程）见第 16 节。**接手先读第 17 节：切片 2 已交付（PR #3 待合），并已用真实 Gemini 跑通「空工作区 → 对话筹备到筹备已齐 → 真实生成第 1 章 2562 字草稿 → 未就绪的采用请求按设计被拒」。第 17 节同时记了用户新提的两个问题的核实结论（默认进对话只做了一半；红绿新旧对比没有，且自动修订根本未接线、模型还承诺了不存在的修订能力=真缺陷）、用户已拍的三项决策（全做／diff 破例用红绿／段落级+段内字级）、Phase 1 已查明的实现要点与 7 项待办。旧章节的历史待办以最新记录为准，不重新讨论已确认的框架与采用节奏。**
 
 ## 1. 当前状态与接续位置
 
@@ -577,3 +577,48 @@ Stage 2 =「作者通过对话完成首章」，切成三片、先做第 1 片�
 
 ### 本机运行方式（Mac）
 `npm run serve -- <一个空目录>` 起多作品工作区（端口 5174，会自动读 `.env.local`）；`.env.proxy` 是用户放的代理配置原始笔记（非 dotenv 格式），`.env.local` 由它生成。前端需先 `npm run web:build`，否则只提供 `/api`。
+
+## 17. 2026-09-12 切片 2 交付完成 + 下一轮（默认对话流 / 自动修订 / 新旧对比）已定方案（Mac 会话）
+
+**当前接续入口。** 同样由当前代理独立产出并自审，未调用 Codex/Gemini、未 spawn 子代理。
+
+### 已交付（切片 2，分支 `stage2-work-preparation`）
+- 提交 `b563ce2`（功能：多作品工作区 + 对话式筹备）、`2ce69f1`（docs：live 验收记录），已推 origin，**PR #3** https://github.com/xxxwonking/novel-forge/pull/3 （含带表格的 live 验收 comment）。**尚未合入 master。**
+- 常规检查：typecheck（根+web）、636 测试、`web:build`、HTTP curl smoke 全通过。真机 live 全流程见第 16 节。
+
+### 本机运行（Mac）
+- 代理配置：用户放在仓库根 `.env.proxy`（**非 dotenv 格式**，是 baseurl/apikey + 模型清单的笔记；git 已忽略）。据它生成了 `.env.local`（`NOVEL_MODEL_PROVIDER=chat`、`CHAT_MODEL=gemini-3-flash`，权限 600）。**密钥与地址只留本机，不写进记忆与提交。**
+- 起服务：`npm run serve -- <一个空目录>` → 端口 **5174**（不是 4173），自动读 `.env.local`；前端需先 `npm run web:build`，否则只提供 `/api`。
+
+### 用户本轮提的两个问题与核实结论
+1. **「默认进入对话流」做好了吗 → 只做了一半。** 通的：导航首项是「对话」；无活动作品强制停在作品页；作品页新建/打开后 `go("/chat")`。**没做的**：默认 hash 仍是 `/` → 首页（`web/src/hooks.ts:74`、`App.tsx:183`），刷新或直开 `localhost:5174` 落在首页告警，而新书首页基本是空的。原因是当时按 §12.6.7「打开项目是告警呈现时机」保留了旧默认。
+2. **「AI 改稿有没有红绿新旧对比」→ 没有，且前提也没接线。**
+   - 草稿面板只有状态/字数/findings/正文全文，**无任何 diff**。
+   - **自动修订根本未接线**（`src/task/graph.ts:12-13` 明写「暂不接线…check 未过即停在 needs_revision，交用户处理」）。
+   - **真缺陷（必修）**：live 测试里模型主动承诺「你可以让我自动优化到 ready」，但工具集无修订工具，`write_next_chapter` 再调一次只会原样返回同一份草稿（`src/server/chapter-writer.ts:72`）—— 模型在承诺不存在的能力，违反提示里「不要假装成功」。
+
+### 用户已拍的三项决策（勿再讨论）
+1. **范围 = 全做**：① 默认进对话；② 自动修订接线（让「AI 发现问题→自己改」真实存在）；③ 草稿新旧对比。
+2. **diff 配色 = 为 diff 破例用红绿**（删除=红底、新增=绿底）。注意这**打破** `web/src/styles.css` 开头「刻意不用绿色 —— 这不是行情界面」的约定；实现时必须在该注释处记下破例理由（diff 红绿是通用增删语义，与行情涨跌无关）。
+3. **对比粒度 = 段落级 + 段内字级**（先按段落配对，改动过的段落内部再做字级高亮）。
+
+### Phase 1 已检索到的实现要点（接手直接用，不必重查）
+- **任务图** `src/task/graph.ts`：`StateGraph` 三节点 `step_write → step_declare → step_check`，`gate()` 条件边遇 `outcome !== null` 即 END；节点带幂等跳过（resume 用）；`MemorySaver` 只管进程内线程态，跨重启靠草稿。接修订需加 `step_revise` 与 `step_check → (acceptable? END : step_revise)` 的条件边 + 修订计数通道。
+- **步骤** `src/task/steps.ts`：`writeChapterBody`(role=creative/effort=xhigh/thinking，带工具循环)、`declareStructure`(同会话第二轮 + `C5_OUTPUT_SCHEMA`)、`checkChapter`(C6 `gateChapter` + C7 `routeChapter`，`canAccept` = 无 block)。输出规模常量 `C4_MAX_TOKENS=16_000`/`C5_MAX_TOKENS=4_000` 就在本文件（`src/task` 不进「代码无数字」扫描）。
+- **修订 prompt 的现成输入**：`src/gate/route.ts` 的 `routeChapter` 已产出 `action`(patch/trim/split/pass/ok) + `targets`（来自 `rules.patchPriority`），`route_patch` 的 message 就是「按优先级补写 / 禁止用来补字数的东西」。修订任务文案应仿 `C4_TASK`/`C5_TASK` 放在 `src/chapter/pipeline.ts:28/38` 同处（叫 `C7_TASK`）。
+- **上限已在配置**：`rules.task.maxAutoRevisions: 1`（rules.yaml:18），无需新增字段。
+- **草稿存储** `src/task/draft-store.ts`：`drafts/ch{n}/{draftId}.json`（元数据）+ `.txt`（正文分开存）；`nextDraftId` 取最大序号+1；`listDrafts` 按 createdAt 升序。`service.drive()` 对 graph.stream 的每个 state 都 `saveDraft` 一次。
+- **测试布局**：无 `vitest.config.*`，web 下无测试文件 → diff 若要单测，实现放 `src/`、测试放 `test/`。注意 `src/text` 与 `src/gate` **在**「代码无数字」扫描名单内，`src/task` 不在。
+
+### 待定（我倾向的方案，未与用户确认）
+- **修订产物放哪**：倾向**同一草稿内保存修订前快照**（给 `ChapterDraft` 加 `revisions: readonly {body, findings, at}[]`，每条是改动前的 body），而不是另起 `ch1d2`。理由：一次写章请求 = 一份草稿（现语义），diff 就地可得、草稿列表不被一次任务的多轮修订刷爆；按版本采用的语义不受影响。约 2.5KB/次，`maxAutoRevisions=1` 下开销可忽略。
+- diff 算法：段落 LCS 配对 + 改动段内字级 LCS，纯函数无依赖，放 `src/` 便于单测；web 侧只渲染。
+
+### 待办（按序）
+1. `ChapterDraft.revisions` + `DraftStore` 落盘/回读（含旧草稿缺字段兼容）。
+2. `C7_TASK` 修订文案 + `reviseChapterBody` 步骤（吃 body + findings + route.targets，产新 body）。
+3. `graph.ts` 加 `step_revise` 与回到 `step_declare`/`step_check` 的边（修订后正文变了，声明与检查都要重算）+ `revisionCount` 通道与 `maxAutoRevisions` 上限。
+4. 修掉「模型承诺不存在能力」：系统提示与 `write_next_chapter` 描述说清修订由任务内自动完成、作者侧只能「重写一版」；必要时给 Agent 加一个显式的「重写/修订当前草稿」工具。
+5. 默认路由改 `/` → 对话页，首页移到 `/home`，同步 rail 顺序与 `Link` 的 active 判断（`to !== "/"` 那条逻辑要一并改）。
+6. diff 纯函数 + 单测；`Chat.tsx` 草稿面板加「对比上一版」视图（红绿破例 + 段内字级）。
+7. 全量 typecheck/测试/web:build + live 跑一遍「写章 → 自动修订 → 看红绿对比 → 采用 → 第 2 章」。
