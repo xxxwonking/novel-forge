@@ -292,6 +292,9 @@ export interface DraftView {
   updatedAt: string;
 }
 
+/** 与后端 adopt 的前置条件一致：只有 ready 且过闸的草稿能采用；已采用的不再给按钮。 */
+export const adoptable = (d: Pick<DraftView, "status" | "acceptable">): boolean => d.status === "ready" && d.acceptable;
+
 export type DiffOp = "equal" | "insert" | "delete";
 export interface DiffSpan { op: DiffOp; text: string }
 export interface DiffParagraph { op: DiffOp | "replace"; spans: DiffSpan[] }

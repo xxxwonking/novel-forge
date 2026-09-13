@@ -11,6 +11,9 @@
  */
 
 :root {
+  /* 两个并排的滚动区（主区 + 对话栏）都要原生滚动条走暗色，否则两条白杠比内容还显眼 */
+  color-scheme: dark;
+
   --bg: #12131a;
   --bg-raised: #191b24;
   --bg-sunken: #0d0e13;
@@ -63,12 +66,18 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* ── 骨架 ────────────────────────────────────────────────────────────── */
+/* ── 骨架：左导航 / 中内容 / 右对话栏 ────────────────────────────────── */
 
 .shell {
   display: grid;
-  grid-template-columns: 190px 1fr;
+  grid-template-columns: 190px minmax(0, 1fr) auto;
   height: 100%;
+}
+
+/* 拖对话栏宽度时禁掉选中，否则鼠标一过正文就拖出一片高亮 */
+.shell[data-resizing="true"] {
+  cursor: col-resize;
+  user-select: none;
 }
 
 .rail {
@@ -398,6 +407,12 @@ th.num {
   border-radius: 2px;
   border: 1px solid var(--line-bright);
   color: var(--ink-dim);
+  text-decoration: none;
+}
+
+.tag[data-current="true"] {
+  color: var(--ink);
+  border-color: var(--main);
 }
 
 .tag[data-w="main"] {
@@ -567,17 +582,88 @@ th.num {
   max-width: 44ch;
 }
 
-/* ── 对话页 ──────────────────────────────────────────────────────────── */
+/* ── 对话栏（右侧常驻）──────────────────────────────────────────────── */
 
-.chat {
+.dock {
+  position: relative;
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-sunken);
+  border-left: 1px solid var(--line);
+}
+
+/* 拖拽热区骑在左缘上：1px 线，8px 可抓 */
+.dock-resizer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -4px;
+  width: 8px;
+  cursor: col-resize;
+  z-index: 2;
+}
+
+.dock-resizer::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  transform: translateX(-50%);
+  transition: width 0.15s, background-color 0.15s;
+}
+
+.dock-resizer:hover::after,
+.dock-resizer[data-active="true"]::after {
+  width: 3px;
+  background: var(--calm);
+}
+
+.dock-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px 10px;
+  border-bottom: 1px solid var(--line);
+}
+
+.dock-title {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.dock-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 12px;
-  margin-bottom: 16px;
+  padding: 14px 14px 8px;
+}
+
+/* 收起后留一条竖带，一眼知道对话在哪 */
+.dock-strip {
+  width: 34px;
+  height: 100%;
+  border-left: 1px solid var(--line);
+  background: var(--bg-sunken);
+  display: flex;
+  justify-content: center;
+  padding-top: 12px;
+}
+
+.dock-strip button {
+  writing-mode: vertical-rl;
+  letter-spacing: 0.2em;
+  padding: 10px 4px;
 }
 
 .msg {
-  max-width: 72ch;
+  max-width: 92%;
 }
 
 .msg[data-role="user"] {
@@ -618,21 +704,20 @@ th.num {
 }
 
 .composer {
-  position: sticky;
-  bottom: 0;
   display: flex;
-  gap: 10px;
+  gap: 8px;
   align-items: flex-end;
-  padding-top: 12px;
-  background: linear-gradient(transparent, var(--bg) 22%);
+  padding: 10px 14px 14px;
+  border-top: 1px solid var(--line);
 }
 
 .composer textarea {
   flex: 1;
+  min-width: 0;
   resize: vertical;
   font: 14px/1.6 var(--sans);
   color: var(--ink);
-  background: var(--bg-sunken);
+  background: var(--bg);
   border: 1px solid var(--line-bright);
   border-radius: var(--radius);
   padding: 9px 12px;
@@ -707,7 +792,7 @@ th.num {
 /* ── 草稿新旧对比（红绿破例，见文件头）────────────────────────────────── */
 
 .diff-head {
-  margin-bottom: 8px;
+  margin-bottom: 10px;
   font-size: 13px;
 }
 

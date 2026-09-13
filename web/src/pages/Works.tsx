@@ -50,7 +50,7 @@ export function Works({ works, forced, onChanged, go }: WorksProps): React.React
     try {
       await fn();
       onChanged();
-      go("/chat");
+      go("/desk");
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -105,7 +105,7 @@ export function Works({ works, forced, onChanged, go }: WorksProps): React.React
                   <td className="num">{w.chapterCount === 0 ? "未开始" : `第 ${w.currentChapter} 章 · ${w.chapterCount} 章`}</td>
                   <td>
                     <button disabled={busy} data-primary={!active} onClick={() => void run(() => api.selectWork(w.id))}>
-                      {active ? "进入对话" : "打开"}
+                      {active ? "进入工作台" : "打开"}
                     </button>
                   </td>
                 </tr>
@@ -149,7 +149,7 @@ export function Works({ works, forced, onChanged, go }: WorksProps): React.React
             <input type="number" min={1} step={10000} value={targetWords} disabled={busy} onChange={(e) => setTargetWords(e.target.value)} />
           </label>
           <button type="submit" data-primary="true" disabled={busy || title.trim() === ""}>
-            新建并进入对话
+            新建并开始
           </button>
         </form>
       </section>

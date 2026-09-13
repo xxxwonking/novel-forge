@@ -1,20 +1,25 @@
 /**
  * 应用外壳与路由。
  *
+ * 三栏：左导航 / 中内容 / 右对话（参考 OpenFic 写作页）。对话栏挂在这里而不是某个
+ * 页面里，切路由不卸载；它只驱动后端，产物（草稿、对比、筹备资料）都在中间区打开。
+ *
  * 用 hash 路由而不是 history API：这个前端由同一个 Node 进程托管静态文件，
  * hash 不进服务端，深链接不需要服务端配合（虽然 http.ts 也做了 SPA 回退）。
  * 少一处需要两边同时正确的东西。
  */
 
 import { useCallback, useState } from "react";
-import { api, type Alert, type AlertAction } from "./api.js";
-import { useFetch, useRoute, useToast } from "./hooks.js";
+import { api, type Alert, type AlertAction, type Overview, type PrepPayload } from "./api.js";
+import { useDockWidth, useFetch, useRoute, useToast } from "./hooks.js";
 import { actionLabel } from "./components/AlertCard.js";
+import { ChatDock } from "./components/ChatDock.js";
 import { Home } from "./pages/Home.js";
 import { AlertList } from "./pages/AlertList.js";
 import { ViewPage } from "./pages/ViewPage.js";
 import { Reader } from "./pages/Reader.js";
-import { Chat } from "./pages/Chat.js";
+import { Desk } from "./pages/Desk.js";
+import { DraftPage } from "./pages/DraftPage.js";
 import { Works } from "./pages/Works.js";
 
 const VIEWS = [
@@ -25,18 +30,24 @@ const VIEWS = [
 ] as const;
 
 /**
- * 默认落在对话页：作者的主流程是「说一句 → 落资料/写章/采用」，而 §12.6.7 的
+ * 默认落在工作台：作者的主流程是「在右栏说一句 → 落资料/写章/采用」，而 §12.6.7 的
  * 告警首页在新书上基本是空的。首页保留在 /home，写到中后期再回来看告警。
  */
-const DEFAULT_ROUTE = "/chat";
+const DEFAULT_ROUTE = "/desk";
+
+/** 对话栏宽度范围与默认值。布局参数，不是规则常量。 */
+const DOCK = { min: 320, max: 640, initial: 400, widthKey: "nf.dock.width", openKey: "nf.dock.open" } as const;
 
 export function App(): React.ReactElement {
   const [route, go] = useRoute(DEFAULT_ROUTE);
   const [toast, showToast] = useToast();
   const [nonce, setNonce] = useState(0);
+  const [dockOpen, setDockOpen] = useState(() => window.localStorage.getItem(DOCK.openKey) !== "0");
+  const dock = useDockWidth(DOCK.widthKey, DOCK.min, DOCK.max, DOCK.initial);
 
   const overview = useFetch(() => api.overview(), [nonce]);
   const works = useFetch(() => api.works(), [nonce]);
+  const prep = useFetch(() => api.prep(), [nonce]);
 
   /** 无活动作品（409）时整站只能停在作品页 —— 其余页面没有可读的作品。 */
   const noActiveWork = overview.error !== null && (overview.errorStatus === 409 || works.data?.activeId === null);
@@ -44,6 +55,11 @@ export function App(): React.ReactElement {
 
   /** 全局重取。一键动作会同时改节拍表、事件流与告警，所以整体刷新。 */
   const refresh = useCallback(() => setNonce((n) => n + 1), []);
+
+  const toggleDock = useCallback((open: boolean) => {
+    setDockOpen(open);
+    window.localStorage.setItem(DOCK.openKey, open ? "1" : "0");
+  }, []);
 
   /**
    * 一键动作的统一入口。
@@ -99,8 +115,36 @@ export function App(): React.ReactElement {
     [go],
   );
 
+  const onOpenDraft = useCallback(
+    (chapter: number, draftId: string) => go(`/draft/${chapter}/${encodeURIComponent(draftId)}`),
+    [go],
+  );
+
+  /** 采用是正式进度的唯一入口（受控端点）。采用后直接落到正文页，让作者看到它成了正式章。 */
+  const onAdopt = useCallback(
+    async (chapter: number, draftId: string) => {
+      try {
+        const { result } = await api.adopt(chapter, draftId);
+        showToast(
+          !result.changed
+            ? `第 ${chapter} 章的 ${draftId} 早已采用`
+            : result.staleMarked.length > 0
+              ? `已采用第 ${chapter} 章的 ${draftId}；后续 ${result.staleMarked.length} 章的草稿需重核`
+              : `已采用第 ${chapter} 章的 ${draftId}`,
+        );
+        refresh();
+        onJump(chapter, "");
+      } catch (e) {
+        showToast(`采用失败：${(e as Error).message}`);
+      }
+    },
+    [onJump, refresh, showToast],
+  );
+
+  const showDock = !noActiveWork && activeWork !== null;
+
   return (
-    <div className="shell">
+    <div className="shell" data-resizing={dock.dragging}>
       <nav className="rail">
         <div className="rail-title">{overview.data?.title ?? activeWork?.title ?? "novel-forge"}</div>
         <div className="rail-sub">
@@ -116,8 +160,8 @@ export function App(): React.ReactElement {
         </Link>
         {!noActiveWork && (
           <>
-            <Link route={route} to="/chat" go={go}>
-              对话
+            <Link route={route} to="/desk" go={go} aliases={["/draft/"]}>
+              工作台
             </Link>
             <Link route={route} to="/home" go={go}>
               首页
@@ -155,15 +199,43 @@ export function App(): React.ReactElement {
               <Routed
                 route={route}
                 overview={overview.data}
+                prep={prep.data}
+                prepError={prep.error}
+                refreshKey={nonce}
                 onAction={onAction}
                 onIgnore={onIgnore}
                 onJump={onJump}
+                onOpenDraft={onOpenDraft}
+                onAdopt={onAdopt}
                 refresh={refresh}
+                go={go}
               />
             )}
           </>
         )}
       </main>
+
+      {showDock &&
+        (dockOpen ? (
+          <ChatDock
+            key={activeWork.id}
+            width={dock.width}
+            prep={prep.data}
+            resizing={dock.dragging}
+            onResizeStart={dock.onPointerDown}
+            onCollapse={() => toggleDock(false)}
+            onJump={onJump}
+            onOpenDraft={onOpenDraft}
+            onAdopt={onAdopt}
+            refresh={refresh}
+          />
+        ) : (
+          <aside className="dock-strip">
+            <button data-quiet="true" title="展开对话栏" onClick={() => toggleDock(true)}>
+              对话
+            </button>
+          </aside>
+        ))}
 
       {toast !== null && <div className="toast">{toast}</div>}
     </div>
@@ -172,19 +244,31 @@ export function App(): React.ReactElement {
 
 interface RoutedProps {
   route: string;
-  overview: NonNullable<ReturnType<typeof useFetch<Awaited<ReturnType<typeof api.overview>>>>["data"]>;
+  overview: Overview;
+  prep: PrepPayload | null;
+  prepError: string | null;
+  refreshKey: number;
   onAction: (alert: Alert, action: AlertAction) => void;
   onIgnore: (alert: Alert) => void;
   onJump: (chapter: number, quote: string) => void;
+  onOpenDraft: (chapter: number, draftId: string) => void;
+  onAdopt: (chapter: number, draftId: string) => void;
   refresh: () => void;
+  go: (to: string) => void;
 }
 
-function Routed({ route, overview, onAction, onIgnore, onJump, refresh }: RoutedProps): React.ReactElement {
+function Routed({ route, overview, prep, prepError, refreshKey, onAction, onIgnore, onJump, onOpenDraft, onAdopt, refresh, go }: RoutedProps): React.ReactElement {
   const [path, search] = route.split("?");
   const query = new URLSearchParams(search ?? "");
 
-  if (path === "/chat") {
-    return <Chat onJump={onJump} refresh={refresh} />;
+  if (path === "/desk") {
+    return <Desk prep={prep} prepError={prepError} refreshKey={refreshKey} onOpenDraft={onOpenDraft} onAdopt={onAdopt} />;
+  }
+  if (path?.startsWith("/draft/")) {
+    const [n, id] = path.slice("/draft/".length).split("/");
+    const chapter = Number(n);
+    if (!Number.isInteger(chapter) || id === undefined || id === "") return <div className="empty">没有这份草稿</div>;
+    return <DraftPage chapter={chapter} draftId={decodeURIComponent(id)} refreshKey={refreshKey} onAdopt={onAdopt} onJump={onJump} go={go} />;
   }
   if (path === "/home") {
     return <Home overview={overview} onAction={onAction} onIgnore={onIgnore} />;
@@ -209,17 +293,21 @@ function Link({
   to,
   go,
   count,
+  aliases = [],
   children,
 }: {
   route: string;
   to: string;
   go: (to: string) => void;
   count?: number | undefined;
+  /** 也点亮本项的其他路径前缀（工作台 ⊃ 草稿页）。 */
+  aliases?: readonly string[];
   children: React.ReactNode;
 }): React.ReactElement {
   // 精确匹配或子路径（/chapter/3 命中 /chapter/、?query 不影响），不做裸前缀 ——
   // 否则 /home 会点亮 /h 之类的巧合前缀。
-  const active = route === to || route.startsWith(`${to}/`) || route.startsWith(`${to}?`);
+  const active =
+    route === to || route.startsWith(`${to}/`) || route.startsWith(`${to}?`) || aliases.some((a) => route.startsWith(a));
   return (
     <a
       href={`#${to}`}
