@@ -641,7 +641,7 @@ GIT_SSH_COMMAND="ssh -o HostKeyAlias=github.com" git push ssh://git@140.82.116.4
 
 ## 18. 2026-09-12 自动修订 / 红绿新旧对比 / 默认进对话（Mac 会话）
 
-**当前接续入口。** 同样由当前代理独立实现并自审，未调用 Codex/Gemini、未 spawn 子代理。基线：`stage2-work-preparation` 的 `6294ff2`（PR #3 之上）；本轮提交在分支 **`stage2-auto-revision`**（本地，未推送，见文末）。
+同样由当前代理独立实现并自审，未调用 Codex/Gemini、未 spawn 子代理。基线：`stage2-work-preparation` 的 `6294ff2`（PR #3 之上）；本轮提交在分支 **`stage2-auto-revision`**（本地，未推送，见文末）。
 
 ### 做了什么（§17 的 7 项待办全部完成）
 - **草稿修订快照**：`ChapterDraft.revisions: DraftRevision[]`（每条 = 被替换掉的那版 body + 当时 findings + reason + at）。`DraftStore` 把快照正文另存 `drafts/ch{n}/{id}.r{k}.txt`，JSON 里不含任何正文；旧草稿缺字段回读补 `[]`。`DraftError.step` 加 `C7`。
@@ -665,3 +665,39 @@ GIT_SSH_COMMAND="ssh -o HostKeyAlias=github.com" git push ssh://git@140.82.116.4
 1. 提交已在本地分支 `stage2-auto-revision`；**未推送**。推送后开 PR #4（base 建议 `stage2-work-preparation`，或等 PR #3 合入后 rebase 到 master）。gh/git 走法见 §17 末与 `github-gh-proxy-env` 记忆。
 2. 切片 3（结果页富 UI：摘要/关键变化/伏笔情节四象限 + 跳原文、手动编辑后重检、"已安排/已解决"语义衔接）。
 3. 本机复现 live：`npm run web:build && npm run serve -- ~/.claude/jobs/a6d62123/tmp/ws-live2`，浏览器开 `http://127.0.0.1:5174/`（直接落对话页），ch1d2/ch1d3/ch1d4 都有"对比上一版"。
+
+---
+
+## 19. 2026-09-12 对话流改左右布局（Mac 会话）
+
+**当前接续入口。** 仍由当前代理独立实现并自审，未调用 Codex/Gemini、未 spawn 子代理。基线 `dcb4b27`（§18 之上），本轮提交在分支 **`stage2-chat-dock`** 的 `bdd300f`（本地，未推送）。**纯前端改动**，`src/` 与测试一行未动。
+
+### 起因
+用户提的一点要求：对话框固定在页面底部太突兀，改左右布局，克隆 `https://github.com/syrizelink/OpenFic` **参考它的样式**做优化。当时那条消息看着像被截断，事后用户确认没有别的要求——就是参考开源项目优化样式，无遗漏需求。
+
+### 从 OpenFic 抄了什么（克隆在 `~/.claude/jobs/a6d62123/tmp/OpenFic`）
+它的写作页是 `react-resizable-panels` 三栏（左章节列表 300px / 中编辑器 / 右助手 500px），助手栏是竖向 flex：头部 + 自带滚动的消息区 + 钉在**该列**底部的输入框；diff 卡片留在消息流里，正文只在中间编辑器看；分隔线 1px、热区 8px、布局落 localStorage。抄的是**"对话只驱动、产物在编辑区看"这个分工**，不是它的依赖——本项目没加任何新依赖，三栏用 CSS grid，拖宽用一个 ~25 行的 pointer 钩子。
+
+### 做了什么
+- **`useDockWidth(storageKey, min, max, initial)`**（`web/src/hooks.ts`）：按住左缘热区、向左拖变宽，钳 `[min,max]`，pointerup 落 localStorage。**落盘取闭包里的 `latest` 而不是 state**——pointerup 时 React 未必已提交最后一次 move。
+- **`components/ChatDock.tsx`**：右侧常驻栏。`.dock-list` 自带滚动（首次载入 `auto` 跳底、后续 `smooth`），`.composer` 从 `position:sticky`+渐变改成静态 + `border-top`，钉在这一列底部而不是视口底部。头部放筹备摘要片（`还缺 N 项` / `可写第 n 章`，点进 `#/desk`）和"收起"。回复后 `refresh()` 再 `findLast(kind==="chapter_written")` 自动把中间区切到新草稿。
+- **`pages/Desk.tsx`（`/desk`，默认落点）**：筹备缺项 + 下一章草稿表（草稿/状态/字数/修订/问题 + 查看/采用）。`PrepPanel` 从原 Chat.tsx 原样搬来。
+- **`pages/DraftPage.tsx`（`/draft/:n/:id`）**：草稿正文与红绿对比随主区滚动、**不限高**（原先嵌在消息流里要给 `maxHeight`，一嵌套滚动就难读）；本章各版做成 tag 互链；`在正文页打开该章` 只在 `adopted` 时给。
+- **`components/DiffView.tsx`**：`foldUnchanged` + `DiffView` 从 Chat.tsx 抽出，去掉内层 `maxHeight`。
+- **`labels.ts`**：`draftStatusLabel` / `draftStatusTone` / `chapterTypeLabel` 三张表集中一处（原先散在 Chat.tsx 里）。
+- **`App.tsx`**：`.shell` 改 `190px minmax(0,1fr) auto` 三栏；**dock 挂在 App 层**，换路由不卸载（这是"常驻"的全部实现）；`prep` 提到 App 层由 dock 与 Desk 共用；`Link` 加 `aliases` 让工作台在 `/draft/` 下仍高亮；`nf.dock.width` / `nf.dock.open` 两个 localStorage 键。
+- **`api.ts` 加 `adoptable(d)`**：`status === "ready" && acceptable`。修一个真 bug——`acceptable` 采用后仍为 true，只看它会给已采用的 ch1d4 也画"采用这一版"，点了后端必拒。
+- **`styles.css` 加 `color-scheme: dark`**：两个并排滚动区（主区 + 对话栏）在暗色底上原来拉出两条浅色原生滚动条，比内容还显眼。
+- `pages/Chat.tsx` 删除；`Works.tsx` 的 `go("/chat")` 改 `/desk`。
+
+### 验证
+- typecheck（根+web）干净；`web:build` 干净；`npm test` **660 通过 / 37 文件**（未新增测试：本轮无后端与纯函数改动，行为验证走浏览器）。
+- **live（同一个 ws-live2《青州旧事》，`http://127.0.0.1:5174`）**：拖宽 400→520（左拖 120px，主区 850→730），`data-resizing` true→false，`nf.dock.width` 落 "520"；过拖钳到 640；收起→竖带 34px / 主区 1216 / `nf.dock.open` "0"；展开回 640 且消息与滚动位置不变。跨路由常驻：把 `.dock-list` scrollTop 设 1234 → 切 `#/foreshadow` → 读回 1234，24 条消息与 composer 里的草稿都在。ch1d4 对比渲染正确（`第 1/1 次修订字数不足，按优先级补写 · 2275 → 2441 字 +186 −20 改动 6 段`，6 段 replace / 16 处段内高亮 / 5 个折叠按钮，body `overflow: visible`）。控制台无错误。
+- **改 CSS 后一定要硬刷**（`ignoreCache`）：只改 hash 不重载文档，`color-scheme` 和新样式表都不会生效，曾据此误判"CSS 没应用"。
+
+### 已知观察
+- ws-live2 的 ch2d1 现在是 `adopted`（`2026-09-12T12:31:02.268Z`），§18 记的是 `ready` 未采用。这一刻我这边正在改文件、浏览器刚重启且页面 id 全失效，本会话没有任何 adopt 点击或 POST。**结论是它不是本会话验证造成的，具体谁触发的没查出来**，只当作 live 工作区的状态漂移记下。`chapters/ch2.txt` 与 `workVersion 2` 已落，数据本身自洽。
+
+### 下一步
+1. 两个本地分支都没推：`stage2-auto-revision`（`fc98d70`+`dcb4b27`）与 `stage2-chat-dock`（`bdd300f`）。推送与开 PR 见 §17 末与 `github-gh-proxy-env` 记忆。
+2. 切片 3（结果页富 UI：摘要/关键变化/伏笔情节四象限 + 跳原文、手动编辑后重检、"已安排/已解决"语义衔接）。
