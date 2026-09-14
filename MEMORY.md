@@ -662,9 +662,7 @@ GIT_SSH_COMMAND="ssh -o HostKeyAlias=github.com" git push ssh://git@140.82.116.4
 - 采用后 `adopt` 原样保留 `revisions`（`{...draft, status:"adopted"}`），已采用章仍可看对比。
 
 ### 下一步
-1. 提交已在本地分支 `stage2-auto-revision`；**未推送**。推送后开 PR #4（base 建议 `stage2-work-preparation`，或等 PR #3 合入后 rebase 到 master）。gh/git 走法见 §17 末与 `github-gh-proxy-env` 记忆。
-2. 切片 3（结果页富 UI：摘要/关键变化/伏笔情节四象限 + 跳原文、手动编辑后重检、"已安排/已解决"语义衔接）。
-3. 本机复现 live：`npm run web:build && npm run serve -- ~/.claude/jobs/a6d62123/tmp/ws-live2`，浏览器开 `http://127.0.0.1:5174/`（直接落对话页），ch1d2/ch1d3/ch1d4 都有"对比上一版"。
+见文末「待办」。本节的提交已被 §19、§20 接在其上（`stage2-chat-dock` 包含本分支），推一条即可。
 
 ---
 
@@ -699,14 +697,33 @@ GIT_SSH_COMMAND="ssh -o HostKeyAlias=github.com" git push ssh://git@140.82.116.4
 - ws-live2 的 ch2d1 现在是 `adopted`（`2026-09-12T12:31:02.268Z`），§18 记的是 `ready` 未采用。这一刻我这边正在改文件、浏览器刚重启且页面 id 全失效，本会话没有任何 adopt 点击或 POST。**结论是它不是本会话验证造成的，具体谁触发的没查出来**，只当作 live 工作区的状态漂移记下。`chapters/ch2.txt` 与 `workVersion 2` 已落，数据本身自洽。
 
 ### 下一步
-1. 两个本地分支都没推：`stage2-auto-revision`（`fc98d70`+`dcb4b27`）与 `stage2-chat-dock`（`bdd300f`+`cbaa916`+`4240c1c`）。推送与开 PR 见 §17 末与 `github-gh-proxy-env` 记忆。
-2. 切片 3（结果页富 UI：摘要/关键变化/伏笔情节四象限 + 跳原文、手动编辑后重检、"已安排/已解决"语义衔接）。
+见文末「待办」。注意 `stage2-chat-dock` 是接在 `stage2-auto-revision` 之上的，两者是一条栈不是两条并行线（这一节原先写反了）。
 
 ---
 
 ## 20. 2026-09-13 整体样式：稿本与仪器（Mac 会话）
 
 **当前接续入口。** 同一分支 `stage2-chat-dock` 的 `4240c1c`（本地，未推送）。仍是独立实现自审。**纯前端**，`src/` 与测试一行未动，660 测试仍过。
+
+### 当前状态速览（接手先读这一节）
+
+**分支是一条栈，不是几条并行的线** —— §18/§19 写成"两个本地分支都没推"是不准确的，实际后者包含前者：
+
+```
+master (aeff8b3)
+  └─ stage2-work-preparation  +4   PR #3 open（base master）；本地还多 6294ff2 未推
+       └─ stage2-auto-revision  +6   §18 的自动修订/红绿对比/默认对话
+            └─ stage2-chat-dock  +10  §19 三栏对话 + §20 样式改版　← 当前分支
+```
+
+推 `stage2-chat-dock` 一条即带走全部 10 个提交。远端只有 master / stage1-chapter-task / stage2-conversation-agent / stage2-work-preparation 四条。
+
+| 项 | 值 |
+|---|---|
+| 测试 | 660 通过 / 37 文件；typecheck 与 `web:build` 干净 |
+| live 工作区 | `~/.claude/jobs/a6d62123/tmp/ws-live2/青州旧事`（写到第 2 章，ch1d4、ch2d1 均已采用） |
+| 本机复现 | `npm run web:build && npm run serve -- ~/.claude/jobs/a6d62123/tmp/ws-live2`，开 `http://127.0.0.1:5174/`（落 `/desk`） |
+| 真机写章 | Mac 无 `.env.local`，`converse` 会 503；配置在 Windows 机。mock 测试不受影响 |
 
 ### 起因
 用户用 `/frontend-design` 技能要求"继续优化整体样式"，并借鉴 OpenFic。OpenFic 的可借之处是它用 Noto Serif SC 当全局字体 —— 写小说的工具不该通篇黑体。但它把宋体用在**整个应用**，小字号会糊；这里只给稿本用。
@@ -738,3 +755,46 @@ typecheck 干净、`web:build` 干净、`npm test` **660 通过**。浏览器逐
 ### 已知取舍
 - 默认对话栏 400px 时中间区只有 782px，正文页恒为单栏（体检落到正文下方）。正文优先是刻意的：收起对话栏即恢复双栏。
 - 宋体在暗底小字号会糊，所以只给 ≥16.5px 的正文和 ≥19px 的标题用，表格与标签一律不用。
+
+---
+
+## 关键决策汇总（用户拍板，勿再讨论）
+
+跨切片累积，接手先看这一节再动手。出处见对应小节。
+
+**协作与流程**
+- 本项目**不用 Codex/Gemini，不 spawn 子代理**（2026-09-10 定，反复重申）。全部独立实现并自审。要恢复多模型协作必须先问用户。这与"用 Gemini 作产品的写章模型"是两码事（§14 ⚠）。
+- 措辞：谈外部开源项目用**"借鉴"不用"抄"**（2026-09-13）。
+
+**架构（§13 v1 决策锁定）**
+- 编排层用 **LangGraph JS**；用户明确推翻了设计文档 §8.3"原生 + Tool Runner"的倾向，**勿擅自改回**。模型调用仍走原生 `@anthropic-ai/sdk`，不引 LangChain。
+- 事件流是小说事实的唯一真源；LangGraph checkpoint 只管任务编排/恢复，职责分离。
+- **草稿在事件流之外**，采用时才展开 —— 天然"只生效选中稿"。
+- 创作节奏 = **逐章采用**（＋"采用并继续"）。关键变化采用时打包确认，普通事件不逐条点。
+- **所有数值约束都是派生的，代码里没有数字**，靠 `test/rules.test.ts` 的源码扫描守住。
+
+**口径（别重新定义）**
+- 中文字数只计**汉字与西文词**，剔除标点空白。界面上凡是 `body.length` 一律叫**字符**，不叫字数。
+- 元层穿帮检测只查引号内与心理标记句，叙述不查（宁漏不误报）。
+
+**界面**
+- 默认落 `/desk` 工作台；写入一律经右栏对话，页面上没有可编辑控件（正式事实边界在后端）。
+- 对话只驱动，产物（草稿正文、新旧对比、筹备资料）在中间区看。
+- **红绿是唯一破例**（删＝红底、增＝绿底），只出现在草稿新旧对比，且只用底色。
+- **朱批栏**：左缘 3px 只表示"这条要你处理"，其余组件一律让出左缘（§20）。
+- 稿本用宋体、仪器用黑体等宽（§20）。
+
+---
+
+## 待办（按序）
+
+1. **推送**。`stage2-chat-dock` 一条带走全部 10 个提交；`stage2-work-preparation` 另有 `6294ff2` 未推。GitHub 直连被掐时按 `github-gh-proxy-env` 记忆走：git 用 SSH 直连 IP（`GIT_SSH_COMMAND="ssh -o HostKeyAlias=github.com" git push ssh://git@140.82.116.4/<owner>/<repo>.git HEAD:<branch>`），gh 要带 `HTTPS_PROXY=http://127.0.0.1:7897`。
+2. **开 PR #4**。base 建议 `stage2-work-preparation`（PR #3 仍 open，base master）；或等 #3 合入后 rebase 到 master 再开。
+3. **切片 3**：结果页富 UI（摘要／关键变化／伏笔情节四象限 + 跳原文）、手动编辑后重检、"已安排/已解决"语义衔接。
+4. **对外暴露前加登录**。服务端现无鉴权，只绑 127.0.0.1。
+5. **M1 缓存命中率实测**仍卡在官方直连 key（中转站对 SDK 直连返回 401）。拿到 key 后跑 `npm run acceptance:m1`。
+
+### 观察期，不急着改
+- `density_over` 在布局章几乎必报（模型给布局章塞 2–3 个事件，密度 0.9+ vs 上限 0.4）。是 warn 不挡采用，但修订清单带给模型它也改不动"密度"。是否在排章期提醒"布局章少塞事件"，或把密度上限的派生再校准，留给内容层观察。
+- `c5_anchor_unresolvable` 常见（模型声明的 quote 不在正文里）。锚点无法跳读但不挡采用。
+- ws-live2 的 ch2d1 在 2026-09-12T12:31:02Z 变成 `adopted`，非本会话操作，来源未查明（§19）。数据本身自洽，只当状态漂移。
