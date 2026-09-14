@@ -18,6 +18,7 @@ import { appendTurn, type CallOptions } from "../client/claude.js";
 import type { ModelClient } from "../client/model.js";
 import type { ChapterExcerpt, ForeshadowFilter } from "../task/tool-exec.js";
 import type { AgentEffect } from "./types.js";
+import type { StructureCorrection } from "../chapter/c5-correction.js";
 
 /** 计划类工具的入参（三种 what 对应三类 AlertAction，具体构造在 ctx 里）。 */
 export interface PlanAddInput {
@@ -40,6 +41,9 @@ export interface AgentActionOutcome {
  * 刻意不直接依赖 ProjectSession —— 让工具执行可独立测试（假 ctx 即可）。
  */
 export interface MainAgentToolContext {
+  readonly getChapterDraft: (draftId: string) => string;
+  readonly correctDraft: (draftId: string, revisionToken: string, changes: readonly StructureCorrection[], summary: string) => Promise<AgentActionOutcome>;
+  readonly checkDraft: (draftId: string, revisionToken: string, adoptOnSuccess: boolean) => Promise<AgentActionOutcome>;
   readonly listChapterTasks: () => string;
   readonly controlChapterTask: (draftId: string, action: "pause" | "end" | "resume") => Promise<AgentActionOutcome>;
   readonly getPreparation: (proposalId: string | null) => string;
@@ -92,6 +96,17 @@ export async function executeMainTool(
   });
 
   switch (block.name) {
+    case "get_chapter_draft":
+      try { return { result: ok(ctx.getChapterDraft(readStr("draftId"))) }; }
+      catch (error) { return { result: err(error instanceof Error ? error.message : String(error)) }; }
+    case "correct_draft_structure": {
+      if (!readStr("draftId") || !readStr("revisionToken") || !readStr("summary") || !Array.isArray(input["changes"])) return { result: err("先读取确切稿件，提供 draftId、revisionToken、changes 和纠错说明 summary") };
+      return action(await ctx.correctDraft(readStr("draftId"), readStr("revisionToken"), input["changes"] as StructureCorrection[], readStr("summary")));
+    }
+    case "check_chapter_draft": {
+      if (!readStr("draftId") || !readStr("revisionToken") || typeof input["adoptOnSuccess"] !== "boolean") return { result: err("先读取确切稿件，adoptOnSuccess 必须明确为 true 或 false") };
+      return action(await ctx.checkDraft(readStr("draftId"), readStr("revisionToken"), input["adoptOnSuccess"]));
+    }
     case "list_chapter_tasks":
       return { result: ok(ctx.listChapterTasks()) };
     case "control_chapter_task": {

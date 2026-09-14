@@ -16,10 +16,11 @@ import { deriveBudget } from "../beat/derive.js";
 import type { AlertAction, AlertState } from "../types/projections.js";
 import type { AlertId, ChapterNo, TextAnchor } from "../types/primitives.js";
 import type { EventWeight } from "../types/events.js";
-import type { ChapterDraft } from "../task/types.js";
 import { ChapterWriteError } from "./chapter-input.js";
 import type { ChapterWriteOptions } from "./chapter-writer.js";
 import { countWords } from "../text/measure.js";
+import { toDraftView } from "./draft-view.js";
+import type { StructureCorrection } from "../chapter/c5-correction.js";
 
 export interface ApiRequest {
   readonly method: string;
@@ -112,6 +113,37 @@ export function handle(session: ProjectSession, req: ApiRequest): ApiResponse {
         return chapterAdopt(session, req.body);
       case "/api/chapter/discard":
         return chapterDiscard(session, req.body);
+      case "/api/chapter/edit":
+      case "/api/chapter/correct":
+      case "/api/chapter/check": {
+        const ref = draftRef(req.body);
+        if (typeof ref === "string") return bad(ref);
+        if (!isRecord(req.body) || typeof req.body["revisionToken"] !== "string") return bad("缺少源稿版本凭据 revisionToken");
+        const reference = { ...ref, revisionToken: req.body["revisionToken"] };
+        try {
+          if (path === "/api/chapter/correct") {
+            if (!Array.isArray(req.body["changes"]) || typeof req.body["summary"] !== "string") return bad("缺少纠错记录 changes 或说明 summary");
+            const requestId = req.body["requestId"];
+            if (requestId !== undefined && typeof requestId !== "string") return bad("requestId 必须是字符串");
+            return ok(toDraftView(session.correctDraft({ ...reference, changes: req.body["changes"] as StructureCorrection[], summary: req.body["summary"], ...(requestId === undefined ? {} : { requestId }) }), session));
+          }
+          if (path === "/api/chapter/check") {
+            if (typeof req.body["adoptOnSuccess"] !== "boolean") return bad("adoptOnSuccess 必须是布尔值");
+            return ok(toDraftView(session.checkDraft({ ...reference, adoptOnSuccess: req.body["adoptOnSuccess"] }), session));
+          }
+          if (typeof req.body["body"] !== "string") return bad("缺少正文 body");
+          const summary = req.body["summary"];
+          const requestId = req.body["requestId"];
+          if (summary !== undefined && typeof summary !== "string") return bad("summary 必须是文字");
+          if (requestId !== undefined && typeof requestId !== "string") return bad("requestId 必须是字符串");
+          return ok(toDraftView(session.editDraft({ ...reference, body: req.body["body"],
+            ...(summary === undefined ? {} : { summary }), ...(requestId === undefined ? {} : { requestId }),
+          }), session));
+        } catch (error) {
+          if (error instanceof ChapterWriteError) return { status: error.status, body: { error: error.message } };
+          throw error;
+        }
+      }
       case "/api/chapter/control": {
         const ref = draftRef(req.body);
         if (typeof ref === "string") return bad(ref);
@@ -423,12 +455,6 @@ function refreshed(session: ProjectSession): { readonly alerts: unknown } {
 
 // ── 章节草稿端点（Stage 1）─────────────────────────────────────────────
 
-/** 草稿的对外视图：剔除内部 C4 会话快照（体积大且属实现细节）。 */
-function toDraftView(d: ChapterDraft): unknown {
-  const { session: _session, writeContext: _writeContext, ...view } = d;
-  return { ...view, words: countWords(d.body), preparationProposalId: d.writeContext?.proposalId ?? null };
-}
-
 async function chapterWrite(session: ProjectSession, body: unknown, start = false): Promise<ApiResponse> {
   if (!isRecord(body)) return bad("请求体必须是对象");
   const chapter = body["chapter"];
@@ -452,7 +478,7 @@ async function chapterWrite(session: ProjectSession, body: unknown, start = fals
     ...(requestId === undefined ? {} : { requestId }),
   };
   try {
-    return ok(toDraftView(start ? session.startChapter(options) : await session.writeChapter(options)));
+    return ok(toDraftView(start ? session.startChapter(options) : await session.writeChapter(options), session));
   } catch (error) {
     if (error instanceof ChapterWriteError) return { status: error.status, body: { error: error.message } };
     throw error;
@@ -478,7 +504,7 @@ async function conversationSend(session: ProjectSession, body: unknown): Promise
 function chapterDrafts(session: ProjectSession, query: URLSearchParams): ApiResponse {
   const n = intParam(query, "n");
   if (n === null) return bad("缺少参数 n");
-  return ok(session.listDrafts(n).map(toDraftView));
+  return ok(session.listDrafts(n).map(draft => toDraftView(draft, session)));
 }
 
 function chapterDraft(session: ProjectSession, query: URLSearchParams): ApiResponse {
@@ -486,7 +512,7 @@ function chapterDraft(session: ProjectSession, query: URLSearchParams): ApiRespo
   const id = query.get("id");
   if (n === null || id === null) return bad("缺少参数 n / id");
   const d = session.getDraft(n, id);
-  return d === undefined ? missing(`草稿不存在：ch${n}/${id}`) : ok(toDraftView(d));
+  return d === undefined ? missing(`草稿不存在：ch${n}/${id}`) : ok(toDraftView(d, session));
 }
 
 /** 采用一份草稿。未就绪会抛，归 400（附可读原因）。成功后带上刷新的首页。 */

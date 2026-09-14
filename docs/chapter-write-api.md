@@ -1,12 +1,14 @@
 # 写章 API
 
-本接口把准备好的项目接到章节任务服务：写正文 → 声明结构 → 代码检查 → 保存草稿。生成结束后由作者决定是否采用。对话入口和 Web 草稿操作界面尚未接入。
+本接口把作品资料接到章节任务服务：写正文 → 声明结构 → 代码检查 → 保存草稿。对话和 Web 结果页共用这些业务入口，生成结束后由作者决定是否采用。
 
 ## 准备项目
 
-服务启动方式仍为 `npm run serve -- <项目目录>`，默认端口 5174。启动脚本会加载根目录的 `.env.local`，需要 Node.js 22.9.0 或以上版本。阅读 API 不需要模型配置，首次生成时才创建模型客户端。
+`npm run serve` 默认打开 `data` 下的作品列表，也可用 `npm run serve -- <项目目录>` 打开已有作品，默认端口 5174。启动脚本加载根目录的 `.env.local`，需要 Node.js 22.9.0 或以上版本。多作品请求通过 `x-novel-project` 指定作品 ID，服务端没有全局活动作品。阅读、手动保存、结构纠错及已有声明的纯代码检查不需要模型配置。
 
 使用 Gemini chat 代理时，设置 `NOVEL_MODEL_PROVIDER=chat`，并提供 `CHAT_BASE_URL`、`CHAT_API_KEY`、`CHAT_MODEL`，详见 [Gemini chat 使用说明](gemini-chat.md)。未设置 provider 或显式设置 `claude` 时，沿用 `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` 及可选的 `ANTHROPIC_BASE_URL`；chat 请求失败不会自动切换到 Claude。
+
+DeepSeek 等国内官方或代理 Chat 接口参见 [模型配置](model-configuration.md)。代理凭证只用于其对应端点。
 
 写章前需要完整的作品设定、人物卡、情节线定义与本章节拍。节拍的 `provenance` 必须是 `authored` 或 `committed`；预算会按当前规则重新派生，允许原文件的 `budget` 为 `null`。第二章起必须有上一章的正式正文。人物、场景、情节线和待收伏笔的引用必须存在；待收伏笔需要真实埋设记录及能定位的原文锚点。
 
@@ -52,6 +54,8 @@ Content-Type: application/json
 | `draftId` | 可选，如 `ch1d1`；恢复或读取指定草稿 |
 | `newDraft` | 可选布尔值；`true` 另建版本，不能同时传 `draftId` |
 | `maxOutputTokens` | 可选正整数；调整 C4 输出上限，随草稿保存并在恢复时沿用 |
+| `requestId` | 可选稳定请求编号；网络重试沿用原编号，返回同一份已保存任务 |
+| `proposalId` | 可选资料方案 ID；试写使用候选资料，采用时一起确认依赖 |
 
 HTTP 会等待本次任务结束，成功处理请求后返回草稿对象，例如：
 
@@ -65,9 +69,11 @@ HTTP 会等待本次任务结束，成功处理请求后返回草稿对象，例
 }
 ```
 
-实际返回还包含 `declaration`、`findings`、`proposals`、`error`、作品基础版本和时间字段，不返回内部模型会话或资料校验信息。必须检查草稿状态：`ready` 才可采用，`needs_revision` 需要处理检查结果，`failed` 带失败步骤及原因，`stale` 表示生成依据已经改变。模型拒绝或调用失败会作为已保存草稿返回，不自动采用或无限重试。
+实际返回还包含 `declaration`、`findings`、`proposals`、`error`、`execution`、`revisionToken`、`isCurrentAdopted`、作品基础版本和时间字段，不返回内部模型会话或资料指纹。必须检查草稿状态：`pending_check` 等待作者启动检查，`ready` 才可采用，`needs_revision` 需要处理检查结果，`failed` 带失败步骤及原因，`stale` 表示生成依据已经改变。模型拒绝或调用失败会作为已保存草稿返回，不自动采用或无限重试。
 
 生成期间可通过 `GET /api/chapter/drafts?n=1` 查询草稿；详情使用 `GET /api/chapter/draft?n=1&id=ch1d1`。这些 GET 请求不会启动生成。
+
+Web 和主 Agent 使用 `POST /api/chapter/start`，参数相同，保存初始草稿后立即返回。`GET /api/tasks` 查询真实活动状态与已报告用量；`POST /api/chapter/control` 接收 `chapter`、`draftId` 和 `action: "pause" | "end"`。暂停或结束在当前模型请求返回并保存后生效；没有活动执行的旧运行记录显示 `interrupted`。刷新、查询和打开结果页不会恢复或重启模型任务。
 
 | 写章 HTTP 状态 | 含义 |
 | --- | --- |
@@ -83,7 +89,7 @@ HTTP 会等待本次任务结束，成功处理请求后返回草稿对象，例
 
 chat 草稿保留原始 assistant 消息及工具签名。更换 chat 模型或端点后不能直接恢复旧会话，应恢复原配置或另写一版；同一端点和模型的密钥轮换不影响恢复。
 
-普通重复请求复用本章最新的未丢弃草稿。同一会话内重叠的同一请求共享任务；冲突的写章请求返回 409。另写一版使用 `{"chapter":1,"newDraft":true}`。`newDraft` 每次代表一次新的写作意图，重试已经创建的新稿应使用它的 `draftId`。
+普通重复请求复用本章最新的未丢弃草稿。同一会话内重叠的同一请求共享任务；冲突的写章请求返回 409。另写一版使用 `{"chapter":1,"newDraft":true,"requestId":"new-unique-request"}`；重试沿用原 `requestId` 或使用已返回的 `draftId`。
 
 HTTP 请求断开不会取消服务端任务。服务仍运行时会继续执行并保存结果；服务重启后，由用户再次提交写章请求恢复，查询页面本身不触发恢复。生成中的草稿暂不能丢弃，避免后续保存重新覆盖丢弃状态。
 
@@ -91,8 +97,53 @@ HTTP 请求断开不会取消服务端任务。服务仍运行时会继续执行
 
 采用使用既有接口：`POST /api/chapter/adopt`，请求为 `{"chapter":1,"draftId":"ch1d1"}`。只有当前仍有效的 `ready` 稿可采用，随后正式正文与声明参与后续写章。重复采用同一稿幂等。`propose_*` 工具产生的提议仍保存在草稿提议区，本接口不自动改人物设定或规划。
 
+## 编辑、纠错与检查
+
+三类请求均必须携带从草稿详情取得的 `chapter`、`draftId` 和 `revisionToken`。源正文、结构、检查或状态变化后，旧 token 失效并返回 409。编辑和纠错只支持当前未采用章或最新正式章，不能从历史采用版本覆盖新的正式版本。
+
+| 接口 | 其他参数 | 结果 |
+| --- | --- | --- |
+| `POST /api/chapter/edit` | `body`、可选 `summary` / `requestId` | 保存新版本，清空声明和检查，进入 `pending_check`；不调用模型 |
+| `POST /api/chapter/correct` | `changes`、`summary`、可选 `requestId` | 正文保持，只修改指定结构记录，重建锚点，保存待检查新版本 |
+| `POST /api/chapter/check` | 必填 `adoptOnSuccess: boolean` | 启动该版本后台检查；成功且明确要求采用才继续采用 |
+
+编辑和纠错重试沿用同一 `requestId`；相同请求返回同一版本，不同内容复用编号返回 409。检查拒绝并发冲突时不会改写目标稿或登记采用意图。
+
+纠错的 `changes` 使用领域字段名，示例：
+
+```json
+{
+  "chapter": 1,
+  "draftId": "ch1d1",
+  "revisionToken": "从草稿详情原样取得的64位凭据",
+  "requestId": "correct-unique-request",
+  "summary": "正文只是昏倒，保留正文纠正死亡误读",
+  "changes": [{
+    "section": "characterStates",
+    "index": 0,
+    "value": {
+      "characterId": "C02",
+      "field": "condition",
+      "from": null,
+      "to": "昏倒，呼吸平稳",
+      "quote": "血刀客突然昏倒在门前"
+    }
+  }]
+}
+```
+
+`section` 支持 `events`、`foreshadowPlanted`、`foreshadowResolved`、`relationsChanged`、`characterStates`、`characterPresence`。`index` 以源版本数组为准，等于长度时新增，`value: null` 删除。可选 `occurrence` 指定重复引文的出现序号（从 0 开始）；不存在的引文、非法引用和会被解析器静默删改的内容会被拒绝。
+
+编辑后的 C5 使用作者当前完整正文，不回放旧 C4 正文或伪造模型思考历史。结构纠错后的声明完整时只执行代码重检。C5 必须完整结束并满足六类结构数组及字段形状；达到输出上限、残缺 JSON 或字段缺失会保留正文并标记 C5 失败。原生生成路径仍保留 C4 的完整响应供同会话 C5 使用。
+
+`adoptOnSuccess` 随本次检查保存，失败、暂停和重开后仍保留；新修订不继承源稿的采用请求。有必须处理项时停在 `needs_revision`。检查通过而采用失败时保留结果和 `review.adoptionError`，包括采用前依据改变产生的 `stale` 状态。
+
+最新正式章修订采用后，正文、声明和正式版本映射在同一事务中更新；后续各类未采用稿标记过期。旧版本及原检查继续保留，`isCurrentAdopted` 区分当前正式版本与历史采用版本。`revision` 记录来源、修改说明和是否重新绑定最新资料；结果页提供前后对比。
+
+对话工具 `get_chapter_draft`、`correct_draft_structure`、`check_chapter_draft` 复用相同服务，模型工具不能绕过版本、检查或采用边界。
+
 ## 当前范围
 
-并发协调限定在同一服务进程的项目会话内。自动修订、对话式作品创建、草稿结果页和多进程任务协调尚未实现。L2 目前每次根据正式事件重建，复用现有分层渲染与缓存断点；生产环境的 L2 增量快照策略和真实缓存收益仍需后续验证。
+当前已接入作品列表、资料方案、试写、结果页、后台任务、手动编辑与结构纠错。自然语言正文改写、保留片段继续完成、至多一次自动修订、C4 建议正式应用及基础导出继续开发。并发协调限定在同一服务进程的项目会话内。L2 目前每次根据正式事件重建；生产环境的增量快照与真实缓存收益仍需后续验证。
 
 自动化测试覆盖完整生成/采用/续写、C5 失败后跨会话恢复、参数和资料变化、断开 HTTP 请求后的继续执行，使用假模型响应。它们不代表真实模型的写作质量、服务可用性或缓存命中率已经通过验收。

@@ -5,6 +5,8 @@ import { ChapterTaskService } from "../task/service.js";
 import type { DraftStore } from "../task/draft-store.js";
 import type { ChapterDraft, ChapterTaskView, DraftId } from "../task/types.js";
 import { taskView, type TaskControl } from "../task/execution.js";
+import { authoredSession, draftRevisionToken } from "../task/revision.js";
+import { validateDraftReference, type DraftCheckOptions } from "./draft-revisions.js";
 import type { ChapterNo } from "../types/primitives.js";
 import type { ProjectSession } from "./state.js";
 import {
@@ -56,8 +58,42 @@ export class ChapterWriter {
   }
 
   tasks(): readonly ChapterTaskView[] {
-    return this.session.allDrafts().map((draft) => taskView(draft,
-      this.active?.request.chapter === draft.chapter && this.active.draftId === draft.draftId));
+    const drafts = this.session.allDrafts();
+    const latest = new Map(drafts.filter(draft => draft.status !== "discarded").map(draft => [draft.chapter, draft.draftId]));
+    return drafts.map((draft) => {
+      const active = this.active?.request.chapter === draft.chapter && this.active.draftId === draft.draftId;
+      return taskView(draft, active, !active && latest.get(draft.chapter) !== draft.draftId);
+    });
+  }
+
+  /** 显式检查才启动执行；保存正文不会顺带调用模型。 */
+  check(options: DraftCheckOptions): ChapterDraft {
+    validateDraftReference(options);
+    if (typeof options.adoptOnSuccess !== "boolean") throw new ChapterWriteError(400, "adoptOnSuccess 必须明确为 true 或 false");
+    if (this.active !== null && (this.active.request.chapter !== options.chapter || this.active.draftId !== options.draftId)) {
+      throw new ChapterWriteError(409, "已有其他稿件正在执行，请先等待或暂停该任务，再检查本稿");
+    }
+    const draft = this.drafts.loadDraft(options.chapter, options.draftId);
+    if (draft === undefined) throw new ChapterWriteError(404, "草稿不存在");
+    if (draft.review?.requestToken === options.revisionToken && draft.review.adoptOnSuccess === options.adoptOnSuccess) {
+      return this.start({ chapter: options.chapter, draftId: options.draftId });
+    }
+    this.assertNotRunning(options.chapter, options.draftId);
+    if (draftRevisionToken(draft) !== options.revisionToken) throw new ChapterWriteError(409, "稿件已变化，请重新打开结果后检查");
+    if (draft.status === "adopted" || draft.status === "discarded") throw new ChapterWriteError(409, "请先保存一份候选修订，再检查该版本");
+    this.assertFresh(draft);
+    if (!draft.body.trim()) throw new ChapterWriteError(409, "正文尚未完成，不能开始检查");
+    if (draft.error?.step === "C4") throw new ChapterWriteError(409, "正文还不完整，请先继续完成或手动补全并保存新版本");
+    const source = this.session.chapterSource(draft.writeContext?.proposalId);
+    const input = buildChapterRunInput(source, draft.chapter);
+    this.drafts.saveDraft({
+      ...draft, status: "pending_check", error: null, acceptable: false, findings: [],
+      session: draft.session ?? authoredSession(input),
+      review: { adoptOnSuccess: options.adoptOnSuccess, requestToken: options.revisionToken },
+      ...(draft.execution === undefined ? {} : { execution: { ...draft.execution, status: "waiting" } }),
+      updatedAt: new Date().toISOString(),
+    });
+    return this.start({ chapter: options.chapter, draftId: options.draftId });
   }
 
   control(chapter: ChapterNo, draftId: DraftId, action: "pause" | "end"): ChapterTaskView {
@@ -69,7 +105,7 @@ export class ChapterWriter {
     const view = taskView(draft, active !== null);
     if (view.status === "completed" || view.status === "ended") return view;
     if (active !== null && active.control.requested !== "end") active.control.requested = action;
-    const { chapter: _chapter, draftId: _id, draftStatus: _status, words: _words, detail: _detail, ...execution } = view;
+    const { chapter: _chapter, draftId: _id, draftStatus: _status, words: _words, detail: _detail, isHistory: _history, ...execution } = view;
     const status = active === null ? action === "pause" ? "paused" : "ended"
       : active.control.requested === "end" ? "ending" : "pausing";
     const next: ChapterDraft = { ...draft, execution: { ...execution, status, updatedAt: new Date().toISOString() } };
@@ -118,7 +154,7 @@ export class ChapterWriter {
     }
     if (draft !== undefined) {
       this.assertFresh(draft);
-      if (draft.status === "ready" || draft.status === "needs_revision") return Promise.resolve(draft);
+      if (draft.status === "ready" || draft.status === "needs_revision") return Promise.resolve(this.finishAdoption(draft));
     }
 
     const maxOutputTokens = options.maxOutputTokens ?? draft?.writeContext?.maxOutputTokens;
@@ -127,14 +163,15 @@ export class ChapterWriter {
     const input = buildChapterRunInput(source, options.chapter, maxOutputTokens === undefined ? {} : { maxOutputTokens });
     const fingerprint = chapterInputFingerprint(source, options.chapter);
     const readSource = buildChapterReadSource(source, options.chapter);
-    if (this.client === undefined) {
+    const needsModel = draft === undefined || draft.session === null || draft.declaration === null;
+    if (this.client === undefined && needsModel) {
       try { this.client = createModelClient(); }
       catch (error) {
         throw new ChapterWriteError(503, `写章模型尚未配置：${error instanceof Error ? error.message : String(error)}`);
       }
     }
     const control: TaskControl = { requested: null };
-    const service = new ChapterTaskService({ client: this.client, draftStore: this.drafts, readSource, control, maxToolRounds: this.session.rules.task.maxToolIterations });
+    const service = new ChapterTaskService({ ...(this.client === undefined ? {} : { client: this.client }), draftStore: this.drafts, readSource, control, maxToolRounds: this.session.rules.task.maxToolIterations });
     const requestId = draft?.writeContext?.requestId ?? options.requestId;
     const context = { fingerprint, ...(requestId === undefined ? {} : { requestId }), ...(maxOutputTokens === undefined ? {} : { maxOutputTokens }), ...(proposalId === undefined ? {} : { proposalId }) };
     const draftId = draft?.draftId ?? this.drafts.nextDraftId(options.chapter);
@@ -145,7 +182,7 @@ export class ChapterWriter {
         return this.markStale(result);
       }
       return result;
-    }).finally(() => { this.active = null; });
+    }).finally(() => { this.active = null; }).then((result) => this.finishAdoption(result));
     this.active = { request: { ...options, ...(maxOutputTokens === undefined ? {} : { maxOutputTokens }), ...(proposalId === undefined ? {} : { proposalId }) }, draftId, promise, control };
     return promise;
   }
@@ -172,7 +209,21 @@ export class ChapterWriter {
 
   assertNotRunning(chapter: ChapterNo, draftId: DraftId): void {
     if (this.active?.request.chapter === chapter && this.active.draftId === draftId) {
-      throw new ChapterWriteError(409, "草稿正在生成，请等待当前任务完成后再丢弃");
+      throw new ChapterWriteError(409, "草稿正在执行，请先暂停并等待当前步骤保存后再修改或丢弃");
+    }
+  }
+
+  private finishAdoption(draft: ChapterDraft): ChapterDraft {
+    if (draft.status !== "ready" || draft.review?.adoptOnSuccess !== true) return draft;
+    try {
+      this.session.adopt(draft.chapter, draft.draftId);
+      return this.drafts.loadDraft(draft.chapter, draft.draftId)!;
+    } catch (error) {
+      // 采用入口可能已持久化过期状态；只能在最新版本上追加失败说明。
+      const current = this.drafts.loadDraft(draft.chapter, draft.draftId) ?? draft;
+      const retained: ChapterDraft = { ...current, review: { ...draft.review, ...current.review, adoptionError: error instanceof Error ? error.message : String(error) }, updatedAt: new Date().toISOString() };
+      this.drafts.saveDraft(retained);
+      return retained;
     }
   }
 

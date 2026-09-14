@@ -16,6 +16,7 @@ import type { ModelClient } from "../client/model.js";
 import { assemble, type AssembledRequest } from "../context/assemble.js";
 import { C5_TASK, textOf, type ChapterRunInput } from "../chapter/pipeline.js";
 import { C5_OUTPUT_SCHEMA, parseC5, type ParseResult } from "../chapter/c5-schema.js";
+import { c5OutputIssue } from "../chapter/c5-validation.js";
 import { checkPromisedResolutions, crossCheckC5 } from "../chapter/c5-crosscheck.js";
 import { gateChapter, type ChapterGateResult } from "../gate/code-channel.js";
 import { canAccept, routeChapter, unresolvedFromFindings, type RouteResult } from "../gate/route.js";
@@ -37,7 +38,7 @@ export type WriteResult =
       readonly kind: "ok";
       readonly body: string;
       readonly req: AssembledRequest;
-      readonly c4Response: Anthropic.Message;
+      readonly c4Response: Anthropic.Message | null;
       /** 传给最终 C4 调用的消息（含工具往返），C5 同会话第二轮据此续接。 */
       readonly sessionMessages: readonly Anthropic.MessageParam[];
       readonly hitToolCap: boolean;
@@ -98,7 +99,10 @@ export async function declareStructure(
   write: Extract<WriteResult, { kind: "ok" }>,
 ): Promise<DeclareResult> {
   // 同会话第二轮：追加**整个 C4 响应**（含 thinking/工具块），再问结构声明。
-  const c5Messages: Anthropic.MessageParam[] = [
+  const c5Messages: Anthropic.MessageParam[] = write.c4Response === null ? [
+    ...write.sessionMessages,
+    { role: "user", content: [{ type: "text", text: `以下完整正文由作者提供，是本次结构核对的唯一正文依据。\n\n${write.body}\n\n${C5_TASK}` }] },
+  ] : [
     ...write.sessionMessages,
     { role: "assistant", content: write.c4Response.content },
     { role: "user", content: [{ type: "text", text: C5_TASK }] },
@@ -116,9 +120,13 @@ export async function declareStructure(
 
   if (c5.kind === "error") return { kind: "failed", detail: c5.error.message };
   if (c5.kind === "refusal") return { kind: "failed", detail: `C5 被拒：${c5.userMessage}` };
+  if (c5.kind === "max_tokens") return { kind: "failed", detail: "C5 达到模型输出上限，声明未完成，正文已保留" };
+  if (c5.message.stop_reason !== "end_turn" && c5.message.stop_reason !== "stop_sequence") return { kind: "failed", detail: "C5 响应尚未完整结束，正文已保留，请重新检查" };
 
   const json = parseJson(textOf(c5.message));
   if (json === null) return { kind: "failed", detail: "C5 输出不是合法 JSON" };
+  const issue = c5OutputIssue(json);
+  if (issue !== null) return { kind: "failed", detail: `C5 输出结构不完整或字段无效：${issue}` };
 
   const parse = parseC5(json, { ...input.parseContextBase, chapterText: write.body });
   const c5Findings = [

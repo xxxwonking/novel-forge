@@ -23,6 +23,7 @@ const CHAPTER_SUBDIR = /^ch(\d+)$/u;
 
 interface WorkMeta {
   readonly workVersion: number;
+  readonly adoptedDrafts?: Readonly<Record<string, DraftId>>;
 }
 
 /** 落盘的草稿元数据 —— 正文单独存 .txt，其余进 JSON。 */
@@ -39,24 +40,41 @@ export class DraftStore {
 
   /** 当前作品版本。无 meta 文件时为 0（筹备期，尚未采用过任何章）。 */
   workVersion(): number {
+    return this.workMeta().workVersion;
+  }
+
+  currentAdoptedDraftId(chapter: ChapterNo): DraftId | undefined {
+    return this.workMeta().adoptedDrafts?.[String(chapter)];
+  }
+
+  private workMeta(): WorkMeta {
     try {
       const text = readProjectFile(this.root, META_FILE);
-      if (text === undefined) return 0;
+      if (text === undefined) return { workVersion: 0 };
       const meta = JSON.parse(text) as Partial<WorkMeta> | null;
       if (meta === null || !Number.isSafeInteger(meta.workVersion) || (meta.workVersion ?? -1) < 0) throw new Error("workVersion 必须是非负安全整数");
-      return meta.workVersion as number;
+      if (meta.adoptedDrafts !== undefined) {
+        if (meta.adoptedDrafts === null || typeof meta.adoptedDrafts !== "object" || Array.isArray(meta.adoptedDrafts) ||
+          Object.entries(meta.adoptedDrafts).some(([chapter, id]) => !/^[1-9]\d*$/u.test(chapter) || !Number.isSafeInteger(Number(chapter)) || typeof id !== "string" || !new RegExp(`^ch${chapter}d[1-9]\\d*$`, "u").test(id))) {
+          throw new Error("adoptedDrafts 正式版本记录无效");
+        }
+      }
+      return meta as WorkMeta;
     } catch (error) {
       throw new Error(`${META_FILE} 读取失败：${error instanceof Error ? error.message : String(error)}`, { cause: error });
     }
   }
 
   /** 版本 +1 并落盘，返回新版本。每次成功采用调一次。 */
-  bumpWorkVersion(): number {
-    const next = this.workVersion() + 1;
+  bumpWorkVersion(adoption?: { readonly chapter: ChapterNo; readonly draftId: DraftId }): number {
+    const meta = this.workMeta();
+    const next = meta.workVersion + 1;
     if (!Number.isSafeInteger(next)) throw new Error(`${META_FILE} 版本超出安全整数范围`);
     writeProjectFile(
       this.root, META_FILE,
-      `${JSON.stringify({ workVersion: next } satisfies WorkMeta, null, 2)}\n`,
+      `${JSON.stringify({ ...meta, workVersion: next,
+        ...(adoption === undefined ? {} : { adoptedDrafts: { ...meta.adoptedDrafts, [adoption.chapter]: adoption.draftId } }),
+      } satisfies WorkMeta, null, 2)}\n`,
     );
     return next;
   }

@@ -141,6 +141,18 @@ a.book-card:hover { border-color: var(--calm); background: #1e222c; }
 .draft-change[data-important="true"] { border-left: 3px solid var(--warn); padding-left: 14px; }
 .draft-prose { max-width: 850px; white-space: pre-wrap; overflow-wrap: anywhere; font: 16px/2.1 var(--sans); padding: 20px 0 60px; }
 .draft-prose mark { background: #c9a22744; color: var(--ink); padding: 2px 0; }
+.draft-editor label { display: block; min-width: 0; margin-bottom: 16px; color: var(--ink-dim); font-size: 13px; }
+.draft-editor input, .draft-editor textarea, .draft-editor select { display: block; width: 100%; min-width: 0; margin-top: 8px; padding: 10px 12px; border: 1px solid var(--line-bright); border-radius: 4px; background: var(--bg-sunken); color: var(--ink); font: 14px/1.8 var(--sans); }
+.draft-editor textarea { resize: vertical; }
+.draft-editor input:focus, .draft-editor textarea:focus, .draft-editor select:focus { outline: 1px solid var(--calm); }
+.revision-fields, .revision-comparison { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+.revision-note { margin: 20px 0; padding: 18px; border: 1px solid var(--line-bright); border-radius: 5px; font-size: 13px; }
+.revision-note a { color: #8eb3c6; }
+.task-actions a { color: #8eb3c6; }
+.revision-note summary { cursor: pointer; padding: 8px 0; }
+.revision-comparison article, .revision-comparison p { max-height: 360px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: 13px/1.9 var(--sans); }
+.revision-comparison h3 { font-size: 14px; font-weight: 500; }
+@media (max-width: 720px) { .revision-fields, .revision-comparison { grid-template-columns: 1fr; } .draft-actions button { max-width: 100%; } }
 @media (max-width: 1100px) { .prep-layout { grid-template-columns: minmax(0, 1fr); } .prep-sidebar { order: -1; display: flex; flex-wrap: wrap; gap: 10px; } .prep-sidebar h2 { width: 100%; margin: 0; } .prep-proposal-item { width: min(100%, 230px); margin: 0; } }
 @media (max-width: 720px) { .prep-readiness { align-items: flex-start; flex-direction: column; padding: 16px; gap: 12px; } .prep-card-grid { grid-template-columns: 1fr; } .prep-facts > div { grid-template-columns: 70px minmax(0, 1fr); gap: 8px; } .prep-main > .section-head { flex-wrap: wrap; gap: 12px; } .draft-change { align-items: flex-start; flex-direction: column; gap: 6px; } .draft-prose { font-size: 15px; } }
 

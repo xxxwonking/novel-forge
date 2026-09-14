@@ -1,0 +1,11 @@
+import type { ChapterDraft } from "../task/types.js";
+import type { ProjectSession } from "./state.js";
+import { draftRevisionToken } from "../task/revision.js";
+import { countWords } from "../text/measure.js";
+
+/** Web 和主 Agent 共用同一份结果；不暴露内部模型历史。 */
+export function toDraftView(draft: ChapterDraft, session: ProjectSession) {
+  const { session: _session, writeContext: _writeContext, ...view } = draft;
+  return { ...view, words: countWords(draft.body), preparationProposalId: draft.writeContext?.proposalId ?? null,
+    revisionToken: draftRevisionToken(draft), isCurrentAdopted: draft.status === "adopted" && session.currentAdoptedDraftId(draft.chapter) === draft.draftId };
+}

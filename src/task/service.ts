@@ -20,6 +20,7 @@ import {
 } from "./graph.js";
 import type { ToolContext } from "./tool-exec.js";
 import { draftStage, emptyUsage, type TaskControl } from "./execution.js";
+import { checkPromisedResolutions, crossCheckC5 } from "../chapter/c5-crosscheck.js";
 import type {
   ChapterDraft,
   ChapterDraftStatus,
@@ -32,7 +33,8 @@ import type {
 export type ToolReadSource = Omit<ToolContext, "onPropose">;
 
 export interface ChapterTaskServiceDeps {
-  readonly client: ModelClient;
+  /** 已有声明的纯代码重检不依赖模型。 */
+  readonly client?: ModelClient;
   readonly draftStore: DraftStore;
   readonly readSource: ToolReadSource;
   /** rules.task.maxToolIterations。 */
@@ -49,6 +51,8 @@ interface DraftIdentity {
   readonly createdAt: string;
   readonly writeContext?: DraftWriteContext;
   readonly execution?: ChapterDraft["execution"];
+  readonly revision?: ChapterDraft["revision"];
+  readonly review?: ChapterDraft["review"];
 }
 
 export class ChapterTaskService {
@@ -97,6 +101,8 @@ export class ChapterTaskService {
       baseAdoptedThrough: draft.baseAdoptedThrough,
       createdAt: draft.createdAt,
       ...(draft.execution === undefined ? {} : { execution: draft.execution }),
+      ...(draft.revision === undefined ? {} : { revision: draft.revision }),
+      ...(draft.review === undefined ? {} : { review: draft.review }),
       ...(context === undefined ? {} : { writeContext: context }),
     };
     return this.drive(stateFromDraft(draft, runInput), identity, draft.proposals);
@@ -134,10 +140,11 @@ export class ChapterTaskService {
     // 启动响应返回前先落初始任务，页面刷新可以立即找到相同 draftId。
     save(last);
     const client: ModelClient = {
-      official: this.deps.client.official,
-      ...(this.deps.client.conversationKey === undefined ? {} : { conversationKey: this.deps.client.conversationKey }),
+      official: this.deps.client?.official ?? false,
+      ...(this.deps.client?.conversationKey === undefined ? {} : { conversationKey: this.deps.client.conversationKey }),
       call: async (options) => {
         if (this.deps.control?.requested != null) throw new Error("任务已请求停止，不再发起新的模型请求");
+        if (this.deps.client === undefined) throw new Error("当前步骤需要模型，请先配置写作模型再恢复任务");
         usage.calls++;
         usage.pendingCalls++;
         save(last);
@@ -193,6 +200,8 @@ export class ChapterTaskService {
       proposals: state.proposals,
       session: sessionFromWrite(state.write),
       ...(identity.writeContext === undefined ? {} : { writeContext: identity.writeContext }),
+      ...(identity.revision === undefined ? {} : { revision: identity.revision }),
+      ...(identity.review === undefined ? {} : { review: identity.review }),
       baseVersion: identity.baseVersion,
       baseAdoptedThrough: identity.baseAdoptedThrough,
       error: refusalOrError(state),
@@ -241,7 +250,7 @@ function sessionFromWrite(write: WriteOk | null): ChapterDraft["session"] {
 
 /**
  * 从草稿重建图初始态。`write` 由 `draft.session` 还原（req.messages/segmentTokens
- * 对声明步无用，填占位）；`c5Findings` 复用草稿当前 findings（声明后即 c5Findings）。
+ * 对声明步无用，填占位）；`c5Findings` 基于当前正文、声明和承诺重新计算。
  * outcome 归零让节点从缺步继续。
  */
 function stateFromDraft(draft: ChapterDraft, runInput: ChapterRunInput): ChapterGraphState {
@@ -266,7 +275,10 @@ function stateFromDraft(draft: ChapterDraft, runInput: ChapterRunInput): Chapter
     write,
     body: draft.body,
     declaration: draft.declaration,
-    c5Findings: draft.findings,
+    c5Findings: draft.declaration === null ? [] : [
+      ...crossCheckC5({ declaration: draft.declaration, chapterText: draft.body }),
+      ...checkPromisedResolutions(draft.declaration, runInput.promisedResolutions),
+    ],
     findings: draft.findings,
     acceptable: draft.acceptable,
     proposals: draft.proposals,

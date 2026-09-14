@@ -30,6 +30,7 @@ export type DraftId = string;
  */
 export type ChapterDraftStatus =
   | "writing"
+  | "pending_check"
   | "declaring"
   | "checking"
   | "needs_revision"
@@ -71,7 +72,25 @@ export interface DraftSession {
   readonly system: readonly Anthropic.TextBlockParam[];
   readonly tools: readonly Anthropic.Tool[];
   readonly messages: readonly Anthropic.MessageParam[];
-  readonly c4Response: Anthropic.Message;
+  /** 作者提交的正文没有模型响应；不能为它伪造 assistant/thinking 内容。 */
+  readonly c4Response: Anthropic.Message | null;
+}
+
+export interface DraftRevision {
+  readonly kind: "manual" | "structure" | "model" | "continuation" | "automatic" | "recheck";
+  readonly sourceDraftId: DraftId;
+  readonly sourceToken: string;
+  readonly summary: string;
+  readonly rebased: boolean;
+  readonly requestId?: string;
+  readonly requestFingerprint?: string;
+}
+
+export interface DraftReview {
+  /** 只由明确的“检查并采用”请求设置，新修订不继承这份授权。 */
+  readonly adoptOnSuccess: boolean;
+  readonly requestToken: string;
+  readonly adoptionError?: string;
 }
 
 /** 可序列化的写章来源校验；不保存带函数和 Set 的 runInput。旧草稿可缺。 */
@@ -104,6 +123,8 @@ export interface ChapterDraft {
   readonly writeContext?: DraftWriteContext;
   /** 执行状态独立于内容状态；旧草稿缺省时按内容及活动句柄推断。 */
   readonly execution?: DraftExecution;
+  readonly revision?: DraftRevision;
+  readonly review?: DraftReview;
   /**
    * 生成时的作品版本号（每次采用 +1，见 DraftStore.workVersion）。
    * 采用更早章后，`baseVersion` 落后的后续章草稿被标 `stale`。
@@ -120,7 +141,7 @@ export interface ChapterDraft {
 export type ChapterTaskOutcome = "ready" | "needs_revision" | "refused" | "failed" | "paused" | "ended";
 
 export type TaskStage = "writing" | "declaring" | "checking";
-export type TaskStatus = "running" | "pausing" | "ending" | "paused" | "ended" | "completed" | "failed" | "interrupted";
+export type TaskStatus = "waiting" | "running" | "pausing" | "ending" | "paused" | "ended" | "completed" | "failed" | "interrupted";
 export interface TaskUsage {
   readonly calls: number;
   readonly inputTokens: number;
@@ -137,6 +158,7 @@ export interface DraftExecution {
   readonly usage: TaskUsage;
 }
 export interface ChapterTaskView extends DraftExecution {
+  readonly isHistory: boolean;
   readonly usageRecorded: boolean;
   readonly chapter: ChapterNo;
   readonly draftId: DraftId;

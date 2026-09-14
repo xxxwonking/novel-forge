@@ -36,6 +36,9 @@ function toolUse(name: string, input: unknown) {
 
 function ctxWith(over: Partial<MainAgentToolContext> = {}): MainAgentToolContext {
   return {
+    getChapterDraft: () => "DRAFT",
+    correctDraft: async () => ({ message: "已保存新记录", effect: { kind: "chapter_revised", chapter: 3, draftId: "ch3d2", status: "pending_check", acceptable: false } }),
+    checkDraft: async (draftId) => ({ message: "已开始检查", effect: { kind: "task_updated", chapter: 3, draftId, status: "running" } }),
     getPreparation: () => "PREPARATION",
     listChapterTasks: () => "[]",
     controlChapterTask: async (draftId) => ({ message: "已暂停", effect: { kind: "task_updated", chapter: 3, draftId, status: "paused" } }),

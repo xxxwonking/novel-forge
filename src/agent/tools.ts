@@ -14,8 +14,30 @@
 
 import type Anthropic from "@anthropic-ai/sdk";
 import { PREPARATION_INPUT_SCHEMA } from "../preparation/schema.js";
+import { CORRECTION_VALUE_SCHEMAS } from "../chapter/c5-correction.js";
 
 export const MAIN_AGENT_TOOLS: readonly Anthropic.Tool[] = [
+  {
+    name: "get_chapter_draft",
+    description: "读取确切稿件的完整正文、结构声明、检查、来源版本和 revisionToken。修改或纠错前必须读取；候选内容不能当成已采用事实。返回的原文和 token 是后续操作依据。",
+    input_schema: { type: "object", properties: { draftId: { type: "string" } }, required: ["draftId"] },
+  },
+  {
+    name: "correct_draft_structure",
+    description: "作者要求正文保持、纠正误读的结构记录时调用。仅修改指定类别和索引，保留其他记录和整章正文，保存待检查新版本。先读 get_chapter_draft，沿用其 revisionToken；index 从 0 开始，等于类别数组长度时新增，value=null 删除。value 使用领域字段名，quote 必须真实存在，不能伪造锚点。随后检查新版本；未获采用授权时不要采用。",
+    input_schema: { type: "object", properties: {
+      draftId: { type: "string" }, revisionToken: { type: "string" }, summary: { type: "string" },
+      changes: { type: "array", items: { type: "object", additionalProperties: false, properties: {
+        section: { type: "string", enum: Object.keys(CORRECTION_VALUE_SCHEMAS) }, index: { type: "integer", minimum: 0 },
+        occurrence: { type: "integer", minimum: 0 }, value: { anyOf: [...Object.values(CORRECTION_VALUE_SCHEMAS), { type: "null" }] },
+      }, required: ["section", "index", "value"] } },
+    }, required: ["draftId", "revisionToken", "summary", "changes"] },
+  },
+  {
+    name: "check_chapter_draft",
+    description: "启动已保存版本的后台检查，复用有效正文和结构，只补必要步骤。adoptOnSuccess=true 仅用于作者明确要求检查并采用；有 block 时保留结果，不采用。启动不等于完成。使用新版本返回的 revisionToken，失败恢复保留本次明确请求。",
+    input_schema: { type: "object", properties: { draftId: { type: "string" }, revisionToken: { type: "string" }, adoptOnSuccess: { type: "boolean" } }, required: ["draftId", "revisionToken", "adoptOnSuccess"] },
+  },
   {
     name: "list_chapter_tasks",
     description: "读取本作品的真实任务状态、稿件状态、步骤、字数和已报告用量。查看或返回页面不启动任何任务；没有活动执行的旧运行记录会显示 interrupted。",
@@ -168,6 +190,9 @@ export const MAIN_AGENT_TOOLS: readonly Anthropic.Tool[] = [
 
 /** 回归测试的期望顺序。改动工具集必须同步改这里，让测试逼你确认一次（§13.8 同款纪律）。 */
 export const EXPECTED_MAIN_AGENT_TOOL_ORDER: readonly string[] = [
+  "get_chapter_draft",
+  "correct_draft_structure",
+  "check_chapter_draft",
   "list_chapter_tasks",
   "control_chapter_task",
   "get_preparation",

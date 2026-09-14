@@ -42,6 +42,8 @@ import { countWords } from "../text/measure.js";
 import { withFileTransaction } from "../store/transaction.js";
 import { PreparationService } from "../preparation/service.js";
 import type { PreparationContent } from "../preparation/types.js";
+import { DraftRevisions, type DraftEditOptions, type DraftCheckOptions, type DraftCorrectionOptions } from "./draft-revisions.js";
+import { toDraftView } from "./draft-view.js";
 
 export interface SessionDerived {
   readonly projections: Projections;
@@ -55,6 +57,7 @@ export class ProjectSession {
   private readonly store: ProjectStore;
   private readonly drafts: DraftStore;
   private readonly writer: ChapterWriter;
+  private readonly revisions: DraftRevisions;
   private stream: EventStream;
   private setting: WorkSetting;
   private discipline: WritingDiscipline;
@@ -88,6 +91,7 @@ export class ProjectSession {
     this.chapters = new Map(snap.chapters);
     this.stream = EventStream.restore(snap.events);
     this.writer = new ChapterWriter(this, this.drafts, writing);
+    this.revisions = new DraftRevisions(this, this.drafts, this.writer);
     this.conversation = new ConversationStore(root);
     this.modelClient = writing.client;
     this.preparation = new PreparationService(root, {
@@ -253,6 +257,25 @@ export class ProjectSession {
 
   startChapter(options: ChapterWriteOptions): ChapterDraft { return this.writer.start(options); }
 
+  editDraft(options: DraftEditOptions): ChapterDraft { return this.revisions.edit(options); }
+
+  correctDraft(options: DraftCorrectionOptions): ChapterDraft { return this.revisions.correct(options); }
+
+  checkDraft(options: DraftCheckOptions): ChapterDraft { return this.writer.check(options); }
+
+  /** 新数据按采用事务记录的版本读取；旧数据仅在正文能唯一对应采用稿时识别。 */
+  currentAdoptedDraftId(chapter: ChapterNo): DraftId | undefined {
+    const recorded = this.drafts.currentAdoptedDraftId(chapter);
+    const body = this.chapterText(chapter);
+    if (recorded !== undefined) {
+      const draft = this.drafts.loadDraft(chapter, recorded);
+      if (draft?.status !== "adopted" || draft.body !== body) throw new ChapterWriteError(409, `第 ${chapter} 章正式正文与版本记录不一致，请先核对保存文件`);
+      return recorded;
+    }
+    const candidates = body === undefined ? [] : this.listDrafts(chapter).filter(draft => draft.status === "adopted" && draft.body === body);
+    return candidates.length === 1 ? candidates[0]!.draftId : undefined;
+  }
+
   chapterTasks(): ReturnType<ChapterWriter["tasks"]> { return this.writer.tasks(); }
 
   controlChapter(chapter: ChapterNo, draftId: DraftId, action: "pause" | "end"): ReturnType<ChapterWriter["control"]> {
@@ -395,6 +418,25 @@ export class ProjectSession {
       effect: { kind: "action_failed", tool, message },
     });
     return {
+      getChapterDraft: (draftId) => {
+        const chapter = chapterFromDraftId(draftId);
+        const draft = this.getDraft(chapter, draftId);
+        if (draft === undefined) throw new ChapterWriteError(404, "稿件不存在");
+        return JSON.stringify(toDraftView(draft, this));
+      },
+      correctDraft: async (draftId, revisionToken, changes, summary) => {
+        try {
+          const draft = this.correctDraft({ chapter: chapterFromDraftId(draftId), draftId, revisionToken, changes, summary });
+          return { message: JSON.stringify(toDraftView(draft, this)), effect: { kind: "chapter_revised", chapter: draft.chapter, draftId: draft.draftId, status: draft.status, acceptable: draft.acceptable } };
+        } catch (error) { return fail("correct_draft_structure", error instanceof Error ? error.message : String(error)); }
+      },
+      checkDraft: async (draftId, revisionToken, adoptOnSuccess) => {
+        try {
+          const draft = this.checkDraft({ chapter: chapterFromDraftId(draftId), draftId, revisionToken, adoptOnSuccess });
+          const task = this.chapterTasks().find(item => item.draftId === draftId)!;
+          return { message: JSON.stringify(toDraftView(draft, this)), effect: { kind: "task_updated", chapter: draft.chapter, draftId, status: task.status } };
+        } catch (error) { return fail("check_chapter_draft", error instanceof Error ? error.message : String(error)); }
+      },
       listChapterTasks: () => JSON.stringify(this.chapterTasks()),
       controlChapterTask: async (draftId, action) => {
         const match = /^ch([1-9]\d*)d[1-9]\d*$/u.exec(draftId);
@@ -644,6 +686,12 @@ function toAlertAction(input: PlanAddInput, targetChapter: ChapterNo): AlertActi
     case "character":
       return { kind: "add_character_to_beat", targetChapter, characterId: (input.characterId ?? "") as CharacterId };
   }
+}
+
+function chapterFromDraftId(draftId: string): number {
+  const match = /^ch([1-9]\d*)d[1-9]\d*$/u.exec(draftId);
+  if (match === null || !Number.isSafeInteger(Number(match[1]))) throw new ChapterWriteError(400, "请提供有效的稿件编号");
+  return Number(match[1]);
 }
 
 export type { ProjectSnapshot };

@@ -14,6 +14,7 @@ import type Anthropic from "@anthropic-ai/sdk";
 import { ClaudeClient, type CallResult } from "../client/claude.js";
 import { assemble, type AssembleInput } from "../context/assemble.js";
 import { C5_OUTPUT_SCHEMA, parseC5, type ParseContext, type ParseResult } from "./c5-schema.js";
+import { c5OutputIssue } from "./c5-validation.js";
 import { checkPromisedResolutions, crossCheckC5 } from "./c5-crosscheck.js";
 import { recordCacheMetrics, type CacheRecord } from "../metrics/cache.js";
 import { commitDeclaration, EventStream } from "../store/event-stream.js";
@@ -163,11 +164,16 @@ export async function runChapter(
     // C5 被拒很反常（它只是结构化描述），但正文已经拿到了，不该丢弃。
     return { kind: "failed", step: "C5", detail: `C5 被拒：${c5.userMessage}`, chapterText, metrics };
   }
+  if (c5.kind === "max_tokens" || (c5.message.stop_reason !== "end_turn" && c5.message.stop_reason !== "stop_sequence")) {
+    return { kind: "failed", step: "C5", detail: "C5 声明未完整结束，正文已保留", chapterText, metrics };
+  }
 
   const parse = parseJson(textOf(c5.message));
   if (parse === null) {
     return { kind: "failed", step: "C5", detail: "C5 输出不是合法 JSON", chapterText, metrics };
   }
+  const issue = c5OutputIssue(parse);
+  if (issue !== null) return { kind: "failed", step: "C5", detail: `C5 输出结构不完整或字段无效：${issue}`, chapterText, metrics };
 
   const parsed = parseC5(parse, { ...input.parseContextBase, chapterText });
   const c5Findings = [

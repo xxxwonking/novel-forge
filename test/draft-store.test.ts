@@ -68,7 +68,7 @@ describe("DraftStore", () => {
     const back = store.loadDraft(7, "ch7d1");
     expect(back).toEqual(d);
     expect(back?.body).toBe("正文-ch7d1");
-    expect(back?.session?.c4Response.content[0]).toMatchObject({ type: "text" });
+    expect(back?.session?.c4Response?.content[0]).toMatchObject({ type: "text" });
   });
 
   it("loadDraft 不存在 → undefined", () => {

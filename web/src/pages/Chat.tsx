@@ -175,6 +175,7 @@ function EffectChip({
     case "preparation_confirmed":
       return <div className="effect"><span className="tag">{effect.kind === "preparation_confirmed" ? "资料已确认" : "待确认方案"}</span><span>{effect.summary}</span><a href={`#/preparation?proposal=${encodeURIComponent(effect.proposalId)}`}>查看方案</a></div>;
     case "chapter_written":
+    case "chapter_revised":
       return (
         <div className="effect">
           <span className="tag">草稿 {effect.draftId}</span>

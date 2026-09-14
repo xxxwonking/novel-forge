@@ -271,7 +271,7 @@ export interface ActionResult {
 /** 一次对话回合里发生的状态变化。与后端 AgentEffect 一一对应（报文层重新声明）。 */
 export type AgentEffect =
   | { kind: "preparation_proposed" | "preparation_confirmed"; proposalId: string; summary: string }
-  | { kind: "chapter_written" | "chapter_started"; chapter: number; draftId: string; status: string; acceptable: boolean }
+  | { kind: "chapter_written" | "chapter_started" | "chapter_revised"; chapter: number; draftId: string; status: string; acceptable: boolean }
   | { kind: "task_updated"; chapter: number; draftId: string; status: string }
   | { kind: "chapter_adopted"; chapter: number; draftId: string; superseded: number; staleMarked: number[] }
   | { kind: "plan_updated"; chapter: number; promotedToPayoff: boolean }
@@ -306,11 +306,15 @@ export interface ConversationHistory {
 
 /** 草稿的对外视图（后端剔除了内部会话快照）。只声明 UI 用到的字段。 */
 export interface DraftView {
+  revisionToken: string;
+  isCurrentAdopted: boolean;
+  revision?: { kind: string; sourceDraftId: string; summary: string; rebased: boolean };
+  review?: { adoptOnSuccess: boolean; adoptionError?: string };
   execution?: TaskExecution;
   preparationProposalId: string | null;
   declaration: {
-    events: { summary: string; anchor: TextAnchor }[];
-    foreshadowPlanted: { foreshadowId: string; label: string; intent: string; expectedBy: number; anchor: TextAnchor }[];
+    events: { kind: string; summary: string; weight: number; plotLine: string | null; participants: string[]; anchor: TextAnchor }[];
+    foreshadowPlanted: { foreshadowId: string; label: string; intent: string; weight: string; visibility: string; expectedBy: number; anchor: TextAnchor }[];
     foreshadowResolved: { foreshadowId: string; completeness: string; anchor: TextAnchor }[];
     characterStates: { characterId: string; field: string; from: string | null; to: string; anchor: TextAnchor }[];
     relationsChanged: { from: string; to: string; fromKind: string | null; toKind: string; note: string; anchor: TextAnchor }[];
@@ -330,13 +334,14 @@ export interface DraftView {
 }
 
 export interface TaskExecution {
-  status: "running" | "pausing" | "ending" | "paused" | "ended" | "completed" | "failed" | "interrupted";
+  status: "waiting" | "running" | "pausing" | "ending" | "paused" | "ended" | "completed" | "failed" | "interrupted";
   stage: "writing" | "declaring" | "checking";
   startedAt: string;
   updatedAt: string;
   usage: { calls: number; inputTokens: number; outputTokens: number; unmeasuredCalls: number };
 }
 export interface ChapterTaskView extends TaskExecution {
+  isHistory: boolean;
   usageRecorded: boolean;
   chapter: number;
   draftId: string;
@@ -427,6 +432,9 @@ export const api = {
   converse: (text: string) => post<ConversationReply>("/api/conversation", { text }),
   chapterDrafts: (n: number) => request<DraftView[]>(`/api/chapter/drafts?n=${n}`),
   chapterDraft: (n: number, id: string) => request<DraftView>(`/api/chapter/draft?n=${n}&id=${encodeURIComponent(id)}`),
+  editDraft: (input: { chapter: number; draftId: string; revisionToken: string; body: string; summary: string; requestId: string }) => post<DraftView>("/api/chapter/edit", input),
+  correctDraft: (input: { chapter: number; draftId: string; revisionToken: string; summary: string; requestId: string; changes: { section: string; index: number; value: unknown; occurrence?: number }[] }) => post<DraftView>("/api/chapter/correct", input),
+  checkDraft: (input: { chapter: number; draftId: string; revisionToken: string; adoptOnSuccess: boolean }) => post<DraftView>("/api/chapter/check", input),
   adopt: (chapter: number, draftId: string) => post<AdoptResponse>("/api/chapter/adopt", { chapter, draftId }),
   discard: (chapter: number, draftId: string) => post<{ changed: boolean }>("/api/chapter/discard", { chapter, draftId }),
 };

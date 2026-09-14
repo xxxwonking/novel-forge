@@ -325,6 +325,19 @@ describe("runChapter：异常路径", () => {
     expect(r.metrics).toHaveLength(2);
   });
 
+  it.each(["truncated", "missing-arrays"] as const)("C5 %s 时保留正文，不发布候选事件", async mode => {
+    const response = fakeMessage(mode === "truncated" ? c5Json : "{}");
+    const { client } = fakeClient([
+      { kind: "ok", message: fakeMessage(chapterProse) },
+      mode === "truncated" ? { kind: "max_tokens", message: { ...response, stop_reason: "max_tokens" } } : { kind: "ok", message: response },
+    ]);
+    const stream = new EventStream();
+    const result = await runChapter(client, stream, runInput());
+    expect(result).toMatchObject({ kind: "failed", step: "C5", chapterText: chapterProse });
+    expect(result.metrics).toHaveLength(2);
+    expect(stream.all()).toHaveLength(0);
+  });
+
   it("C5 输出被 markdown 围栏包裹时仍能解析", async () => {
     const { client } = fakeClient([
       { kind: "ok", message: fakeMessage(chapterProse) },

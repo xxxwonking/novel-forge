@@ -44,7 +44,7 @@ function adopt(deps: AdoptDeps, chapter: ChapterNo, draftId: DraftId): AdoptResu
 
   const superseded = deps.commitDeclaration(chapter, draft.declaration);
   deps.putChapter(chapter, draft.body);
-  const newVersion = deps.draftStore.bumpWorkVersion();
+  const newVersion = deps.draftStore.bumpWorkVersion({ chapter, draftId });
   const staleMarked = markLaterDraftsStale(deps.draftStore, chapter, newVersion, now);
   deps.draftStore.saveDraft({ ...draft, status: "adopted", updatedAt: now });
 
@@ -65,13 +65,9 @@ function markLaterDraftsStale(
   for (const ch of store.chaptersWithDrafts()) {
     if (ch <= adoptedChapter) continue;
     for (const d of store.listDrafts(ch)) {
-      const inFlight =
-        d.status === "ready" ||
-        d.status === "needs_revision" ||
-        d.status === "checking" ||
-        d.status === "declaring";
+      const inFlight = d.status !== "adopted" && d.status !== "discarded";
       if (inFlight && d.baseVersion < newVersion) {
-        store.saveDraft({ ...d, status: "stale", updatedAt: now });
+        store.saveDraft({ ...d, status: "stale", acceptable: false, updatedAt: now });
         if (!marked.includes(ch)) marked.push(ch);
       }
     }

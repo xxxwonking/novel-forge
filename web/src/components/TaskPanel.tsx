@@ -2,7 +2,7 @@ import { useState } from "react";
 import { api, type ChapterTaskView } from "../api.js";
 
 const stages = { writing: "创作正文中", declaring: "核对结构中", checking: "检查中" };
-const labels = { running: "正在处理", pausing: "正在暂停", ending: "正在结束", paused: "已暂停", ended: "本次任务已结束", completed: "本次任务完成", failed: "执行未完成", interrupted: "执行已中断" };
+const labels = { waiting: "待检查", running: "正在处理", pausing: "正在暂停", ending: "正在结束", paused: "已暂停", ended: "本次任务已结束", completed: "本次任务完成", failed: "执行未完成", interrupted: "执行已中断" };
 export const taskRunning = (task: ChapterTaskView | undefined): boolean => task !== undefined && ["running", "pausing", "ending"].includes(task.status);
 
 export function TaskCard({ task, reload, detailed = false }: { task: ChapterTaskView; reload: () => void; detailed?: boolean }): React.ReactElement {
@@ -21,10 +21,11 @@ export function TaskCard({ task, reload, detailed = false }: { task: ChapterTask
   const live = taskRunning(task);
   const resumable = ["paused", "failed", "interrupted"].includes(task.status) && task.draftStatus !== "stale";
   return <section className="task-card" data-running={live} aria-label={`第 ${task.chapter} 章任务`}>
-    <div className="task-heading"><strong>第 {task.chapter} 章 · {task.draftId}</strong><span role="status">{task.status === "running" ? stages[task.stage] : labels[task.status]}</span></div>
-    {live && <p>本次生成一版正文并核对、检查。离开页面后服务继续处理。</p>}
+    <div className="task-heading"><strong>第 {task.chapter} 章 · {task.draftId}</strong><span role="status">{task.isHistory ? "历史结果" : task.status === "running" ? stages[task.stage] : labels[task.status]}</span></div>
+    {live && <p>{task.stage === "writing" ? "正在生成正文，随后核对结构和检查。" : "正在核对、检查已保存的正文。"}离开页面后服务继续处理。</p>}
+    {task.status === "waiting" && <p>修改已保存。选择检查后才开始核对，尚未调用模型。</p>}
     {(task.status === "pausing" || task.status === "ending") && <p>正在等待当前模型请求返回，内容会保存，随后停止；不会发起后续模型请求。</p>}
-    {task.status === "completed" && <p>{task.draftStatus === "ready" ? "结果等待你采用。" : task.draftStatus === "needs_revision" ? "检查发现必须处理项，请查看结果并修改。" : task.draftStatus === "adopted" ? "本版本已采用。" : "结果已保留。"}</p>}
+    {task.isHistory ? <p>这是较早版本，正文和当时的检查结果仍保留。可通过版本列表查看当前结果。</p> : task.status === "completed" && <p>{task.draftStatus === "ready" ? "结果等待你采用。" : task.draftStatus === "needs_revision" ? "检查发现必须处理项，请查看结果并修改。" : task.draftStatus === "adopted" ? "本版本已采用。" : "结果已保留。"}</p>}
     {task.detail && <p className="muted">{task.detail}</p>}
     <div className="task-actions">
       {!detailed && <a href={`#/draft/${task.chapter}/${task.draftId}`}>查看任务与结果 →</a>}
@@ -39,7 +40,7 @@ export function TaskCard({ task, reload, detailed = false }: { task: ChapterTask
 }
 
 export function TaskPanel({ tasks, error, route, reload }: { tasks: readonly ChapterTaskView[]; error: string | null; route: string; reload: () => void }): React.ReactElement | null {
-  const pending = tasks.filter((t) => !["adopted", "discarded"].includes(t.draftStatus) && route !== `/draft/${t.chapter}/${t.draftId}`)
+  const pending = tasks.filter((t) => !t.isHistory && !["adopted", "discarded"].includes(t.draftStatus) && route !== `/draft/${t.chapter}/${t.draftId}`)
     .sort((a, b) => Number(taskRunning(b)) - Number(taskRunning(a)) || b.updatedAt.localeCompare(a.updatedAt));
   if (pending.length === 0 && error === null) return null;
   return <aside className="task-panel" aria-label="作品任务">
