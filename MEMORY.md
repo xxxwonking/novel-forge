@@ -566,7 +566,8 @@ Stage 2 =「作者通过对话完成首章」，切成三片、先做第 1 片�
 - 本轮 HTTP 测试使用本地脚本化服务。**没有调用 DeepSeek 官方或其他真实模型，没有声称国内模型写作质量已验收。** 官方文档已核对：JSON Object、thinking 工具历史、当前模型 ID、停止原因与输出上限。
 - 只读核对已有 Gemini 真实作品 `data/chat-smoke-2026-09-10-4xJ2NV/drafts/ch1/ch1d1.json` 的 **2 个原始会话目标**，与当前 `.env.local` 经新客户端计算的目标一致，未发网络请求、未修改正文。
 - 主目录 `.env.local`、`data/demo`、Gemini 真实作品及原报告保留；本轮没有 seed、没有切换默认模型、没有输出或提交密钥。原网页进程是否正在使用新代码需启动／重启时核对，不能沿用历史 PID 直接终止。
-- 工作目录为 `C:/Users/Administrator/Desktop/novel-forge-worktrees/model-compatibility`，分支 `feat-model-compatibility`。实现和验证已完成；本节初次提交时准备按授权快进合入、推送，最终集成记录随后补充。
+- 功能提交 **`0a12c17`**（`feat(model): 新增国内官方与代理模型兼容配置`）已快进合入 `master` 并推送到 `origin/master`。合入后的主目录再次通过 650 项测试、类型检查和前端构建，确认 `.env.local`、`data/demo` 与既有 Gemini 正文仍保留。
+- `feat-model-compatibility` 分支和 `C:/Users/Administrator/Desktop/novel-forge-worktrees/model-compatibility` 临时 worktree 已安全清理；后续从 `C:/Users/Administrator/Desktop/novel-forge` 接续。本次交接补记为随后单独的文档提交。
 
 ### 文档与下一步
 
