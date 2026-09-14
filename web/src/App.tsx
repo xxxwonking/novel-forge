@@ -7,7 +7,7 @@
  */
 
 import { useCallback, useState } from "react";
-import { api, type Alert, type AlertAction } from "./api.js";
+import { api, selectedProjectId, type Alert, type AlertAction } from "./api.js";
 import { useFetch, useRoute, useToast } from "./hooks.js";
 import { actionLabel } from "./components/AlertCard.js";
 import { Home } from "./pages/Home.js";
@@ -15,6 +15,7 @@ import { AlertList } from "./pages/AlertList.js";
 import { ViewPage } from "./pages/ViewPage.js";
 import { Reader } from "./pages/Reader.js";
 import { Chat } from "./pages/Chat.js";
+import { Works } from "./pages/Works.js";
 
 const VIEWS = [
   { path: "/foreshadow", label: "伏笔时间线" },
@@ -24,6 +25,18 @@ const VIEWS = [
 ] as const;
 
 export function App(): React.ReactElement {
+  const [route] = useRoute();
+  const workspace = useFetch(() => api.workspace(), []);
+  if (workspace.data === null) {
+    return <div className="empty">{workspace.error === null ? "打开工作区…" : <>读取工作区失败：{workspace.error} <button onClick={workspace.reload}>重试</button></>}</div>;
+  }
+  if (route === "/works" || (selectedProjectId() === null && workspace.data.defaultProjectId === null)) {
+    return <Works />;
+  }
+  return <ProjectApp key={selectedProjectId() ?? workspace.data.defaultProjectId} />;
+}
+
+function ProjectApp(): React.ReactElement {
   const [route, go] = useRoute();
   const [toast, showToast] = useToast();
   const [nonce, setNonce] = useState(0);
@@ -90,6 +103,7 @@ export function App(): React.ReactElement {
   return (
     <div className="shell">
       <nav className="rail">
+        <a href="#/works" className="all-works">← 全部作品</a>
         <div className="rail-title">{overview.data?.title ?? "novel-forge"}</div>
         <div className="rail-sub">
           {overview.data === null
@@ -115,7 +129,7 @@ export function App(): React.ReactElement {
         ))}
 
         <div className="rail-group">正文</div>
-        <Link route={route} to={`/chapter/${overview.data?.currentChapter ?? 1}`} go={go}>
+        <Link route={route} to={`/chapter/${Math.max(overview.data?.currentChapter ?? 1, 1)}`} go={go}>
           章节与体检
         </Link>
       </nav>

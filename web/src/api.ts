@@ -11,6 +11,44 @@ export type CharacterTier = "protagonist" | "major" | "minor" | "extra";
 export type GateLevel = "block" | "warn" | "info" | "pass";
 export type AnchorStatus = "exact" | "shifted" | "stale";
 
+export interface WorkSummary {
+  id: string;
+  title: string;
+  premise: string;
+  genre: string;
+  platform: string;
+  currentChapter: number;
+  chapterCount: number;
+  pendingDrafts: number;
+  updatedAt: string;
+  error: string | null;
+}
+
+export interface WorkspacePayload {
+  projects: WorkSummary[];
+  defaultProjectId: string | null;
+}
+
+export interface CreateWorkInput {
+  title: string;
+  idea: string;
+  genre: string;
+  platform: string;
+  targetWords: number;
+  requestId: string;
+}
+
+export function selectedProjectId(): string | null {
+  return new URLSearchParams(window.location.search).get("work");
+}
+
+export function workUrl(id: string, route = "/chat"): string {
+  const url = new URL(window.location.href);
+  url.searchParams.set("work", id);
+  url.hash = route;
+  return url.href;
+}
+
 export interface TextAnchor {
   chapter: number;
   quote: string;
@@ -270,6 +308,7 @@ export interface DraftView {
   draftId: string;
   status: string;
   body: string;
+  words: number;
   acceptable: boolean;
   findings: GateFinding[];
   error: { step: string; detail: string } | null;
@@ -285,7 +324,11 @@ export interface AdoptResponse {
 // ── 请求 ────────────────────────────────────────────────────────────────
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(path, init);
+  // 地址属于当前页面，每次请求捕获自己的作品；另一个标签页切换不会改变它。
+  const projectId = selectedProjectId();
+  const headers = new Headers(init?.headers);
+  if (projectId !== null) headers.set("x-novel-project", encodeURIComponent(projectId));
+  const res = await fetch(path, { ...init, headers });
   const body: unknown = await res.json().catch(() => ({}));
   if (!res.ok) {
     const message = isRecord(body) && typeof body["error"] === "string" ? body["error"] : `HTTP ${res.status}`;
@@ -299,6 +342,8 @@ function isRecord(v: unknown): v is Record<string, unknown> {
 }
 
 export const api = {
+  workspace: () => request<WorkspacePayload>("/api/workspace"),
+  createWork: (input: CreateWorkInput) => post<WorkSummary>("/api/works", input),
   overview: () => request<Overview>("/api/overview"),
   views: () => request<Views>("/api/views"),
   alerts: () => request<AlertsPayload>("/api/alerts"),

@@ -38,6 +38,7 @@ import type { AlternativeIdea, ConversationReply, ConversationTurn } from "../ag
 import { applyActionToBeat } from "../alerts/apply.js";
 import { createModelClient } from "../client/create.js";
 import type { ModelClient } from "../client/model.js";
+import { countWords } from "../text/measure.js";
 
 export interface SessionDerived {
   readonly projections: Projections;
@@ -271,7 +272,7 @@ export class ProjectSession {
       client,
       store: this.conversation,
       // 排队的回合在真正开始时取资料，包含前一回合已采用的正文和状态。
-      ctx: () => this.buildAgentContext(buildChapterReadSource(this, Math.max(this.nextChapter, 1))),
+      ctx: () => this.buildAgentContext(),
       contextInfo: () => this.agentContextInfo(),
       maxRounds: this.rules.agent.maxConversationRounds,
     });
@@ -318,8 +319,9 @@ export class ProjectSession {
     };
   }
 
-  /** 把主 Agent 工具绑到本会话受控入口。读侧复用写章 readSource（同一章号边界）。 */
-  private buildAgentContext(readSource: ReturnType<typeof buildChapterReadSource>): MainAgentToolContext {
+  /** 主 Agent 每次读工具查询当前正式资料；章节写作任务自身仍使用固定快照。 */
+  private buildAgentContext(): MainAgentToolContext {
+    const readSource = () => buildChapterReadSource(this, Math.max(this.nextChapter, 1));
     const now = (): string => new Date().toISOString();
     const fail = (tool: string, message: string): AgentActionOutcome => ({
       message,
@@ -344,14 +346,14 @@ export class ProjectSession {
             draftId: d.draftId,
             status: d.status,
             acceptable: d.acceptable,
-            words: d.body.length,
+            words: countWords(d.body),
             findings: d.findings.length,
           })),
         );
       },
-      getChapterText: (chapter, excerpt) => readSource.loadChapter(chapter, excerpt),
-      getCharacter: (name) => readSource.loadCharacter(name),
-      listOpenForeshadows: (weight) => readSource.listOpenForeshadows(weight),
+      getChapterText: (chapter, excerpt) => readSource().loadChapter(chapter, excerpt),
+      getCharacter: (name) => readSource().loadCharacter(name),
+      listOpenForeshadows: (weight) => readSource().listOpenForeshadows(weight),
       getNextPlan: () => {
         const next = this.nextChapter;
         const beat = this.beatFor(next);

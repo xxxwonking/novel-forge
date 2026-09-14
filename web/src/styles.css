@@ -52,6 +52,48 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* 作品列表与新建。沿用工作区色彩，表单与卡片在手机上顺序排列。 */
+.library { max-width: 1280px; margin: 0 auto; padding: 30px 42px 60px; }
+.library-mast { display: flex; justify-content: space-between; align-items: center; padding-bottom: 20px; border-bottom: 1px solid var(--line); }
+.library-mast strong { font: 17px var(--mono); letter-spacing: -.5px; }
+.library-mast span { color: var(--ink-faint); font-size: 12px; }
+.library-intro { padding: 46px 0 34px; }
+.eyebrow { color: var(--main); letter-spacing: 2px; font-size: 11px; }
+.library h1 { font-size: clamp(25px, 3vw, 35px); font-weight: 500; letter-spacing: 1px; margin: 13px 0; }
+.library-intro p { color: var(--ink-dim); margin: 0; }
+.library-columns { display: grid; grid-template-columns: minmax(0, 1fr) 350px; gap: 40px; align-items: start; }
+.section-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; }
+.section-head h2, .new-work h2 { margin: 0; font-size: 18px; font-weight: 500; }
+.section-head h2 span { color: var(--ink-faint); font: 12px var(--mono); margin-left: 8px; }
+.book-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.book-card { display: block; padding: 22px; border: 1px solid var(--line); border-radius: 7px; background: var(--bg-raised); color: var(--ink); text-decoration: none; min-width: 0; }
+a.book-card:hover { border-color: var(--calm); background: #1e222c; }
+.book-top { display: flex; align-items: center; justify-content: space-between; color: #adad9d; }
+.book-card h3 { font-size: 19px; font-weight: 500; margin: 20px 0 9px; overflow-wrap: anywhere; }
+.book-premise { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; color: var(--ink-dim); font-size: 12px; line-height: 1.8; min-height: 65px; overflow-wrap: anywhere; }
+.book-meta { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 19px 0; font-size: 11px; }
+.pending-count { color: var(--warn); }
+.book-bottom { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; padding-top: 15px; border-top: 1px solid var(--line); color: var(--ink-faint); font-size: 10px; }
+.book-bottom span:last-child { color: var(--ink-dim); }
+.book-card[data-error="true"] { border-color: var(--alarm); }
+.library-empty { border: 1px dashed var(--line-bright); border-radius: 7px; padding: 65px 22px; text-align: center; color: var(--ink-faint); }
+.library-empty h3 { font-size: 15px; color: var(--ink-dim); font-weight: 400; }
+.library-empty p { font-size: 12px; }
+.new-work { background: var(--bg-raised); border: 1px solid var(--line); border-radius: 7px; padding: 25px; }
+.new-work h2 { margin-top: 9px; }
+.new-work > p { font-size: 12px; margin: 9px 0 22px; }
+.new-work fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
+.new-work label { display: block; font-size: 12px; margin: 17px 0 7px; }
+.new-work label span { font-size: 10px; margin-left: 5px; }
+.new-work input, .new-work textarea, .new-work select { display: block; width: 100%; min-width: 0; border: 1px solid var(--line-bright); border-radius: 4px; background: var(--bg); color: var(--ink); padding: 10px 11px; font: 13px/1.6 var(--sans); }
+.new-work textarea { resize: vertical; }
+.new-work input:focus, .new-work textarea:focus, .new-work select:focus { outline: 1px solid var(--calm); border-color: var(--calm); }
+.new-work .form-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.new-work .create-work { width: 100%; margin-top: 23px; min-height: 43px; }
+.rail .all-works { margin-bottom: 18px; color: var(--ink-dim); font-size: 12px; }
+@media (max-width: 1050px) { .library-columns { grid-template-columns: minmax(0, 1fr) 310px; gap: 24px; } .book-grid { grid-template-columns: 1fr; } }
+@media (max-width: 720px) { .library { padding: 20px 18px 35px; } .library-mast span { display: none; } .library-intro { padding: 28px 0; } .library-intro p { font-size: 12px; } .library-columns { display: flex; flex-direction: column-reverse; gap: 30px; } .library-books, .new-work { width: 100%; } .new-work { padding: 21px; } .library-empty { padding: 38px 18px; } }
+
 /* ── 骨架 ────────────────────────────────────────────────────────────── */
 
 .shell {

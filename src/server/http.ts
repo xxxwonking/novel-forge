@@ -12,10 +12,12 @@
 
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { existsSync, readFileSync, statSync } from "node:fs";
-import { extname, join, normalize, resolve } from "node:path";
-import { ProjectSession } from "./state.js";
+import { dirname, extname, join, normalize, resolve } from "node:path";
 import { handleAsync, type ApiRequest } from "./api.js";
 import type { ChapterWriterOptions } from "./chapter-writer.js";
+import { ChapterWriteError } from "./chapter-input.js";
+import { Workspace } from "../workspace/service.js";
+import { workspaceApi } from "./workspace-api.js";
 
 const LOCALHOST = "127.0.0.1";
 
@@ -29,25 +31,28 @@ const MIME: Readonly<Record<string, string>> = {
 };
 
 export interface ServeOptions extends ChapterWriterOptions {
-  readonly projectRoot: string;
+  readonly projectRoot?: string;
+  readonly workspaceRoot?: string;
   readonly port: number;
   /** 静态资源目录。不存在则只提供 API。 */
   readonly staticDir?: string;
 }
 
 export function serve(options: ServeOptions): ReturnType<typeof createServer> {
-  const session = new ProjectSession(options.projectRoot, undefined, options);
+  const workspaceRoot = options.workspaceRoot ?? (options.projectRoot === undefined ? resolve("data") : dirname(resolve(options.projectRoot)));
+  const workspace = new Workspace(workspaceRoot, options);
   const staticDir = options.staticDir !== undefined ? resolve(options.staticDir) : undefined;
 
   const server = createServer((req, res) => {
-    void route(session, staticDir, req, res).catch((e: unknown) => {
-      send(res, 500, { error: (e as Error).message });
+    void route(workspace, staticDir, req, res).catch((e: unknown) => {
+      send(res, e instanceof ChapterWriteError ? e.status : 500, { error: (e as Error).message });
     });
   });
 
   server.listen(options.port, LOCALHOST, () => {
-    const where = `http://${LOCALHOST}:${options.port}`;
-    process.stdout.write(`novel-forge 已启动：${where}\n项目：${options.projectRoot}\n`);
+    const address = server.address();
+    const port = address !== null && typeof address !== "string" ? address.port : options.port;
+    process.stdout.write(`novel-forge 已启动：http://${LOCALHOST}:${port}\n工作区：${workspaceRoot}\n`);
     if (staticDir === undefined || !existsSync(staticDir)) {
       process.stdout.write("（未找到前端构建产物，当前只提供 /api）\n");
     }
@@ -57,7 +62,7 @@ export function serve(options: ServeOptions): ReturnType<typeof createServer> {
 }
 
 async function route(
-  session: ProjectSession,
+  workspace: Workspace,
   staticDir: string | undefined,
   req: IncomingMessage,
   res: ServerResponse,
@@ -71,7 +76,14 @@ async function route(
       query: url.searchParams,
       body: req.method === "POST" ? await readJson(req) : undefined,
     };
-    const result = await handleAsync(session, apiRequest);
+    const global = workspaceApi(workspace, apiRequest);
+    if (global !== null) { send(res, global.status, global.body); return; }
+    const header = req.headers["x-novel-project"];
+    if (Array.isArray(header)) throw new ChapterWriteError(400, "每个请求只能选择一本作品");
+    let projectId: string | undefined;
+    try { projectId = header === undefined ? undefined : decodeURIComponent(header); }
+    catch { throw new ChapterWriteError(400, "作品 ID 无效"); }
+    const result = await handleAsync(workspace.project(projectId), apiRequest);
     send(res, result.status, result.body);
     return;
   }

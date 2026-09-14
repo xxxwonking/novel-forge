@@ -219,7 +219,7 @@ function DraftPanel({
     <div className="chart" style={{ padding: "14px 16px", marginTop: 12 }}>
       <div className="row" style={{ marginBottom: 8 }}>
         <span className="tag">草稿 {draft.draftId}</span>
-        <span className="muted">第 {draft.chapter} 章 · {draft.status} · {draft.body.length} 字</span>
+        <span className="muted">第 {draft.chapter} 章 · {draft.status} · {draft.words} 字</span>
         <span style={{ flex: 1 }} />
         {draft.acceptable && (
           <button data-primary="true" onClick={() => onAdopt(draft.chapter, draft.draftId)}>采用这一版</button>

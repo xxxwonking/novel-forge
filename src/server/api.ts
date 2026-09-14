@@ -19,6 +19,7 @@ import type { EventWeight } from "../types/events.js";
 import type { ChapterDraft } from "../task/types.js";
 import { ChapterWriteError } from "./chapter-input.js";
 import type { ChapterWriteOptions } from "./chapter-writer.js";
+import { countWords } from "../text/measure.js";
 
 export interface ApiRequest {
   readonly method: string;
@@ -147,7 +148,7 @@ function alerts(session: ProjectSession): unknown {
 function chapterList(session: ProjectSession): unknown {
   return session.chapterNumbers().map((n) => ({
     chapter: n,
-    words: session.chapterText(n)?.length ?? 0,
+    words: countWords(session.chapterText(n) ?? ""),
     beat: session.beatFor(n)?.plan.coreEvent ?? null,
   }));
 }
@@ -224,7 +225,8 @@ function declaredEventWeights(session: ProjectSession, chapter: ChapterNo): read
       (e) =>
         e.envelope.chapter === chapter &&
         e.payload.type === "plot_event" &&
-        e.envelope.provenance !== "rejected",
+        e.envelope.origin !== "P4_outline" &&
+        (e.envelope.provenance === "committed" || e.envelope.provenance === "authored"),
     )
     .map((e) => (e.payload as { weight: EventWeight }).weight);
 }
@@ -396,7 +398,7 @@ function refreshed(session: ProjectSession): { readonly alerts: unknown } {
 /** 草稿的对外视图：剔除内部 C4 会话快照（体积大且属实现细节）。 */
 function toDraftView(d: ChapterDraft): unknown {
   const { session: _session, writeContext: _writeContext, ...view } = d;
-  return view;
+  return { ...view, words: countWords(d.body) };
 }
 
 async function chapterWrite(session: ProjectSession, body: unknown): Promise<ApiResponse> {
