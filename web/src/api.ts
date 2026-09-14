@@ -306,6 +306,7 @@ export interface ConversationHistory {
 
 /** 草稿的对外视图（后端剔除了内部会话快照）。只声明 UI 用到的字段。 */
 export interface DraftView {
+  proposalOptions: { index: number; title: string; kind: string; from: string | null; to: string; reason: string; available: boolean; problem: string | null; status: "suggested" | "applied" | "not_selected"; foreshadowId?: string }[];
   autoRevisionsUsed?: number;
   automaticResultDraftId?: string;
   revisionToken: string;
@@ -380,6 +381,7 @@ export interface PreparationProposal {
 }
 
 export interface PreparationPayload {
+  plannedForeshadows: { id: string; label: string; intent: string; weight: string; expectedBy: number }[];
   taskPolicy: { autoRevisionLimit: number };
   fingerprint: string; confirmed: PreparationContent; nextChapter: number;
   readiness: { ready: boolean; missing: string[] };
@@ -442,8 +444,8 @@ export const api = {
   editDraft: (input: { chapter: number; draftId: string; revisionToken: string; body: string; summary: string; requestId: string }) => post<DraftView>("/api/chapter/edit", input),
   reviseDraft: (input: { chapter: number; draftId: string; revisionToken: string; mode: "rewrite" | "continue"; instruction: string; scope: { quote: string; occurrence?: number } | null; requestId: string }) => post<DraftView>("/api/chapter/revise", input),
   correctDraft: (input: { chapter: number; draftId: string; revisionToken: string; summary: string; requestId: string; changes: { section: string; index: number; value: unknown; occurrence?: number }[] }) => post<DraftView>("/api/chapter/correct", input),
-  checkDraft: (input: { chapter: number; draftId: string; revisionToken: string; adoptOnSuccess: boolean }) => post<DraftView>("/api/chapter/check", input),
-  adopt: (chapter: number, draftId: string) => post<AdoptResponse>("/api/chapter/adopt", { chapter, draftId }),
+  checkDraft: (input: { chapter: number; draftId: string; revisionToken: string; adoptOnSuccess: boolean; selectedProposals?: number[] }) => post<DraftView>("/api/chapter/check", input),
+  adopt: (chapter: number, draftId: string, options?: { revisionToken: string; selectedProposals: number[] }) => post<AdoptResponse>("/api/chapter/adopt", { chapter, draftId, ...options }),
   discard: (chapter: number, draftId: string) => post<{ changed: boolean }>("/api/chapter/discard", { chapter, draftId }),
 };
 

@@ -289,7 +289,7 @@ describe("运行中的请求与状态", () => {
     expect(draft.body).toBe(PROSE);
     expect(drafts.loadDraft(3, draft.draftId)?.status).toBe("stale");
     const adopted = handle(session, { method: "POST", path: "/api/chapter/adopt", query: new URLSearchParams(), body: { chapter: 3, draftId: draft.draftId } });
-    expect(adopted.status).toBe(400);
+    expect(adopted.status).toBe(409);
   });
 
   it("HTTP 请求断开后任务继续，返回查询原稿不会再次生成", async () => {

@@ -35,6 +35,7 @@ export interface PreparationProposal extends PreparationInput {
 }
 
 export interface PreparationView {
+  readonly plannedForeshadows: readonly { readonly id: string; readonly label: string; readonly intent: string; readonly expectedBy: number; readonly weight: string }[];
   readonly taskPolicy: { readonly autoRevisionLimit: number };
   readonly fingerprint: string;
   readonly confirmed: PreparationContent;

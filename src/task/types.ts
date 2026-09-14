@@ -57,6 +57,31 @@ export type DraftProposal =
       readonly expectedBy: ChapterNo;
     };
 
+export interface DraftProposalOption {
+  readonly index: number;
+  readonly kind: DraftProposal["kind"];
+  readonly title: string;
+  readonly from: string | null;
+  readonly to: string;
+  readonly reason: string;
+  readonly available: boolean;
+  readonly problem: string | null;
+  readonly status: "suggested" | "applied" | "not_selected";
+  readonly foreshadowId?: string;
+}
+
+export interface DraftProposalAdoption {
+  readonly sourceToken: string;
+  readonly selected: readonly number[];
+  readonly options: readonly DraftProposalOption[];
+  readonly at: string;
+}
+
+export interface DraftAdoptOptions {
+  readonly revisionToken?: string;
+  readonly selectedProposals?: readonly number[];
+}
+
 /** 步骤失败的可展示信息。正文已生成时 body 仍在草稿里。 */
 export interface DraftError {
   readonly step: "C4" | "C5" | "C6";
@@ -110,6 +135,7 @@ export interface DraftReview {
   /** 只由明确的“检查并采用”请求设置，新修订不继承这份授权。 */
   readonly adoptOnSuccess: boolean;
   readonly requestToken: string;
+  readonly selectedProposals?: readonly number[];
   readonly adoptionError?: string;
 }
 
@@ -140,6 +166,7 @@ export interface ChapterDraft {
   readonly findings: readonly GateFinding[];
   readonly acceptable: boolean;
   readonly proposals: readonly DraftProposal[];
+  readonly proposalAdoption?: DraftProposalAdoption;
   /** C4 会话快照，供 resume 到声明步重建同会话第二轮。ready/adopted 后可为 null。 */
   readonly session: DraftSession | null;
   readonly writeContext?: DraftWriteContext;

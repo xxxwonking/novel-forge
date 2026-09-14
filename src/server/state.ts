@@ -14,7 +14,7 @@ import { EventStream, commitDeclaration } from "../store/event-stream.js";
 import { ProjectStore, alertStateMap, type PlotLineDef, type ProjectSnapshot } from "../store/persist.js";
 import { DraftStore } from "../task/draft-store.js";
 import { adoptDraft } from "../task/adopt.js";
-import type { AdoptResult, ChapterDraft, DraftId } from "../task/types.js";
+import type { AdoptResult, ChapterDraft, DraftId, DraftAdoptOptions } from "../task/types.js";
 import { project, type Projections } from "../store/project.js";
 import { computeAlerts, type AlertCandidate } from "../alerts/compute.js";
 import { selectAlerts, type AlertSelection } from "../alerts/select.js";
@@ -40,12 +40,16 @@ import { createModelClient } from "../client/create.js";
 import type { ModelClient } from "../client/model.js";
 import { countWords } from "../text/measure.js";
 import { withFileTransaction } from "../store/transaction.js";
-import { PreparationService } from "../preparation/service.js";
+import { PreparationService, preparationContent } from "../preparation/service.js";
 import type { PreparationContent } from "../preparation/types.js";
-import { DraftRevisions, type DraftEditOptions, type DraftCheckOptions, type DraftCorrectionOptions } from "./draft-revisions.js";
+import { DraftRevisions, validateDraftReference, type DraftEditOptions, type DraftCheckOptions, type DraftCorrectionOptions } from "./draft-revisions.js";
 import { toDraftView } from "./draft-view.js";
 import type { DraftRewriteOptions } from "./draft-rewrite.js";
 import { automaticRevisionLimit } from "../task/automatic-revision.js";
+import { prepareDraftProposals, previewDraftProposals, selectedProposalIndices } from "../task/proposals.js";
+import { draftRevisionToken, stableFingerprint } from "../task/revision.js";
+import { checkChapter } from "../task/steps.js";
+import { crossCheckC5, checkPromisedResolutions } from "../chapter/c5-crosscheck.js";
 
 export interface SessionDerived {
   readonly projections: Projections;
@@ -312,6 +316,14 @@ export class ProjectSession {
     return this.drafts.loadDraft(chapter, draftId);
   }
 
+  draftProposalOptions(draft: ChapterDraft): ReturnType<typeof previewDraftProposals> {
+    try { return previewDraftProposals(draft, this.chapterSource(draft.status === "adopted" ? undefined : draft.writeContext?.proposalId)); }
+    catch (error) {
+      if (!(error instanceof ChapterWriteError)) throw error;
+      return previewDraftProposals(draft, this).map(option => ({ ...option, available: false, problem: error.message }));
+    }
+  }
+
   discardDraft(chapter: ChapterNo, draftId: DraftId): boolean {
     this.writer.assertNotRunning(chapter, draftId);
     const d = this.drafts.loadDraft(chapter, draftId);
@@ -322,11 +334,42 @@ export class ProjectSession {
   }
 
   /** 采用一份草稿：提交声明为正式事实 + 落正文 + 版本 +1 + 标记后续章草稿需重核。 */
-  adopt(chapter: ChapterNo, draftId: DraftId): AdoptResult {
+  adopt(chapter: ChapterNo, draftId: DraftId, options: DraftAdoptOptions = {}): AdoptResult {
+    // 连不带建议的旧调用也必须先校验路径；不能让外部 draftId 进入存储路径。
+    validateDraftReference({ chapter, draftId, revisionToken: options.revisionToken ?? "0".repeat(64) });
     const draft = this.drafts.loadDraft(chapter, draftId);
-    if (draft !== undefined) this.writer.assertFresh(draft);
+    if (draft === undefined) throw new ChapterWriteError(404, "草稿不存在");
+    const selected = selectedProposalIndices(options.selectedProposals, draft.proposals.length);
+    if (options.selectedProposals !== undefined && options.revisionToken === undefined) throw new ChapterWriteError(400, "选择建议时必须同时提供 revisionToken");
+    if (draft.status === "adopted") {
+      if (options.selectedProposals !== undefined && stableFingerprint(selected) !== stableFingerprint(draft.proposalAdoption?.selected ?? [])) throw new ChapterWriteError(409, "该稿已采用，不能改变原次采用的建议选择；请提出新的修改");
+    } else {
+      this.writer.assertNotRunning(chapter, draftId);
+      if (options.revisionToken !== undefined && options.revisionToken !== draftRevisionToken(draft)) throw new ChapterWriteError(409, "稿件已变化，请重新查看建议与当前版本再采用");
+      this.writer.assertFresh(draft);
+    }
     return this.transact(() => {
-      if (draft?.status !== "adopted" && draft?.writeContext?.proposalId !== undefined) this.preparation.confirm(draft.writeContext.proposalId);
+      if (draft.status !== "adopted") {
+        if (draft.status !== "ready" || !draft.acceptable || draft.declaration === null) throw new ChapterWriteError(400, "草稿未就绪，不能采用");
+        const now = new Date().toISOString();
+        const prepared = prepareDraftProposals(draft, this.chapterSource(draft.writeContext?.proposalId), selected, now);
+        if (draft.writeContext?.proposalId !== undefined) this.preparation.confirm(draft.writeContext.proposalId);
+        let findings = draft.findings;
+        if (selected.length > 0) {
+          if (selected.some(index => draft.proposals[index]?.kind === "character_update")) this.applyPreparation({ ...preparationContent(this.snapshot()), characters: prepared.characters });
+          const input = buildChapterRunInput(this, chapter);
+          const checked = checkChapter(input, draft.body, draft.declaration, [
+            ...crossCheckC5({ declaration: draft.declaration, chapterText: draft.body }),
+            ...checkPromisedResolutions(draft.declaration, input.promisedResolutions),
+          ]);
+          if (!checked.acceptable) throw new ChapterWriteError(409, `选定资料后仍有必须处理项，本次采用未完成：${checked.findings.filter(f => f.level === "block").map(f => f.message).join("；")}`);
+          findings = checked.findings;
+          this.appendEvents(prepared.planned);
+        }
+        if (draft.proposals.length > 0) this.drafts.saveDraft({ ...draft, findings,
+          proposalAdoption: { sourceToken: draftRevisionToken(draft), selected, options: prepared.options, at: now },
+        });
+      }
       return adoptDraft(
       {
         draftStore: this.drafts,
@@ -441,9 +484,9 @@ export class ProjectSession {
           return { message: JSON.stringify(toDraftView(draft, this)), effect: { kind: "chapter_revised", chapter: draft.chapter, draftId: draft.draftId, status: draft.status, acceptable: draft.acceptable } };
         } catch (error) { return fail("correct_draft_structure", error instanceof Error ? error.message : String(error)); }
       },
-      checkDraft: async (draftId, revisionToken, adoptOnSuccess) => {
+      checkDraft: async (draftId, revisionToken, adoptOnSuccess, selectedProposals) => {
         try {
-          const draft = this.checkDraft({ chapter: chapterFromDraftId(draftId), draftId, revisionToken, adoptOnSuccess });
+          const draft = this.checkDraft({ chapter: chapterFromDraftId(draftId), draftId, revisionToken, adoptOnSuccess, ...(selectedProposals === undefined ? {} : { selectedProposals }) });
           const task = this.chapterTasks().find(item => item.draftId === draftId)!;
           return { message: JSON.stringify(toDraftView(draft, this)), effect: { kind: "task_updated", chapter: draft.chapter, draftId, status: task.status } };
         } catch (error) { return fail("check_chapter_draft", error instanceof Error ? error.message : String(error)); }
@@ -586,14 +629,14 @@ export class ProjectSession {
           return fail("write_next_chapter", error instanceof Error ? error.message : String(error));
         }
       },
-      adoptChapter: async (draftId) => {
+      adoptChapter: async (draftId, options) => {
         const m = /^ch(\d+)d\d+$/u.exec(draftId);
         if (m?.[1] === undefined) return fail("adopt_chapter", `draftId 格式不对：${draftId}`);
         const chapter = Number(m[1]);
         try {
-          const r = this.adopt(chapter, draftId);
+          const r = this.adopt(chapter, draftId, options);
           return {
-            message: r.changed ? `已采用第 ${chapter} 章的 ${draftId}` : `${draftId} 此前已采用`,
+            message: r.changed ? `已采用第 ${chapter} 章的 ${draftId}${(options?.selectedProposals?.length ?? 0) > 0 ? `，同时应用 ${options!.selectedProposals!.length} 条选定建议；未来伏笔仍是规划` : ""}` : `${draftId} 此前已采用`,
             effect: { kind: "chapter_adopted", chapter, draftId, superseded: r.superseded, staleMarked: r.staleMarked },
           };
         } catch (error) {

@@ -21,6 +21,7 @@ export interface DraftEditOptions extends DraftReference {
 }
 export interface DraftCheckOptions extends DraftReference {
   readonly adoptOnSuccess: boolean;
+  readonly selectedProposals?: readonly number[];
 }
 export interface DraftCorrectionOptions extends DraftReference {
   readonly changes: readonly StructureCorrection[];
@@ -93,7 +94,7 @@ export class DraftRevisions {
     const draft: ChapterDraft = {
       chapter: source.chapter, draftId: this.store.nextDraftId(source.chapter), status: generation === undefined ? "pending_check" : "writing",
       body: options.body, declaration, findings: [], acceptable: false, error: null,
-      proposals: source.proposals, session: generation === undefined ? authoredSession(input) : null,
+      proposals: source.proposals.filter((_, index) => !source.proposalAdoption?.selected.includes(index)), session: generation === undefined ? authoredSession(input) : null,
       ...(generation === undefined ? {} : { generation }),
       writeContext: { fingerprint,
         ...(proposalId === undefined ? {} : { proposalId }), ...(maxOutputTokens === undefined ? {} : { maxOutputTokens }) },

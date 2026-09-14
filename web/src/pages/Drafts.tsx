@@ -5,6 +5,7 @@ import { TaskCard, taskRunning } from "../components/TaskPanel.js";
 import { DraftEditor, RevisionComparison } from "../components/DraftEditing.js";
 import { StructureEditor } from "../components/StructureEditor.js";
 import { DraftRewriteEditor } from "../components/DraftRewriteEditor.js";
+import { DraftProposals } from "../components/DraftProposals.js";
 
 const states: Record<string, string> = { writing: "正文未完成", pending_check: "待检查", declaring: "结构核对未完成", checking: "检查未完成", failed: "执行未完成", needs_revision: "需要修改", ready: "待采用", adopted: "已采用", stale: "依据已变化，需重新核对", discarded: "已丢弃" };
 
@@ -15,11 +16,13 @@ export function Drafts({ chapter, draftId, refresh, task, reloadTasks }: { chapt
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [selectedProposals, setSelectedProposals] = useState<number[]>([]);
   const [editor, setEditor] = useState<"body" | "structure" | "rewrite" | "continue" | null>(null);
   const [anchor, setAnchor] = useState<TextAnchor | null>(null);
   const prose = useRef<HTMLElement | null>(null);
   useEffect(() => { query.reload(); versions.reload(); }, [task?.updatedAt, task?.status, task?.draftStatus, query.reload, versions.reload]);
   useEffect(() => { setEditor(null); setError(null); setNotice(null); setAnchor(null); }, [chapter, draftId]);
+  useEffect(() => { setSelectedProposals([]); }, [query.data?.revisionToken, chapter, draftId]);
   if (query.data === null) return <div className="empty">{query.error ?? "读取章节结果…"}<button onClick={query.reload}>重试</button></div>;
   const draft = query.data;
   const declaration = draft.declaration;
@@ -36,11 +39,11 @@ export function Drafts({ chapter, draftId, refresh, task, reloadTasks }: { chapt
     let adopted = false;
     try {
       if (action === "check" || action === "checkAdopt") {
-        await api.checkDraft({ chapter, draftId, revisionToken: draft.revisionToken, adoptOnSuccess: action === "checkAdopt" });
+        await api.checkDraft({ chapter, draftId, revisionToken: draft.revisionToken, adoptOnSuccess: action === "checkAdopt", ...(action === "checkAdopt" ? { selectedProposals } : {}) });
         setNotice(action === "checkAdopt" ? "已开始检查；通过后采用这一版，有必须处理的问题时保留结果。" : "已开始检查当前版本。");
       }
       if (action === "adopt" || action === "continue") {
-        await api.adopt(chapter, draftId); adopted = true; reload();
+        await api.adopt(chapter, draftId, { revisionToken: draft.revisionToken, selectedProposals }); adopted = true; reload();
         setNotice(`已采用第 ${chapter} 章。${action === "continue" ? "正在准备下一章…" : "它已成为后续创作依据。"}`);
       }
       if (action === "discard") { await api.discard(chapter, draftId); setNotice("草稿已丢弃，历史内容仍可查看。"); }
@@ -71,6 +74,7 @@ export function Drafts({ chapter, draftId, refresh, task, reloadTasks }: { chapt
     {(error ?? query.error) && <div className="finding" data-level="block" role="alert">{error ?? query.error}</div>}
     {notice && <p className="prep-notice" role="status">{notice}</p>}
     {draft.review?.adoptionError && <p className="finding" data-level="block" role="alert">检查已完成，但采用未完成：{draft.review.adoptionError}。稿件仍保留，可核对后重试采用。</p>}
+    <DraftProposals draft={draft} selected={selectedProposals} onSelected={setSelectedProposals} disabled={busy || !editable || editor !== null || !["ready", "pending_check"].includes(draft.status)} />
     <div className="draft-actions row">
       {draft.status === "pending_check" && <><button data-primary="true" disabled={busy || taskRunning(task) || editor !== null} onClick={() => void perform("checkAdopt")}>检查并采用</button><button disabled={busy || taskRunning(task) || editor !== null} onClick={() => void perform("check")}>检查</button></>}
       {draft.status === "ready" && draft.acceptable && <><button data-primary="true" disabled={busy} onClick={() => void perform("continue")}>采用并继续下一章</button><button disabled={busy} onClick={() => void perform("adopt")}>采用这一版</button></>}
@@ -95,7 +99,6 @@ export function Drafts({ chapter, draftId, refresh, task, reloadTasks }: { chapt
       {declaration.characterStates.length + declaration.relationsChanged.length + declaration.foreshadowPlanted.length + declaration.foreshadowResolved.length === 0 && <p className="muted">本稿没有提取额外状态、关系或伏笔变化。</p>}
     </section>}
     <section className="prep-section"><h2>检查结果</h2>{draft.status === "pending_check" && <p className="muted">修改已保存，原检查对本版本已过时；原结果仍可在历史版本查看。请选择检查或检查并采用。</p>}{draft.error !== null && <div className="finding" data-level="block"><strong>执行未完成</strong><p>{draft.error.detail}</p></div>}{draft.findings.length === 0 ? draft.status !== "pending_check" && <p className="muted">{draft.status === "ready" || draft.status === "adopted" ? "本次检查未发现问题。" : "尚无检查结果。"}</p> : draft.findings.map((finding, i) => <div className="finding" key={i} data-level={finding.level}><strong>{finding.level === "block" ? "需要处理" : finding.level === "warn" ? "建议核对" : "说明"}</strong><p>{finding.message}</p></div>)}</section>
-    {draft.proposals.length > 0 && <section className="prep-section"><h2>写作中补充的建议</h2><p className="muted">这些建议尚未作为正式资料，需单独整理确认。</p>{draft.proposals.map((p, i) => <p key={i}>{p.name ?? p.label}：{p.value ?? p.intent} {p.reason}</p>)}</section>}
     <section className="prep-section"><div className="section-head"><h2>正文</h2>{anchor && <button data-quiet="true" onClick={() => setAnchor(null)}>取消定位</button>}</div>{anchor !== null && hit < 0 && <p className="finding" data-level="warn">此处记录的引用已无法在当前正文定位，需要重新核对。</p>}<article className="draft-prose" ref={prose}>{draft.body === "" ? "尚未生成正文。" : hit < 0 || anchor === null ? draft.body : <>{draft.body.slice(0, hit)}<mark>{draft.body.slice(hit, hit + anchor.quote.length)}</mark>{draft.body.slice(hit + anchor.quote.length)}</>}</article></section>
   </>;
 }

@@ -7,6 +7,7 @@ import type { ChapterDraft, ChapterTaskView, DraftId } from "../task/types.js";
 import { taskView, type TaskControl } from "../task/execution.js";
 import { authoredSession, draftRevisionToken } from "../task/revision.js";
 import { automaticRevisionLimit } from "../task/automatic-revision.js";
+import { selectedProposalIndices } from "../task/proposals.js";
 import { validateDraftReference, type DraftCheckOptions } from "./draft-revisions.js";
 import type { ChapterNo } from "../types/primitives.js";
 import type { ProjectSession } from "./state.js";
@@ -89,8 +90,10 @@ export class ChapterWriter {
     }
     const draft = this.drafts.loadDraft(options.chapter, options.draftId);
     if (draft === undefined) throw new ChapterWriteError(404, "草稿不存在");
+    const selected = selectedProposalIndices(options.selectedProposals, draft.proposals.length);
+    if (!options.adoptOnSuccess && selected.length > 0) throw new ChapterWriteError(400, "只检查不应用建议；请在明确采用时选择");
     if (draft.revision?.scopeAdvice) throw new ChapterWriteError(409, "这份结果仅包含修改范围建议，正文尚未修改；请先明确范围并生成新修订");
-    if (draft.review?.requestToken === options.revisionToken && draft.review.adoptOnSuccess === options.adoptOnSuccess) {
+    if (draft.review?.requestToken === options.revisionToken && draft.review.adoptOnSuccess === options.adoptOnSuccess && JSON.stringify(draft.review.selectedProposals ?? []) === JSON.stringify(selected)) {
       return this.start({ chapter: options.chapter, draftId: options.draftId }, false);
     }
     this.assertNotRunning(options.chapter, options.draftId);
@@ -104,7 +107,7 @@ export class ChapterWriter {
     this.drafts.saveDraft({
       ...draft, status: "pending_check", error: null, acceptable: false, findings: [],
       session: draft.session ?? authoredSession(input),
-      review: { adoptOnSuccess: options.adoptOnSuccess, requestToken: options.revisionToken },
+      review: { adoptOnSuccess: options.adoptOnSuccess, requestToken: options.revisionToken, selectedProposals: selected },
       ...(draft.execution === undefined ? {} : { execution: { ...draft.execution, status: "waiting" } }),
       updatedAt: new Date().toISOString(),
     });
@@ -235,7 +238,7 @@ export class ChapterWriter {
   private finishAdoption(draft: ChapterDraft): ChapterDraft {
     if (draft.status !== "ready" || draft.review?.adoptOnSuccess !== true) return draft;
     try {
-      this.session.adopt(draft.chapter, draft.draftId);
+      this.session.adopt(draft.chapter, draft.draftId, { revisionToken: draftRevisionToken(draft), selectedProposals: draft.review.selectedProposals ?? [] });
       return this.drafts.loadDraft(draft.chapter, draft.draftId)!;
     } catch (error) {
       // 采用入口可能已持久化过期状态；只能在最新版本上追加失败说明。

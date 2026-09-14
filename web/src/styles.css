@@ -760,3 +760,9 @@ th.num {
 .task-card small { display: block; margin-top: 12px; }
 .task-actions { margin-top: 12px; font-size: 13px; }
 .task-card .task-usage { color: #93a0ab; font-size: 12px; }
+.draft-proposals { margin: 20px 0; padding: 18px; border: 1px solid var(--line); border-radius: 6px; overflow-wrap: anywhere; }
+.draft-proposals h2 { margin: 0 0 10px; font-size: 16px; }
+.draft-proposal { padding: 14px 0; border-top: 1px solid var(--line); }
+.draft-proposal label { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 14px; }
+.draft-proposal input { flex: 0 0 auto; width: 18px; height: 18px; margin: 0; accent-color: var(--ink); }
+.draft-proposal p, .draft-proposals > p { margin: 8px 0; font-size: 13px; line-height: 1.7; }

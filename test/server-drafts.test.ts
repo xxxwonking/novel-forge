@@ -141,7 +141,7 @@ describe("章节草稿端点", () => {
     const { session, drafts } = seed();
     drafts.saveDraft({ ...ready("ch53d3", "过期的正文", "旧声明"), status });
     const res = post(session, "/api/chapter/adopt", { chapter: 53, draftId: "ch53d3" });
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(status === "stale" ? 409 : 400);
     expect(session.chapterText(53)).toBeUndefined();
     expect(session.events()).toHaveLength(0);
   });

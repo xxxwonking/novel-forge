@@ -16,7 +16,7 @@ import { RelationMap } from "../components/RelationMap.js";
 
 const BLURB: Record<string, string> = {
   "/foreshadow":
-    "一条伏笔一行：埋点 → 期限 → 收束。红条是逾期段 —— 那是这张图唯一需要你注意的东西。点任意圆点跳到原文。",
+    "图中展示已经埋设的伏笔：埋点 → 期限 → 收束。红条表示逾期，点击有依据的点可跳到原文。尚未埋设的未来规划列在下方表格中。",
   "/plotlines":
     "每条线一行，圆点是事件（越大权重越高）。红条是断线段，虚线是还没推进但阈值内。断线阈值按权重派生：主线 3 章、支线 12、细节 20。",
   "/arcs": "竖条是出场（越高越吃重），菱形是状态转折点，红条是当前缺席段。阈值按人物档位派生：主角 2 章、主要 15、次要 30。",
@@ -98,7 +98,7 @@ function ForeshadowBody({ views, onJump, highlight }: BodyProps): React.ReactEle
         <span>空心点 = 原文已变动，无法定位</span>
       </div>
 
-      <Timeline axis={views.axis} lanes={views.foreshadows} onJump={onJump} highlight={highlight} />
+      <Timeline axis={views.axis} lanes={views.foreshadows.filter(f => f.status !== "planned")} onJump={onJump} highlight={highlight} />
 
       <table>
         <thead>
@@ -125,7 +125,7 @@ function ForeshadowBody({ views, onJump, highlight }: BodyProps): React.ReactEle
                   </div>
                 </td>
                 <td>{f.intent}</td>
-                <td className="num">{f.planted.chapter}</td>
+                <td className="num">{f.status === "planned" ? "尚未埋设" : f.planted.chapter}</td>
                 <td className="num">{f.expectedBy}</td>
                 <td>
                   <span className="tag" data-tone={f.status === "open" ? undefined : "done"}>

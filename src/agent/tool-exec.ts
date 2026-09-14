@@ -20,6 +20,7 @@ import type { ChapterExcerpt, ForeshadowFilter } from "../task/tool-exec.js";
 import type { AgentEffect } from "./types.js";
 import type { StructureCorrection } from "../chapter/c5-correction.js";
 import type { DraftRewriteOptions } from "../server/draft-rewrite.js";
+import type { DraftAdoptOptions } from "../task/types.js";
 
 /** 计划类工具的入参（三种 what 对应三类 AlertAction，具体构造在 ctx 里）。 */
 export interface PlanAddInput {
@@ -45,7 +46,7 @@ export interface MainAgentToolContext {
   readonly reviseDraft: (options: Omit<DraftRewriteOptions, "chapter">) => Promise<AgentActionOutcome>;
   readonly getChapterDraft: (draftId: string) => string;
   readonly correctDraft: (draftId: string, revisionToken: string, changes: readonly StructureCorrection[], summary: string) => Promise<AgentActionOutcome>;
-  readonly checkDraft: (draftId: string, revisionToken: string, adoptOnSuccess: boolean) => Promise<AgentActionOutcome>;
+  readonly checkDraft: (draftId: string, revisionToken: string, adoptOnSuccess: boolean, selectedProposals?: readonly number[]) => Promise<AgentActionOutcome>;
   readonly listChapterTasks: () => string;
   readonly controlChapterTask: (draftId: string, action: "pause" | "end" | "resume") => Promise<AgentActionOutcome>;
   readonly getPreparation: (proposalId: string | null) => string;
@@ -62,7 +63,7 @@ export interface MainAgentToolContext {
   readonly abandonForeshadow: (foreshadowId: string, reason: string) => Promise<AgentActionOutcome>;
   readonly recordIdea: (text: string) => Promise<AgentActionOutcome>;
   readonly writeNextChapter: (proposalId?: string) => Promise<AgentActionOutcome>;
-  readonly adoptChapter: (draftId: string) => Promise<AgentActionOutcome>;
+  readonly adoptChapter: (draftId: string, options?: DraftAdoptOptions) => Promise<AgentActionOutcome>;
 }
 
 const FORESHADOW_FILTERS: readonly ForeshadowFilter[] = ["main", "sub", "detail", "all"];
@@ -111,7 +112,9 @@ export async function executeMainTool(
     }
     case "check_chapter_draft": {
       if (!readStr("draftId") || !readStr("revisionToken") || typeof input["adoptOnSuccess"] !== "boolean") return { result: err("先读取确切稿件，adoptOnSuccess 必须明确为 true 或 false") };
-      return action(await ctx.checkDraft(readStr("draftId"), readStr("revisionToken"), input["adoptOnSuccess"]));
+      return action(input["selectedProposals"] === undefined
+        ? await ctx.checkDraft(readStr("draftId"), readStr("revisionToken"), input["adoptOnSuccess"])
+        : await ctx.checkDraft(readStr("draftId"), readStr("revisionToken"), input["adoptOnSuccess"], input["selectedProposals"] as readonly number[]));
     }
     case "list_chapter_tasks":
       return { result: ok(ctx.listChapterTasks()) };
@@ -204,7 +207,11 @@ export async function executeMainTool(
     case "adopt_chapter": {
       const draftId = readStr("draftId");
       if (draftId === "") return { result: err("缺少 draftId；先用 list_chapter_drafts 确认要采用哪一版") };
-      return action(await ctx.adoptChapter(draftId));
+      if (input["selectedProposals"] === undefined && input["revisionToken"] === undefined) return action(await ctx.adoptChapter(draftId));
+      return action(await ctx.adoptChapter(draftId, {
+        ...(input["revisionToken"] === undefined ? {} : { revisionToken: input["revisionToken"] as string }),
+        ...(input["selectedProposals"] === undefined ? {} : { selectedProposals: input["selectedProposals"] as readonly number[] }),
+      }));
     }
 
     default:

@@ -60,6 +60,7 @@ export function Preparation({ refresh, proposalId }: { refresh: () => void; prop
         {candidate === undefined ? <>
           <div className="section-head"><h2>当前创作依据</h2><button onClick={() => setEditing(!editing)}>{editing ? "返回资料" : "编辑基本设定与偏好"}</button></div>
           {editing ? <AuthorForm view={view} onSaved={(p) => { setEditing(false); setSelected(p.status === "proposed" ? p.id : null); setNotice(p.status === "confirmed" ? "作者设定已更新。" : "修改涉及已有正文，已保存为候选，请查看影响。" ); data.reload(); refresh(); }} /> : <Content content={view.confirmed} />}
+          <section className="prep-section"><h2>未来伏笔计划</h2><p className="muted">这些安排已确认，尚未写成正文中的埋设或兑现。</p>{view.plannedForeshadows.length === 0 ? <p className="muted">暂时没有独立的未来伏笔规划。</p> : view.plannedForeshadows.map(plan => <div className="draft-change" key={plan.id}><strong>{plan.label}</strong><p>{plan.intent}</p><small>预期第 {plan.expectedBy} 章前兑现 · 尚未埋设</small></div>)}</section>
           <section className="prep-section"><h2>备选想法</h2>{view.ideas.length === 0 ? <p className="muted">暂时没有记录。可以在对话中说“把这个想法记为备选”。</p> : <ul>{view.ideas.map((idea) => <li key={idea.id}>{idea.text}</li>)}</ul>}</section>
         </> : <>
           <div className="prep-proposal-head"><span className="tag" data-tone={candidate.stale ? "warn" : "calm"}>{status(candidate)}</span><h2>{candidate.summary}</h2><p className="muted">{candidate.source === "author" ? "作者指定的修改" : "Agent 提出的建议"} · {new Date(candidate.createdAt).toLocaleString("zh-CN")}</p></div>

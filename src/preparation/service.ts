@@ -53,6 +53,9 @@ export class PreparationService {
       }
     }
     return { fingerprint, confirmed, nextChapter, readiness: { ready: missing.length === 0, missing },
+      plannedForeshadows: project({ events: snapshot.events.filter(event => accepted(event.envelope.provenance)), currentChapter: nextChapter - 1,
+        characterProfiles: [], plotLineDefs: [], plotLineGap: this.deps.rules.crossChapter.plotLineGap,
+      }).foreshadows.filter(item => item.status === "planned").map(({ id, label, intent, expectedBy, weight }) => ({ id, label, intent, expectedBy, weight })),
       taskPolicy: { autoRevisionLimit: automaticRevisionLimit(this.deps.rules.task.maxAutoRevisions) },
       proposals: this.list().map((proposal) => ({ ...proposal, stale: proposal.status === "proposed" && proposal.baseFingerprint !== fingerprint })) };
   }

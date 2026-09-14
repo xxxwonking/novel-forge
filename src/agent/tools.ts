@@ -45,7 +45,7 @@ export const MAIN_AGENT_TOOLS: readonly Anthropic.Tool[] = [
   {
     name: "check_chapter_draft",
     description: "启动已保存版本的后台检查，复用有效正文和结构，只补必要步骤。adoptOnSuccess=true 仅用于作者明确要求检查并采用；有 block 时保留结果，不采用。启动不等于完成。使用新版本返回的 revisionToken，失败恢复保留本次明确请求。",
-    input_schema: { type: "object", properties: { draftId: { type: "string" }, revisionToken: { type: "string" }, adoptOnSuccess: { type: "boolean" } }, required: ["draftId", "revisionToken", "adoptOnSuccess"] },
+    input_schema: { type: "object", properties: { draftId: { type: "string" }, revisionToken: { type: "string" }, adoptOnSuccess: { type: "boolean" }, selectedProposals: { type: "array", items: { type: "integer", minimum: 0 }, description: "仅检查并采用时，作者明确选择的写作建议索引；从 get_chapter_draft 的 proposalOptions 读取" } }, required: ["draftId", "revisionToken", "adoptOnSuccess"] },
   },
   {
     name: "list_chapter_tasks",
@@ -188,10 +188,10 @@ export const MAIN_AGENT_TOOLS: readonly Anthropic.Tool[] = [
   {
     name: "adopt_chapter",
     description:
-      "采用一份已就绪（ready）的草稿，使其正文与结构变化成为正式创作依据。必须给出确切的 draftId（先用 list_chapter_drafts 确认）。含糊的“继续”不要调用它——先向用户确认采用哪一版。",
+      "采用一份已就绪（ready）的草稿，使其正文与结构变化成为正式创作依据。必须给出确切的 draftId。作者明确选择写作中补充的建议时，先 get_chapter_draft 展示 proposalOptions 的前后变化，沿用 revisionToken 和 selectedProposals 索引；未选择的建议不应用，未来伏笔仍是规划。含糊的继续不能用来采用。",
     input_schema: {
       type: "object",
-      properties: { draftId: { type: "string", description: "草稿编号，如 ch53d1" } },
+      properties: { draftId: { type: "string", description: "草稿编号，如 ch53d1" }, revisionToken: { type: "string" }, selectedProposals: { type: "array", items: { type: "integer", minimum: 0 }, description: "作者明确选择的建议索引，从 0 开始；提供时必须同时提供 revisionToken" } },
       required: ["draftId"],
     },
   },

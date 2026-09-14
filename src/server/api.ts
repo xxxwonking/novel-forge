@@ -22,6 +22,7 @@ import { countWords } from "../text/measure.js";
 import { toDraftView } from "./draft-view.js";
 import type { StructureCorrection } from "../chapter/c5-correction.js";
 import type { DraftRewriteOptions } from "./draft-rewrite.js";
+import type { DraftAdoptOptions } from "../task/types.js";
 
 export interface ApiRequest {
   readonly method: string;
@@ -135,7 +136,8 @@ export function handle(session: ProjectSession, req: ApiRequest): ApiResponse {
           }
           if (path === "/api/chapter/check") {
             if (typeof req.body["adoptOnSuccess"] !== "boolean") return bad("adoptOnSuccess 必须是布尔值");
-            return ok(toDraftView(session.checkDraft({ ...reference, adoptOnSuccess: req.body["adoptOnSuccess"] }), session));
+            const selectedProposals = req.body["selectedProposals"] as readonly number[] | undefined;
+            return ok(toDraftView(session.checkDraft({ ...reference, adoptOnSuccess: req.body["adoptOnSuccess"], ...(selectedProposals === undefined ? {} : { selectedProposals }) }), session));
           }
           if (typeof req.body["body"] !== "string") return bad("缺少正文 body");
           const summary = req.body["summary"];
@@ -526,9 +528,12 @@ function chapterAdopt(session: ProjectSession, body: unknown): ApiResponse {
   const ref = draftRef(body);
   if (typeof ref === "string") return bad(ref);
   try {
-    const result = session.adopt(ref.chapter, ref.draftId);
+    const input = body as Record<string, unknown>;
+    const options = { ...(input["revisionToken"] === undefined ? {} : { revisionToken: input["revisionToken"] }), ...(input["selectedProposals"] === undefined ? {} : { selectedProposals: input["selectedProposals"] }) } as DraftAdoptOptions;
+    const result = session.adopt(ref.chapter, ref.draftId, options);
     return ok({ result, ...refreshed(session) });
   } catch (e) {
+    if (e instanceof ChapterWriteError) return { status: e.status, body: { error: e.message } };
     return bad((e as Error).message);
   }
 }

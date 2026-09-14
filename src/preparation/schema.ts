@@ -76,6 +76,11 @@ export function parsePreparationInput(input: unknown): PreparationInput {
   return structuredClone(input) as PreparationInput;
 }
 
+/** 字段级建议也必须满足同一份完整人物结构。 */
+export function validateCharacterInput(input: unknown): void {
+  validate(input, character, "人物资料");
+}
+
 function validate(value: unknown, schema: Schema, path: string): void {
   const fail = (detail: string): never => { throw new ChapterWriteError(400, `${path}：${detail}`); };
   const types = typeof schema.type === "string" ? [schema.type] : schema.type;

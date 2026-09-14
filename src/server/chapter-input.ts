@@ -205,7 +205,7 @@ function volumeBoundary(session: ChapterSource, beat: ChapterBeat, ctx: ChapterC
 }
 
 /** 保留历史及候选声明占用的 ID；分配本身不写正式事件流。 */
-function foreshadowAllocator(session: ChapterSource): () => ForeshadowId {
+export function foreshadowAllocator(session: ChapterSource): () => ForeshadowId {
   const ids: string[] = session.events().flatMap((e) => e.payload.type === "foreshadow_planted" ? [e.payload.foreshadowId] : []);
   for (const draft of session.allDrafts()) {
     for (const f of draft.declaration?.foreshadowPlanted ?? []) ids.push(f.foreshadowId);
