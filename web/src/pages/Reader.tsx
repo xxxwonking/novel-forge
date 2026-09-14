@@ -90,15 +90,6 @@ export function Reader({ chapter, quote }: ReaderProps): React.ReactElement {
             onChange={(e) => {
               window.location.hash = `/chapter/${e.target.value}`;
             }}
-            style={{
-              width: "100%",
-              padding: 6,
-              background: "var(--bg-raised)",
-              color: "var(--ink)",
-              border: "1px solid var(--line-bright)",
-              borderRadius: 3,
-              marginBottom: 18,
-            }}
           >
             {(list.data ?? []).map((c) => (
               <option key={c.chapter} value={c.chapter}>

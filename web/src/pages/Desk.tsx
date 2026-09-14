@@ -53,7 +53,7 @@ export function Desk({ prep, prepError, refreshKey, onOpenDraft, onAdopt }: Desk
                 <tr>
                   <th>草稿</th>
                   <th>状态</th>
-                  <th className="num">字数</th>
+                  <th className="num">字符</th>
                   <th className="num">修订</th>
                   <th className="num">问题</th>
                   <th />

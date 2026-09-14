@@ -43,3 +43,28 @@ const CHAPTER_TYPE: Record<string, string> = {
 export function chapterTypeLabel(type: string): string {
   return CHAPTER_TYPE[type] ?? type;
 }
+
+/** 题材与平台在新建作品时定死，之后只读。作者选的是中文，别再把枚举值显示回去。 */
+const GENRE: Record<string, string> = {
+  xuanhuan: "玄幻",
+  xianxia: "仙侠",
+  urban: "都市",
+  scifi: "科幻",
+  mystery: "悬疑",
+  rulehorror: "规则怪谈",
+};
+
+const PLATFORM: Record<string, string> = {
+  fanqie: "番茄",
+  feilu: "飞卢",
+  qidian: "起点",
+  unpublished: "未定 / 不发布",
+};
+
+export function genreLabel(genre: string): string {
+  return GENRE[genre] ?? genre;
+}
+
+export function platformLabel(platform: string): string {
+  return PLATFORM[platform] ?? platform;
+}

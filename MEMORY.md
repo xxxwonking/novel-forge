@@ -675,8 +675,8 @@ GIT_SSH_COMMAND="ssh -o HostKeyAlias=github.com" git push ssh://git@140.82.116.4
 ### 起因
 用户提的一点要求：对话框固定在页面底部太突兀，改左右布局，克隆 `https://github.com/syrizelink/OpenFic` **参考它的样式**做优化。当时那条消息看着像被截断，事后用户确认没有别的要求——就是参考开源项目优化样式，无遗漏需求。
 
-### 从 OpenFic 抄了什么（克隆在 `~/.claude/jobs/a6d62123/tmp/OpenFic`）
-它的写作页是 `react-resizable-panels` 三栏（左章节列表 300px / 中编辑器 / 右助手 500px），助手栏是竖向 flex：头部 + 自带滚动的消息区 + 钉在**该列**底部的输入框；diff 卡片留在消息流里，正文只在中间编辑器看；分隔线 1px、热区 8px、布局落 localStorage。抄的是**"对话只驱动、产物在编辑区看"这个分工**，不是它的依赖——本项目没加任何新依赖，三栏用 CSS grid，拖宽用一个 ~25 行的 pointer 钩子。
+### 从 OpenFic 借鉴了什么（克隆在 `~/.claude/jobs/a6d62123/tmp/OpenFic`）
+它的写作页是 `react-resizable-panels` 三栏（左章节列表 300px / 中编辑器 / 右助手 500px），助手栏是竖向 flex：头部 + 自带滚动的消息区 + 钉在**该列**底部的输入框；diff 卡片留在消息流里，正文只在中间编辑器看；分隔线 1px、热区 8px、布局落 localStorage。借鉴的是**"对话只驱动、产物在编辑区看"这个分工**，不是它的依赖——本项目没加任何新依赖，三栏用 CSS grid，拖宽用一个 ~25 行的 pointer 钩子。
 
 ### 做了什么
 - **`useDockWidth(storageKey, min, max, initial)`**（`web/src/hooks.ts`）：按住左缘热区、向左拖变宽，钳 `[min,max]`，pointerup 落 localStorage。**落盘取闭包里的 `latest` 而不是 state**——pointerup 时 React 未必已提交最后一次 move。

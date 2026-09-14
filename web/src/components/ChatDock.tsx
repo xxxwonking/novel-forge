@@ -13,6 +13,7 @@ import { useEffect, useRef, useState } from "react";
 import { api, type AgentEffect, type ConversationTurn, type PrepPayload } from "../api.js";
 import { useFetch } from "../hooks.js";
 import { chapterTypeLabel } from "../labels.js";
+import { RichText } from "./RichText.js";
 
 export interface ChatDockProps {
   width: number;
@@ -153,7 +154,8 @@ interface ChipHandlers {
 function Message({ turn, ...handlers }: { turn: ConversationTurn } & ChipHandlers): React.ReactElement {
   return (
     <div className="msg" data-role={turn.role}>
-      <div className="msg-body">{turn.text}</div>
+      {/* 作者说的话原样留着；Agent 的回复是 markdown，要渲染 */}
+      <div className="msg-body">{turn.role === "agent" ? <RichText text={turn.text} /> : turn.text}</div>
       {turn.effects !== undefined && turn.effects.length > 0 && (
         <div className="msg-effects">
           {turn.effects.map((e, i) => (

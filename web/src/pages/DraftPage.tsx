@@ -57,7 +57,8 @@ export function DraftPage({ chapter, draftId, refreshKey, onAdopt, onJump, go }:
         <div className="row" style={{ marginTop: 6 }}>
           <span className="tag" data-tone={draftStatusTone(d.status)}>{draftStatusLabel(d.status)}</span>
           <span className="muted">
-            {d.body.length} 字{revised > 0 ? ` · 自动修订 ${revised} 次` : ""}
+            {/* 这是字符数，不是体检口径的字数（只计汉字与西文词）—— 同屏两个数字，别用同一个词 */}
+            {d.body.length} 字符{revised > 0 ? ` · 自动修订 ${revised} 次` : ""}
           </span>
           <span style={{ flex: 1 }} />
           {revised > 0 && (
