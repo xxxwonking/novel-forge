@@ -18,6 +18,7 @@ import type Anthropic from "@anthropic-ai/sdk";
 
 /** 一次对话回合里发生的状态变化。只记真实副作用与失败，不记纯问答。 */
 export type AgentEffect =
+  | { readonly kind: "preparation_proposed" | "preparation_confirmed"; readonly proposalId: string; readonly summary: string }
   | {
       readonly kind: "chapter_written";
       readonly chapter: ChapterNo;

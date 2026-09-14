@@ -3,7 +3,7 @@
  */
 
 import { afterEach, describe, expect, it } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type Anthropic from "@anthropic-ai/sdk";
@@ -73,6 +73,27 @@ describe("DraftStore", () => {
 
   it("loadDraft 不存在 → undefined", () => {
     expect(newStore().loadDraft(1, "nope")).toBeUndefined();
+  });
+
+  it("已有草稿缺失正文时明确报错，不把空文本作为可恢复或采用的正文", () => {
+    const store = newStore();
+    store.saveDraft(draft(7, "ch7d1"));
+    const directory = join(roots.at(-1)!, "drafts", "ch7");
+    const metadata = readFileSync(join(directory, "ch7d1.json"), "utf8");
+    rmSync(join(directory, "ch7d1.txt"));
+    expect(() => store.loadDraft(7, "ch7d1")).toThrow(/正文.*缺失|缺失.*正文/u);
+    expect(() => store.nextDraftId(7)).toThrow();
+    expect(readFileSync(join(directory, "ch7d1.json"), "utf8")).toBe(metadata);
+  });
+
+  it("草稿元数据和所在章号、版本不符时保留文件并阻止使用", () => {
+    const store = newStore();
+    store.saveDraft(draft(7, "ch7d1"));
+    const file = join(roots.at(-1)!, "drafts", "ch7", "ch7d1.json");
+    const broken = JSON.stringify({ ...JSON.parse(readFileSync(file, "utf8")), chapter: 8, draftId: "ch8d2" });
+    writeFileSync(file, broken, "utf8");
+    expect(() => store.loadDraft(7, "ch7d1")).toThrow(/编号|章号/u);
+    expect(readFileSync(file, "utf8")).toBe(broken);
   });
 
   it("nextDraftId 按已有序号递增", () => {

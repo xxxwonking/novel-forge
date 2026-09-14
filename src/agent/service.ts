@@ -20,8 +20,8 @@ import { buildMainAgentSystem, type MainAgentContextInfo } from "./system-prompt
 import type { ConversationStore } from "./conversation-store.js";
 import type { ConversationReply, ConversationState, ConversationTurn } from "./types.js";
 
-/** 回复 token 上限。API 输出规模常量（与 task/steps 同类），低于流式阈值走非流式。 */
-const REPLY_MAX_TOKENS = 2048;
+/** 含资料方案工具参数，需要容纳完整人物、设定和首章规划；短回复仍要求简洁。 */
+const REPLY_MAX_TOKENS = 8192;
 const REPLY_ROLE: ModelRole = "judge";
 const EMPTY_REPLY = "（我没有可回复的内容，请换个说法或把要做的事说得更具体一点。）";
 

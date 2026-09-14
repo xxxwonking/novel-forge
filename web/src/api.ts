@@ -270,6 +270,7 @@ export interface ActionResult {
 
 /** 一次对话回合里发生的状态变化。与后端 AgentEffect 一一对应（报文层重新声明）。 */
 export type AgentEffect =
+  | { kind: "preparation_proposed" | "preparation_confirmed"; proposalId: string; summary: string }
   | { kind: "chapter_written"; chapter: number; draftId: string; status: string; acceptable: boolean }
   | { kind: "chapter_adopted"; chapter: number; draftId: string; superseded: number; staleMarked: number[] }
   | { kind: "plan_updated"; chapter: number; promotedToPayoff: boolean }
@@ -304,6 +305,16 @@ export interface ConversationHistory {
 
 /** 草稿的对外视图（后端剔除了内部会话快照）。只声明 UI 用到的字段。 */
 export interface DraftView {
+  preparationProposalId: string | null;
+  declaration: {
+    events: { summary: string; anchor: TextAnchor }[];
+    foreshadowPlanted: { foreshadowId: string; label: string; intent: string; expectedBy: number; anchor: TextAnchor }[];
+    foreshadowResolved: { foreshadowId: string; completeness: string; anchor: TextAnchor }[];
+    characterStates: { characterId: string; field: string; from: string | null; to: string; anchor: TextAnchor }[];
+    relationsChanged: { from: string; to: string; fromKind: string | null; toKind: string; note: string; anchor: TextAnchor }[];
+    characterPresence: { characterId: string; role: string }[];
+  } | null;
+  proposals: { kind: string; name?: string; field?: string; value?: string; reason?: string; label?: string; intent?: string }[];
   chapter: number;
   draftId: string;
   status: string;
@@ -319,6 +330,31 @@ export interface DraftView {
 export interface AdoptResponse {
   result: { changed: boolean; chapter: number; draftId: string; superseded: number; staleMarked: number[] };
   alerts: { homepage: Alert[]; counts: { fullList: number; repairQueue: number } };
+}
+
+export interface PreparationContent {
+  setting: { title: string; premise: string; centralConflict: string; openingSituation: string; pov: string; tense: string; protagonistTraits: string[]; protagonistForbidden: string[]; specialAbility: string; abilityLimits: string[]; worldRules: string[]; styleKeywords: string[]; romanceLine: string; taboos: string[] };
+  profile: { genre: string; platform: string; targetWords: number };
+  discipline: { version: string; rules: string[] };
+  characters: { id: string; name: string; aliases: string[]; tier: string; provenance: string; profile: { role: string; wants: string; fears: string; traits: string[]; background: string; forbiddenBehaviors: string[]; appearance: { key: string; value: string }[] }; speech: { exemplars: string[]; verbalTics: string[]; forbiddenLexicon: string[]; register: string } }[];
+  settings: { id: string; name: string; kind: string; description: string; facts: string[] }[];
+  plotLines: { id: string; label: string; weight: string }[];
+  beats: (ChapterBeat & { provenance: string })[];
+}
+
+export interface PreparationProposal {
+  id: string; summary: string; source: "author" | "assistant"; status: "proposed" | "confirmed" | "rejected";
+  stale: boolean; createdAt: string; updatedAt: string;
+  content: PreparationContent;
+  impacts: { message: string; chapters: number[] }[];
+  findings: GateFinding[];
+}
+
+export interface PreparationPayload {
+  fingerprint: string; confirmed: PreparationContent; nextChapter: number;
+  readiness: { ready: boolean; missing: string[] };
+  proposals: PreparationProposal[];
+  ideas: AlternativeIdea[];
 }
 
 // ── 请求 ────────────────────────────────────────────────────────────────
@@ -342,6 +378,11 @@ function isRecord(v: unknown): v is Record<string, unknown> {
 }
 
 export const api = {
+  preparation: () => request<PreparationPayload>("/api/preparation"),
+  confirmPreparation: (proposalId: string) => post<{ changed: boolean; proposal: PreparationProposal }>("/api/preparation/confirm", { proposalId }),
+  rejectPreparation: (proposalId: string) => post<PreparationProposal>("/api/preparation/reject", { proposalId }),
+  recordAuthorDetails: (input: { summary: string; baseFingerprint: string; changes: unknown }) => post<PreparationProposal>("/api/preparation/author", input),
+  writeChapter: (input: { chapter: number; proposalId?: string; draftId?: string; newDraft?: boolean }) => post<DraftView>("/api/chapter/write", input),
   workspace: () => request<WorkspacePayload>("/api/workspace"),
   createWork: (input: CreateWorkInput) => post<WorkSummary>("/api/works", input),
   overview: () => request<Overview>("/api/overview"),

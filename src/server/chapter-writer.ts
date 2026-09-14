@@ -15,6 +15,7 @@ export interface ChapterWriteOptions extends ChapterInputOptions {
   readonly chapter: ChapterNo;
   readonly draftId?: DraftId;
   readonly newDraft?: boolean;
+  readonly proposalId?: string;
 }
 
 export interface ChapterWriterOptions {
@@ -57,12 +58,16 @@ export class ChapterWriter {
       const same = running.request.chapter === options.chapter &&
         (options.draftId === undefined || options.draftId === running.draftId) &&
         (options.newDraft !== true || running.request.newDraft === true) &&
+        (options.proposalId === undefined || options.proposalId === running.request.proposalId) &&
         (options.maxOutputTokens === undefined || options.maxOutputTokens === running.request.maxOutputTokens);
       if (same) return running.promise;
       throw new ChapterWriteError(409, `第 ${running.request.chapter} 章正在生成，请先等待当前任务完成`);
     }
 
     const draft = this.findDraft(options);
+    if (draft !== undefined && options.proposalId !== undefined && options.proposalId !== draft.writeContext?.proposalId) {
+      throw new ChapterWriteError(409, "当前草稿依赖另一份资料；切换方案时请明确另写一版");
+    }
     if (draft?.status === "adopted" || draft?.status === "discarded") return Promise.resolve(draft);
     if (options.chapter !== this.session.nextChapter && options.chapter !== this.session.currentChapter) {
       throw new ChapterWriteError(409, `当前可写第 ${this.session.nextChapter} 章，或为最新已采用章另建版本；请先处理当前章节`);
@@ -73,9 +78,11 @@ export class ChapterWriter {
     }
 
     const maxOutputTokens = options.maxOutputTokens ?? draft?.writeContext?.maxOutputTokens;
-    const input = buildChapterRunInput(this.session, options.chapter, maxOutputTokens === undefined ? {} : { maxOutputTokens });
-    const fingerprint = chapterInputFingerprint(this.session, options.chapter);
-    const readSource = buildChapterReadSource(this.session, options.chapter);
+    const proposalId = options.proposalId ?? draft?.writeContext?.proposalId;
+    const source = this.session.chapterSource(proposalId);
+    const input = buildChapterRunInput(source, options.chapter, maxOutputTokens === undefined ? {} : { maxOutputTokens });
+    const fingerprint = chapterInputFingerprint(source, options.chapter);
+    const readSource = buildChapterReadSource(source, options.chapter);
     if (this.client === undefined) {
       try { this.client = createModelClient(); }
       catch (error) {
@@ -83,27 +90,37 @@ export class ChapterWriter {
       }
     }
     const service = new ChapterTaskService({ client: this.client, draftStore: this.drafts, readSource, maxToolRounds: this.session.rules.task.maxToolIterations });
-    const context = { fingerprint, ...(maxOutputTokens === undefined ? {} : { maxOutputTokens }) };
+    const context = { fingerprint, ...(maxOutputTokens === undefined ? {} : { maxOutputTokens }), ...(proposalId === undefined ? {} : { proposalId }) };
     const draftId = draft?.draftId ?? this.drafts.nextDraftId(options.chapter);
     const operation = draft === undefined ? service.run(input, context) : service.resume(input, draftId, context);
     const promise = operation.then((result) => {
       // 其他写接口在 await 期间可以修改作品；不要让图的末次保存覆盖过期标记。
-      if (result.baseVersion !== this.drafts.workVersion() || fingerprint !== chapterInputFingerprint(this.session, options.chapter)) {
+      if (this.basisChanged(result)) {
         return this.markStale(result);
       }
       return result;
     }).finally(() => { this.active = null; });
-    this.active = { request: { ...options, ...(maxOutputTokens === undefined ? {} : { maxOutputTokens }) }, draftId, promise };
+    this.active = { request: { ...options, ...(maxOutputTokens === undefined ? {} : { maxOutputTokens }), ...(proposalId === undefined ? {} : { proposalId }) }, draftId, promise };
     return promise;
   }
 
   assertFresh(draft: ChapterDraft): void {
     if (draft.status === "adopted") return;
-    const changed = draft.baseVersion !== this.drafts.workVersion() ||
-      (draft.writeContext !== undefined && draft.writeContext.fingerprint !== chapterInputFingerprint(this.session, draft.chapter));
+    const changed = this.basisChanged(draft);
     if (draft.status === "stale" || changed) {
       if (draft.status !== "stale") this.markStale(draft);
       throw new ChapterWriteError(409, "作品资料、节拍或已采用版本发生变化，请核对后另写一版草稿");
+    }
+  }
+
+  private basisChanged(draft: ChapterDraft): boolean {
+    if (draft.baseVersion !== this.drafts.workVersion()) return true;
+    if (draft.writeContext === undefined) return false;
+    try {
+      return draft.writeContext.fingerprint !== chapterInputFingerprint(this.session.chapterSource(draft.writeContext.proposalId), draft.chapter);
+    } catch (error) {
+      if (error instanceof ChapterWriteError && (error.status === 409 || error.status === 404)) return true;
+      throw error;
     }
   }
 

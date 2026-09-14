@@ -16,6 +16,8 @@ import { ViewPage } from "./pages/ViewPage.js";
 import { Reader } from "./pages/Reader.js";
 import { Chat } from "./pages/Chat.js";
 import { Works } from "./pages/Works.js";
+import { Preparation } from "./pages/Preparation.js";
+import { Drafts } from "./pages/Drafts.js";
 
 const VIEWS = [
   { path: "/foreshadow", label: "伏笔时间线" },
@@ -40,6 +42,7 @@ function ProjectApp(): React.ReactElement {
   const [route, go] = useRoute();
   const [toast, showToast] = useToast();
   const [nonce, setNonce] = useState(0);
+  const [navOpen, setNavOpen] = useState(false);
 
   const overview = useFetch(() => api.overview(), [nonce]);
 
@@ -102,7 +105,8 @@ function ProjectApp(): React.ReactElement {
 
   return (
     <div className="shell">
-      <nav className="rail">
+      <header className="mobile-work-header"><a href="#/works">← 作品</a><strong>{overview.data?.title ?? "novel-forge"}</strong><button aria-label="作品导航" aria-controls="project-navigation" aria-expanded={navOpen} onClick={() => setNavOpen(!navOpen)}>目录</button></header>
+      <nav className="rail" id="project-navigation" data-open={navOpen} onClick={(event) => { if ((event.target as HTMLElement).closest("a")) setNavOpen(false); }}>
         <a href="#/works" className="all-works">← 全部作品</a>
         <div className="rail-title">{overview.data?.title ?? "novel-forge"}</div>
         <div className="rail-sub">
@@ -114,6 +118,7 @@ function ProjectApp(): React.ReactElement {
         <Link route={route} to="/chat" go={go}>
           对话
         </Link>
+        <Link route={route} to="/preparation" go={go}>作品资料</Link>
         <Link route={route} to="/" go={go}>
           首页
         </Link>
@@ -167,7 +172,14 @@ function Routed({ route, overview, onAction, onIgnore, onJump, refresh }: Routed
   const query = new URLSearchParams(search ?? "");
 
   if (path === "/chat") {
-    return <Chat onJump={onJump} refresh={refresh} />;
+    return <Chat onJump={onJump} refresh={refresh} initialPrompt={query.get("prompt") ?? ""} />;
+  }
+  if (path === "/preparation") {
+    return <Preparation refresh={refresh} proposalId={query.get("proposal")} />;
+  }
+  if (path?.startsWith("/draft/")) {
+    const [, , chapter, draftId] = path.split("/");
+    return <Drafts key={`${chapter}/${draftId}`} chapter={Number(chapter)} draftId={draftId ?? ""} refresh={refresh} />;
   }
   if (path === "/" || path === "") {
     return <Home overview={overview} onAction={onAction} onIgnore={onIgnore} />;

@@ -11,15 +11,16 @@ import { api, type AgentEffect, type ConversationTurn, type DraftView } from "..
 import { useFetch } from "../hooks.js";
 
 export interface ChatProps {
+  initialPrompt?: string;
   onJump: (chapter: number, quote: string) => void;
   /** 对话可能改变作品状态（写章/采用/改计划），据此刷新侧栏与首页。 */
   refresh: () => void;
 }
 
-export function Chat({ onJump, refresh }: ChatProps): React.ReactElement {
+export function Chat({ onJump, refresh, initialPrompt = "" }: ChatProps): React.ReactElement {
   const history = useFetch(() => api.conversationHistory(), []);
   const [live, setLive] = useState<ConversationTurn[]>([]);
-  const [input, setInput] = useState("");
+  const [input, setInput] = useState(initialPrompt);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState<DraftView | null>(null);
@@ -167,12 +168,16 @@ function EffectChip({
   onAdopt: (chapter: number, draftId: string) => void;
 }): React.ReactElement {
   switch (effect.kind) {
+    case "preparation_proposed":
+    case "preparation_confirmed":
+      return <div className="effect"><span className="tag">{effect.kind === "preparation_confirmed" ? "资料已确认" : "待确认方案"}</span><span>{effect.summary}</span><a href={`#/preparation?proposal=${encodeURIComponent(effect.proposalId)}`}>查看方案</a></div>;
     case "chapter_written":
       return (
         <div className="effect">
           <span className="tag">草稿 {effect.draftId}</span>
           <span className="muted">第 {effect.chapter} 章 · {effect.status}</span>
           <button data-quiet="true" onClick={() => onView(effect.chapter, effect.draftId)}>查看草稿</button>
+          <a href={`#/draft/${effect.chapter}/${effect.draftId}`}>完整结果</a>
           {effect.acceptable && (
             <button data-primary="true" onClick={() => onAdopt(effect.chapter, effect.draftId)}>采用</button>
           )}

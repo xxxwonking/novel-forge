@@ -29,7 +29,7 @@ import type { CharacterCard } from "../types/character.js";
 import type { AlertId, ChapterNo, CharacterId, ForeshadowId, PlotLineId } from "../types/primitives.js";
 import type { C5Declaration, ForeshadowWeight } from "../types/events.js";
 import { ChapterWriter, type ChapterWriteOptions, type ChapterWriterOptions } from "./chapter-writer.js";
-import { ChapterWriteError, buildChapterReadSource } from "./chapter-input.js";
+import { ChapterWriteError, buildChapterReadSource, buildChapterRunInput, type ChapterSource } from "./chapter-input.js";
 import { ConversationStore } from "../agent/conversation-store.js";
 import { MainAgentService } from "../agent/service.js";
 import type { AgentActionOutcome, MainAgentToolContext, PlanAddInput } from "../agent/tool-exec.js";
@@ -40,6 +40,8 @@ import { createModelClient } from "../client/create.js";
 import type { ModelClient } from "../client/model.js";
 import { countWords } from "../text/measure.js";
 import { withFileTransaction } from "../store/transaction.js";
+import { PreparationService } from "../preparation/service.js";
+import type { PreparationContent } from "../preparation/types.js";
 
 export interface SessionDerived {
   readonly projections: Projections;
@@ -49,6 +51,7 @@ export interface SessionDerived {
 }
 
 export class ProjectSession {
+  readonly preparation: PreparationService;
   private readonly store: ProjectStore;
   private readonly drafts: DraftStore;
   private readonly writer: ChapterWriter;
@@ -87,6 +90,11 @@ export class ProjectSession {
     this.writer = new ChapterWriter(this, this.drafts, writing);
     this.conversation = new ConversationStore(root);
     this.modelClient = writing.client;
+    this.preparation = new PreparationService(root, {
+      snapshot: () => this.snapshot(), apply: (content) => this.applyPreparation(content),
+      transaction: (operation) => this.transact(operation), rules: this.rules,
+      checkChapter: (chapter) => { buildChapterRunInput(this, chapter); },
+    });
   }
 
   // ── 读 ────────────────────────────────────────────────────────────────
@@ -163,6 +171,18 @@ export class ProjectSession {
 
   // ── 写 ────────────────────────────────────────────────────────────────
 
+  private snapshot(): ProjectSnapshot {
+    return { setting: this.setting, discipline: this.discipline, settings: this.settings, profile: this.profile,
+      characters: this.characters, plotLines: this.plotLines, beats: this.beats,
+      events: this.stream.all(), chapters: this.chapters, alertStates: [...this.alertStates.values()] };
+  }
+
+  private applyPreparation(content: PreparationContent): void {
+    this.store.writePreparation(content);
+    Object.assign(this, content);
+    this.invalidate();
+  }
+
   putSettings(settings: readonly SettingCard[]): void {
     this.store.writeSettings(settings);
     this.settings = settings;
@@ -231,6 +251,20 @@ export class ProjectSession {
     return this.writer.write(options);
   }
 
+  chapterSource(proposalId?: string): ChapterSource {
+    if (proposalId === undefined) return this;
+    const snapshot = this.snapshot();
+    const content = this.preparation.preview(proposalId);
+    const numbers = [...snapshot.chapters.keys()].sort((a, b) => a - b);
+    const currentChapter = Math.max(0, ...numbers);
+    return {
+      rules: this.rules, meta: { ...content, currentChapter, nextChapter: currentChapter + 1, chapterCount: numbers.length },
+      events: () => snapshot.events, chapterNumbers: () => numbers,
+      chapterText: (n) => snapshot.chapters.get(n), beatFor: (n) => content.beats.find((b) => b.chapter === n),
+      allDrafts: () => this.allDrafts(),
+    };
+  }
+
   listDrafts(chapter: ChapterNo): readonly ChapterDraft[] {
     return this.drafts.listDrafts(chapter);
   }
@@ -256,7 +290,9 @@ export class ProjectSession {
   adopt(chapter: ChapterNo, draftId: DraftId): AdoptResult {
     const draft = this.drafts.loadDraft(chapter, draftId);
     if (draft !== undefined) this.writer.assertFresh(draft);
-    return this.transact(() => adoptDraft(
+    return this.transact(() => {
+      if (draft?.status !== "adopted" && draft?.writeContext?.proposalId !== undefined) this.preparation.confirm(draft.writeContext.proposalId);
+      return adoptDraft(
       {
         draftStore: this.drafts,
         commitDeclaration: (ch, decl) => this.commitDraftDeclaration(ch, decl),
@@ -264,7 +300,8 @@ export class ProjectSession {
       },
       chapter,
       draftId,
-    ));
+      );
+    });
   }
 
   /** 文件失败时也恢复内存；各写入口只替换状态引用，不原地修改旧对象。 */
@@ -350,6 +387,19 @@ export class ProjectSession {
       effect: { kind: "action_failed", tool, message },
     });
     return {
+      getPreparation: (proposalId) => JSON.stringify(proposalId === null ? { ...this.preparation.view(), ideas: this.listIdeas() } : this.preparation.get(proposalId)),
+      proposePreparation: async (input, author) => {
+        try {
+          const proposal = author ? this.preparation.recordAuthor(input) : this.preparation.propose(input);
+          return { message: JSON.stringify(proposal), effect: { kind: proposal.status === "confirmed" ? "preparation_confirmed" : "preparation_proposed", proposalId: proposal.id, summary: proposal.summary } };
+        } catch (error) { return fail(author ? "record_author_details" : "propose_preparation", error instanceof Error ? error.message : String(error)); }
+      },
+      confirmPreparation: async (proposalId) => {
+        try {
+          const result = this.preparation.confirm(proposalId);
+          return { message: `${result.changed ? "已确认" : "此前已确认"}方案「${result.proposal.summary}」。这些是资料和未来计划，尚未写成正式正文。`, effect: { kind: "preparation_confirmed", proposalId, summary: result.proposal.summary } };
+        } catch (error) { return fail("confirm_preparation", error instanceof Error ? error.message : String(error)); }
+      },
       getOverview: () => {
         const info = this.agentContextInfo();
         const { foreshadows } = this.derived.projections;
@@ -444,9 +494,9 @@ export class ProjectSession {
         const idea = this.conversation.recordIdea(text, now());
         return { message: `已记为备选：${idea.text}`, effect: { kind: "idea_recorded", id: idea.id, text: idea.text } };
       },
-      writeNextChapter: async () => {
+      writeNextChapter: async (proposalId) => {
         try {
-          const draft = await this.writeChapter({ chapter: this.nextChapter });
+          const draft = await this.writeChapter({ chapter: this.nextChapter, ...(proposalId === undefined ? {} : { proposalId }) });
           return {
             message: `已写第 ${draft.chapter} 章草稿 ${draft.draftId}，状态 ${draft.status}${draft.acceptable ? "（可采用）" : ""}`,
             effect: {

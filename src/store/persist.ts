@@ -220,6 +220,19 @@ export class ProjectStore {
     this.writeJson(FILES.discipline, discipline);
   }
 
+  /** 资料方案仅写资料和规划，不触碰正式故事事件、正文或告警决定。 */
+  writePreparation(content: Omit<ProjectSnapshot, "events" | "chapters" | "alertStates">): void {
+    withFileTransaction(this.root, () => {
+      this.writeJson(FILES.setting, content.setting);
+      this.writeJson(FILES.profile, content.profile);
+      this.writeDiscipline(content.discipline);
+      this.writeCharacters(content.characters);
+      this.writeSettings(content.settings);
+      this.writeJson(FILES.plotLines, content.plotLines);
+      this.writeBeats(content.beats);
+    });
+  }
+
   // ── 原语 ──────────────────────────────────────────────────────────────
 
   private readJson<T>(name: string): T {

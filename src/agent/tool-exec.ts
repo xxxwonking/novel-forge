@@ -40,6 +40,9 @@ export interface AgentActionOutcome {
  * 刻意不直接依赖 ProjectSession —— 让工具执行可独立测试（假 ctx 即可）。
  */
 export interface MainAgentToolContext {
+  readonly getPreparation: (proposalId: string | null) => string;
+  readonly proposePreparation: (input: unknown, author: boolean) => Promise<AgentActionOutcome>;
+  readonly confirmPreparation: (proposalId: string) => Promise<AgentActionOutcome>;
   readonly getOverview: () => string;
   readonly listChapterDrafts: (chapter: number | null) => string;
   readonly getChapterText: (chapter: number, excerpt: ChapterExcerpt) => string | null;
@@ -50,7 +53,7 @@ export interface MainAgentToolContext {
   readonly rescheduleForeshadow: (foreshadowId: string, expectedBy: number) => Promise<AgentActionOutcome>;
   readonly abandonForeshadow: (foreshadowId: string, reason: string) => Promise<AgentActionOutcome>;
   readonly recordIdea: (text: string) => Promise<AgentActionOutcome>;
-  readonly writeNextChapter: () => Promise<AgentActionOutcome>;
+  readonly writeNextChapter: (proposalId?: string) => Promise<AgentActionOutcome>;
   readonly adoptChapter: (draftId: string) => Promise<AgentActionOutcome>;
 }
 
@@ -87,6 +90,17 @@ export async function executeMainTool(
   });
 
   switch (block.name) {
+    case "get_preparation":
+      try { return { result: ok(ctx.getPreparation(readStr("proposalId") || null)) }; }
+      catch (error) { return { result: err(error instanceof Error ? error.message : String(error)) }; }
+    case "propose_preparation":
+    case "record_author_details":
+      return action(await ctx.proposePreparation(input, block.name === "record_author_details"));
+    case "confirm_preparation": {
+      const proposalId = readStr("proposalId");
+      if (proposalId === "") return { result: err("先用 get_preparation 定位要确认的方案编号") };
+      return action(await ctx.confirmPreparation(proposalId));
+    }
     // ── 读类：零副作用 ──────────────────────────────────────────────────
     case "get_overview":
       return { result: ok(ctx.getOverview()) };
@@ -155,7 +169,7 @@ export async function executeMainTool(
 
     // ── 任务类：走受控入口 ──────────────────────────────────────────────
     case "write_next_chapter":
-      return action(await ctx.writeNextChapter());
+      return action(readStr("proposalId") === "" ? await ctx.writeNextChapter() : await ctx.writeNextChapter(readStr("proposalId")));
     case "adopt_chapter": {
       const draftId = readStr("draftId");
       if (draftId === "") return { result: err("缺少 draftId；先用 list_chapter_drafts 确认要采用哪一版") };

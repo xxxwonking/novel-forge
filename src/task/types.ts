@@ -78,6 +78,8 @@ export interface DraftSession {
 export interface DraftWriteContext {
   readonly fingerprint: string;
   readonly maxOutputTokens?: number;
+  /** 试写依赖的具体资料方案；采用章节时一并确认，恢复时重建相同资料视图。 */
+  readonly proposalId?: string;
 }
 
 /**

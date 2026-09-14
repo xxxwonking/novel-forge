@@ -13,8 +13,29 @@
  */
 
 import type Anthropic from "@anthropic-ai/sdk";
+import { PREPARATION_INPUT_SCHEMA } from "../preparation/schema.js";
 
 export const MAIN_AGENT_TOOLS: readonly Anthropic.Tool[] = [
+  {
+    name: "get_preparation",
+    description: "读取作者已经指定/确认的作品设定、人物完整档案、地点组织、写作规则、情节线、章节计划、开写缺项与候选方案。准备作品或修改资料前先读，baseFingerprint 必须沿用本次读到的值。传 proposalId 则只读取那一份方案详情。",
+    input_schema: { type: "object", properties: { proposalId: { type: "string" } }, required: [] },
+  },
+  {
+    name: "propose_preparation",
+    description: "保存一份有编号的资料/章节计划建议，不改变正式资料。changes 只填要改的类别，人物/地点/情节线按 ID 更新，章节按 chapter 更新；writingRules 是完整规则列表，更新偏好时保留仍适用的旧规则。人物 profile 和 speech 必须完整，未发生的出场不得编造。预算与来源由系统生成。先 get_preparation，再提交 baseFingerprint。展示建议后等待作者选择，不自行确认。",
+    input_schema: PREPARATION_INPUT_SCHEMA,
+  },
+  {
+    name: "confirm_preparation",
+    description: "作者明确选择某方案后确认该方案。必须用确切 proposalId，不能仅因讨论、查看或含糊的继续就调用。若作者说按第二个方向直接写，确认所指方案后可继续 write_next_chapter。",
+    input_schema: { type: "object", properties: { proposalId: { type: "string" } }, required: ["proposalId"] },
+  },
+  {
+    name: "record_author_details",
+    description: "直接记录作者明确指定的资料或写作偏好，例如“记住，以后台词少用感叹号”。只填作者已经说清的更改，不能夹带你补充的创意或代替作者选择方案。先 get_preparation 并沿用 baseFingerprint。writingRules 是完整列表，应保留其他仍适用规则。影响已有正文时只保留候选并说明影响。",
+    input_schema: PREPARATION_INPUT_SCHEMA,
+  },
   {
     name: "get_overview",
     description:
@@ -120,8 +141,8 @@ export const MAIN_AGENT_TOOLS: readonly Anthropic.Tool[] = [
   {
     name: "write_next_chapter",
     description:
-      "按已确认的下一章节拍表发起写章任务，产出一份待采用草稿（正文+结构声明+检查）。仅当用户明确要求写章时调用；查询、讨论、规划都不要调用它。若已有正在生成的任务，会返回其进度而非另起一轮。",
-    input_schema: { type: "object", properties: {}, required: [] },
+      "按已确认的下一章节拍表写章，产出待采用稿（正文+结构声明+检查）。仅当用户明确要求写章时调用；查询、讨论、规划不调用。作者只授权“先试写”时传具体 proposalId，基于该候选方案试写，采用章节时一并确认依赖；不要先确认方案。相同请求复用原任务或草稿。",
+    input_schema: { type: "object", properties: { proposalId: { type: "string", description: "仅明确要求基于候选方案先试写时传入" } }, required: [] },
   },
   {
     name: "adopt_chapter",
@@ -137,6 +158,10 @@ export const MAIN_AGENT_TOOLS: readonly Anthropic.Tool[] = [
 
 /** 回归测试的期望顺序。改动工具集必须同步改这里，让测试逼你确认一次（§13.8 同款纪律）。 */
 export const EXPECTED_MAIN_AGENT_TOOL_ORDER: readonly string[] = [
+  "get_preparation",
+  "propose_preparation",
+  "confirm_preparation",
+  "record_author_details",
   "get_overview",
   "list_chapter_drafts",
   "get_chapter_text",

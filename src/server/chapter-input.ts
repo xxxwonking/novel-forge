@@ -15,6 +15,9 @@ import type { ChapterNo, ForeshadowId } from "../types/primitives.js";
 import type { ForeshadowTimelineItem } from "../types/projections.js";
 import type { ProjectSession } from "./state.js";
 
+/** 只读写作资料。试写可提供独立视图，复用相同的装配、引用检查和读工具。 */
+export type ChapterSource = Pick<ProjectSession, "meta" | "rules" | "events" | "chapterNumbers" | "chapterText" | "beatFor" | "allDrafts">;
+
 /** HTTP 可展示的准备/状态错误；模型失败仍由 ChapterDraft.error 表达。 */
 export class ChapterWriteError extends Error {
   constructor(readonly status: 400 | 404 | 409 | 503, message: string) {
@@ -36,7 +39,7 @@ export function validateChapterNumber(chapter: ChapterNo): void {
   }
 }
 
-function readContext(session: ProjectSession, chapter: ChapterNo) {
+function readContext(session: ChapterSource, chapter: ChapterNo) {
   validateChapterNumber(chapter);
   const meta = session.meta;
   const events = session.events()
@@ -73,7 +76,7 @@ function readContext(session: ProjectSession, chapter: ChapterNo) {
 type ChapterContext = ReturnType<typeof readContext>;
 
 /** 恢复和采用前核对完整读取来源，包括可能经工具召回而未进入 L3 的资料。 */
-export function chapterInputFingerprint(session: ProjectSession, chapter: ChapterNo): string {
+export function chapterInputFingerprint(session: ChapterSource, chapter: ChapterNo): string {
   const ctx = readContext(session, chapter);
   const source = {
     setting: ctx.meta.setting, discipline: ctx.meta.discipline, profile: ctx.meta.profile,
@@ -87,7 +90,7 @@ export function chapterInputFingerprint(session: ProjectSession, chapter: Chapte
 }
 
 export function buildChapterRunInput(
-  session: ProjectSession,
+  session: ChapterSource,
   chapter: ChapterNo,
   options: ChapterInputOptions = {},
 ): ChapterRunInput {
@@ -179,7 +182,7 @@ export function buildChapterRunInput(
   };
 }
 
-function plantedExcerpt(session: ProjectSession, ctx: ChapterContext, f: ForeshadowTimelineItem): PlantedExcerpt {
+function plantedExcerpt(session: ChapterSource, ctx: ChapterContext, f: ForeshadowTimelineItem): PlantedExcerpt {
   const anchor = f.plantedAnchor;
   const resolution = resolveAnchor(anchor, (n) => ctx.chapters.get(n), session.rules.anchor);
   const body = ctx.chapters.get(anchor.chapter);
@@ -188,7 +191,7 @@ function plantedExcerpt(session: ProjectSession, ctx: ChapterContext, f: Foresha
   return { foreshadowId: f.id, label: f.label, anchor, excerpt: text.before + text.hit + text.after };
 }
 
-function volumeBoundary(session: ProjectSession, beat: ChapterBeat, ctx: ChapterContext): VolumeBoundary | null {
+function volumeBoundary(session: ChapterSource, beat: ChapterBeat, ctx: ChapterContext): VolumeBoundary | null {
   const previous = session.beatFor(beat.chapter - 1);
   if (previous === undefined || previous.volume === beat.volume) return null;
   const summaries = ctx.chapterSynopses.filter((s) => session.beatFor(s.chapter)?.volume === previous.volume);
@@ -202,7 +205,7 @@ function volumeBoundary(session: ProjectSession, beat: ChapterBeat, ctx: Chapter
 }
 
 /** 保留历史及候选声明占用的 ID；分配本身不写正式事件流。 */
-function foreshadowAllocator(session: ProjectSession): () => ForeshadowId {
+function foreshadowAllocator(session: ChapterSource): () => ForeshadowId {
   const ids: string[] = session.events().flatMap((e) => e.payload.type === "foreshadow_planted" ? [e.payload.foreshadowId] : []);
   for (const draft of session.allDrafts()) {
     for (const f of draft.declaration?.foreshadowPlanted ?? []) ids.push(f.foreshadowId);
@@ -215,7 +218,7 @@ function foreshadowAllocator(session: ProjectSession): () => ForeshadowId {
   return () => `F${String(++last).padStart(2, "0")}` as ForeshadowId;
 }
 
-export function buildChapterReadSource(session: ProjectSession, chapter: ChapterNo): ToolReadSource {
+export function buildChapterReadSource(session: ChapterSource, chapter: ChapterNo): ToolReadSource {
   const ctx = readContext(session, chapter);
   return {
     loadCharacter: (name) => {

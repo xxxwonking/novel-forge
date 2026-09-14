@@ -86,8 +86,12 @@ export class DraftStore {
     const dir = join(DRAFT_DIR, `ch${chapter}`);
     const text = readProjectFile(this.root, join(dir, `${draftId}.json`));
     if (text === undefined) return undefined;
-    const meta = JSON.parse(text) as DraftMeta;
-    const body = readProjectFile(this.root, join(dir, `${draftId}.txt`)) ?? "";
+    const meta = JSON.parse(text) as DraftMeta | null;
+    if (meta === null || meta.chapter !== chapter || meta.draftId !== draftId) {
+      throw new Error(`草稿章号或编号与文件不符：ch${chapter}/${draftId}，已保留原文件`);
+    }
+    const body = readProjectFile(this.root, join(dir, `${draftId}.txt`));
+    if (body === undefined) throw new Error(`草稿正文文件缺失：ch${chapter}/${draftId}.txt，已保留元数据`);
     return { ...meta, body };
   }
 

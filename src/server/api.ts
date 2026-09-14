@@ -54,6 +54,21 @@ export async function handleAsync(session: ProjectSession, req: ApiRequest): Pro
 export function handle(session: ProjectSession, req: ApiRequest): ApiResponse {
   const { method, path } = req;
 
+  if (path === "/api/preparation" && method === "GET") return ok({ ...session.preparation.view(), ideas: session.listIdeas() });
+  if (path.startsWith("/api/preparation/") && method === "POST") {
+    try {
+      if (path === "/api/preparation/propose") return ok(session.preparation.propose(req.body));
+      if (path === "/api/preparation/author") return ok(session.preparation.recordAuthor(req.body));
+      if (!isRecord(req.body) || typeof req.body["proposalId"] !== "string") return bad("缺少方案编号 proposalId");
+      if (path === "/api/preparation/confirm") return ok(session.preparation.confirm(req.body["proposalId"]));
+      if (path === "/api/preparation/reject") return ok(session.preparation.reject(req.body["proposalId"]));
+      return missing(`未知端点 ${path}`);
+    } catch (error) {
+      if (error instanceof ChapterWriteError) return { status: error.status, body: { error: error.message } };
+      throw error;
+    }
+  }
+
   if (method === "GET") {
     switch (path) {
       case "/api/overview":
@@ -398,7 +413,7 @@ function refreshed(session: ProjectSession): { readonly alerts: unknown } {
 /** 草稿的对外视图：剔除内部 C4 会话快照（体积大且属实现细节）。 */
 function toDraftView(d: ChapterDraft): unknown {
   const { session: _session, writeContext: _writeContext, ...view } = d;
-  return { ...view, words: countWords(d.body) };
+  return { ...view, words: countWords(d.body), preparationProposalId: d.writeContext?.proposalId ?? null };
 }
 
 async function chapterWrite(session: ProjectSession, body: unknown): Promise<ApiResponse> {
@@ -408,14 +423,17 @@ async function chapterWrite(session: ProjectSession, body: unknown): Promise<Api
   const draftId = body["draftId"];
   const newDraft = body["newDraft"];
   const maxOutputTokens = body["maxOutputTokens"];
+  const proposalId = body["proposalId"];
   if (draftId !== undefined && typeof draftId !== "string") return bad("draftId 必须是字符串");
   if (newDraft !== undefined && typeof newDraft !== "boolean") return bad("newDraft 必须是布尔值");
   if (maxOutputTokens !== undefined && typeof maxOutputTokens !== "number") return bad("maxOutputTokens 必须是正整数");
+  if (proposalId !== undefined && typeof proposalId !== "string") return bad("proposalId 必须是方案编号");
   const options: ChapterWriteOptions = {
     chapter,
     ...(draftId === undefined ? {} : { draftId }),
     ...(newDraft === undefined ? {} : { newDraft }),
     ...(maxOutputTokens === undefined ? {} : { maxOutputTokens }),
+    ...(proposalId === undefined ? {} : { proposalId }),
   };
   try {
     return ok(toDraftView(await session.writeChapter(options)));

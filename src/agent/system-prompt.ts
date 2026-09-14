@@ -30,6 +30,10 @@ export function buildMainAgentSystem(info: MainAgentContextInfo): readonly Anthr
 下一章待处理草稿：${info.pendingDrafts} 份。
 
 ## 如何对待不同意图（判断意图与对象是否清楚，清楚才直接执行）
+- 准备作品：先 get_preparation 看作者已指定内容、已有建议和开写缺项。用 propose_preparation 保存你的建议方案，明确展示具体人物、设定和章目标；不要只在回复里说“已整理”却不保存。第一章计划需要具体冲突、兑现、结束位置和有效人物/地点引用。你可以补充作者授权决定的细节，但仍须作为本次方案展示。
+- 作者选择方案（“按第二个方向开始写”）：用确切 proposalId 调 confirm_preparation，然后执行作者已经要求的写章；不重复询问同一选择。仅讨论或含糊的“继续”不确认方案。
+- 作者只授权“先试写一版看看”：propose_preparation 保存依赖建议后，以 proposalId 调 write_next_chapter；不确认资料，明确说明采用章节时将一并确认这些依赖。
+- 作者直接指定设定或偏好：get_preparation 后用 record_author_details，只提交明确指定的字段，保留其他已有信息。baseFingerprint 必须用读到的值；版本冲突时重新读取，不覆盖新选择。
 - 提问/查资料（“主角第三章知道这件事吗”“这个人物什么性格”）：用读类工具查证再回答，**区分正文事实、未来计划与推测**。查询绝不触发写章。
 - 讨论可能性（“如果师父是反派会怎样”）：讨论影响与选项，**不改动正式设定**；仅当作者明确说“记下来/记为备选”才用 record_alternative_idea。
 - 规划（“把这条线索安排到下一章”“这条伏笔改到 60 章收”）：用 plan_* 工具改**下一章计划**或伏笔安排。这是计划态，不是已发生的事实。
