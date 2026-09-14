@@ -120,7 +120,8 @@ body {
 .main,
 .rail,
 .chart,
-.dock-list {
+.dock-list,
+.composer textarea {
   scrollbar-width: thin;
   scrollbar-color: var(--line-bright) transparent;
 }
@@ -751,8 +752,8 @@ a.tag:hover {
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: var(--s3);
-  padding: var(--s4) var(--s4) var(--s2);
+  gap: var(--s5);
+  padding: var(--s4) 30px var(--s3);
 }
 
 /* 收起后留一条竖带，一眼知道对话在哪 */
@@ -772,31 +773,56 @@ a.tag:hover {
   padding: 10px 4px;
 }
 
-/* 两种角色靠填充与对齐区分，不占左缘（左缘留给朱批） */
-.msg {
-  max-width: 92%;
+/*
+ * 不用气泡。作者的话落在纸块上（--paper），助手的回复是桌面上的墨 —— 两种材质区分
+ * 说话人。所有文字对齐在同一条竖线上（列表内边距 30px），纸块向两侧出血 12px，
+ * 像荧光笔划过。左缘照旧不占（留给朱批）。
+ */
+.dock-day {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s4);
 }
 
-.msg[data-role="user"] {
-  align-self: flex-end;
+/* 日期线：只在换天时出现。等宽小字 + 一根到底的细线 */
+.dock-date {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  font: var(--t-label) var(--mono);
+  letter-spacing: 0.12em;
+  color: var(--ink-faint);
+}
+
+.dock-date::after {
+  content: "";
+  flex: 1;
+  border-top: 1px solid var(--line);
 }
 
 .msg-body {
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 10px var(--s3);
   line-height: 1.75;
   overflow-wrap: anywhere;
 }
 
 .msg[data-role="user"] .msg-body {
-  background: #ffffff0f;
-  border-color: var(--line-bright);
+  margin: 0 -12px;
+  padding: 9px 12px;
+  background: var(--paper);
+  border-radius: var(--radius);
   white-space: pre-wrap;
 }
 
-.msg[data-role="agent"] .msg-body {
-  background: var(--bg-raised);
+/* 等待态：一行淡字，呼吸一下。reduced-motion 下全局已把动画关掉 */
+.msg-wait {
+  color: var(--ink-faint);
+  animation: breathe 1.8s ease-in-out infinite;
+}
+
+@keyframes breathe {
+  50% {
+    opacity: 0.35;
+  }
 }
 
 /* 回复里的 markdown：只认标题/加粗/列表/分隔线/行内码 */
@@ -835,10 +861,11 @@ a.tag:hover {
   font: 11px var(--mono);
 }
 
+/* 模型自己写的 --- 比账目的线淡：装饰让位给结构 */
 .msg-body hr {
   margin: 0.9em 0;
   border: 0;
-  border-top: 1px solid var(--line-bright);
+  border-top: 1px solid var(--line);
 }
 
 .msg-body code {
@@ -853,33 +880,104 @@ a.tag:hover {
   color: var(--ink);
 }
 
-.msg-effects {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin: var(--s2) 0 0 var(--s1);
+/*
+ * 账目：这一轮真实发生的事，与回复的文字分开一根线。
+ * 动词｜对象｜动作 三列，动词淡、对象实；只有"未定 / 要你处理"的状态给动词上色。
+ */
+.ledger {
+  margin-top: var(--s3);
+  padding-top: var(--s2);
+  border-top: 1px solid var(--line-bright);
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr) auto;
+  column-gap: var(--s2);
+  row-gap: 5px;
+  align-items: baseline;
+  font: 12px/1.6 var(--mono);
 }
 
-.effect {
+/* 行只是分组，格子直接挂在账目的网格上 —— 动词列按最宽的那条对齐 */
+.ledger-row {
+  display: contents;
+}
+
+.ledger-verb {
+  color: var(--ink-faint);
+  letter-spacing: 0.04em;
+}
+
+.ledger-verb[data-tone="calm"] {
+  color: var(--calm);
+}
+
+.ledger-verb[data-tone="warn"] {
+  color: var(--warn);
+}
+
+.ledger-verb[data-tone="alarm"] {
+  color: var(--alarm);
+}
+
+.ledger-obj {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.ledger-act {
   display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: var(--s2);
+  gap: var(--s1);
+}
+
+.ledger-act button {
+  padding: 2px 8px;
+  font-size: 11px;
+}
+
+/* 空态：一句引导 + 两条起手句。虚线框是"还没成为纸块"的纸块，点了就变成真的 */
+.dock-empty {
   font-size: var(--t-small);
+  line-height: 1.7;
+  color: var(--ink-faint);
+}
+
+.dock-empty p {
+  margin: 0 0 var(--s2);
+}
+
+.starter {
+  display: block;
+  width: calc(100% + 24px);
+  margin: 0 -12px 6px;
+  padding: 8px 12px;
+  text-align: left;
+  font: var(--t-body) / 1.6 var(--sans);
+  color: var(--ink-dim);
+  background: none;
+  border: 1px dashed var(--line-bright);
+}
+
+.starter:hover:not(:disabled) {
+  color: var(--ink);
+  background: var(--paper);
+  border-color: transparent;
 }
 
 .composer {
   display: flex;
   gap: var(--s2);
   align-items: flex-end;
-  padding: 10px var(--s4) var(--s4);
+  padding: var(--s3) var(--s4) var(--s4);
   border-top: 1px solid var(--line);
 }
 
+/* 随内容长高（高度由 JS 按 scrollHeight 写），到上限再滚。不给拖拽手柄 */
 .composer textarea {
   flex: 1;
   min-width: 0;
-  resize: vertical;
+  resize: none;
+  max-height: 160px;
+  overflow-y: auto;
   font: var(--t-body) / 1.6 var(--sans);
   color: var(--ink);
   background: var(--bg);
