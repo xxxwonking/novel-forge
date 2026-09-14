@@ -20,6 +20,8 @@ import {
 } from "./graph.js";
 import type { ToolContext } from "./tool-exec.js";
 import { draftStage, emptyUsage, type TaskControl } from "./execution.js";
+import { automaticGeneration } from "./automatic-revision.js";
+import { draftRevisionToken } from "./revision.js";
 import { checkPromisedResolutions, crossCheckC5 } from "../chapter/c5-crosscheck.js";
 import type {
   ChapterDraft,
@@ -41,6 +43,8 @@ export interface ChapterTaskServiceDeps {
   readonly maxToolRounds: number;
   readonly clock?: () => string;
   readonly control?: TaskControl;
+  readonly canBeginAutomaticRevision?: (draft: ChapterDraft) => boolean;
+  readonly onDraftChanged?: (draftId: DraftId) => void;
 }
 
 interface DraftIdentity {
@@ -53,6 +57,7 @@ interface DraftIdentity {
   readonly execution?: ChapterDraft["execution"];
   readonly revision?: ChapterDraft["revision"];
   readonly review?: ChapterDraft["review"];
+  readonly automaticResultDraftId?: DraftId;
 }
 
 export class ChapterTaskService {
@@ -103,6 +108,7 @@ export class ChapterTaskService {
       ...(draft.execution === undefined ? {} : { execution: draft.execution }),
       ...(draft.revision === undefined ? {} : { revision: draft.revision }),
       ...(draft.review === undefined ? {} : { review: draft.review }),
+      ...(draft.automaticResultDraftId === undefined ? {} : { automaticResultDraftId: draft.automaticResultDraftId }),
       ...(context === undefined ? {} : { writeContext: context }),
     };
     return this.drive(stateFromDraft(draft, runInput), identity, draft.proposals);
@@ -170,13 +176,46 @@ export class ChapterTaskService {
       collectedProposals: () => [...proposals],
       stopRequested: () => this.deps.control?.requested ?? null,
       onState: (state) => { save(this.draftFromState(identity, state)); },
+      maxAutoRevisions: identity.review === undefined ? identity.writeContext?.autoRevisionLimit ?? 0 : 0,
+      beginAutomaticRevision: (state) => {
+        if (this.deps.canBeginAutomaticRevision?.(last) === false) return null;
+        const draftId = this.deps.draftStore.nextDraftId(identity.chapter);
+        const nextState: ChapterGraphState = {
+          ...state, write: null, declaration: null, c5Findings: [], findings: [], acceptable: false,
+          outcome: null, error: null, refusalMessage: null,
+          generation: automaticGeneration(state.body, state.findings),
+          autoRevisionsUsed: state.autoRevisionsUsed + 1,
+          revision: { kind: "automatic", sourceDraftId: last.draftId, sourceToken: draftRevisionToken(last),
+            summary: "根据本次检查自动修订一次", rebased: false, scope: null },
+        };
+        const nextIdentity: DraftIdentity = {
+          chapter: identity.chapter, draftId, baseVersion: identity.baseVersion,
+          baseAdoptedThrough: identity.baseAdoptedThrough, createdAt: this.now(),
+          ...(identity.writeContext === undefined ? {} : { writeContext: identity.writeContext }),
+          ...(last.execution === undefined ? {} : { execution: last.execution }),
+        };
+        const next = { ...this.draftFromState(nextIdentity, nextState), execution: {
+          status: "running" as const, stage: "revising" as const,
+          startedAt: last.execution?.startedAt ?? identity.createdAt, updatedAt: this.now(), usage: { ...usage },
+        } };
+        this.deps.draftStore.transaction(() => {
+          this.deps.draftStore.saveDraft({ ...last, autoRevisionsUsed: nextState.autoRevisionsUsed,
+            automaticResultDraftId: draftId, updatedAt: this.now() });
+          this.deps.draftStore.saveDraft(next);
+        });
+        identity = nextIdentity;
+        last = next;
+        this.deps.onDraftChanged?.(draftId);
+        return nextState;
+      },
     });
 
     try {
       await graph.invoke(initial, { configurable: { thread_id: identity.draftId } });
     } catch (error) {
       if (this.deps.control?.requested == null) {
-        const step = draftStage(last) === "writing" ? "C4" : draftStage(last) === "declaring" ? "C5" : "C6";
+        const stage = draftStage(last);
+        const step = stage === "writing" || stage === "revising" ? "C4" : stage === "declaring" ? "C5" : "C6";
         save({ ...last, status: "failed", acceptable: false, error: { step, detail: error instanceof Error ? error.message : String(error) } });
       }
     }
@@ -203,6 +242,8 @@ export class ChapterTaskService {
       ...(state.revision === null ? {} : { revision: state.revision }),
       ...(state.generation === null ? {} : { generation: state.generation }),
       ...(identity.review === undefined ? {} : { review: identity.review }),
+      autoRevisionsUsed: state.autoRevisionsUsed,
+      ...(identity.automaticResultDraftId === undefined ? {} : { automaticResultDraftId: identity.automaticResultDraftId }),
       baseVersion: identity.baseVersion,
       baseAdoptedThrough: identity.baseAdoptedThrough,
       error: refusalOrError(state),
@@ -287,6 +328,7 @@ function stateFromDraft(draft: ChapterDraft, runInput: ChapterRunInput): Chapter
     proposals: draft.proposals,
     generation: draft.generation ?? null,
     revision: draft.revision ?? null,
+    autoRevisionsUsed: draft.autoRevisionsUsed ?? 0,
     outcome: null,
     error: null,
     refusalMessage: null,

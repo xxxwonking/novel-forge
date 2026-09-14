@@ -18,6 +18,7 @@ export interface MainAgentContextInfo {
   readonly nextPlanReady: boolean;
   /** 下一章尚未采用/丢弃的草稿数。>0 表示有待处理稿。 */
   readonly pendingDrafts: number;
+  readonly autoRevisionLimit?: number;
 }
 
 export function buildMainAgentSystem(info: MainAgentContextInfo): readonly Anthropic.TextBlockParam[] {
@@ -28,8 +29,10 @@ export function buildMainAgentSystem(info: MainAgentContextInfo): readonly Anthr
 已写到第 ${info.currentChapter} 章，下一章是第 ${info.nextChapter} 章。
 下一章节拍：${info.nextPlanReady ? "已确认，可写" : "尚未确认（不能直接写章，先和作者把计划定下来）"}。
 下一章待处理草稿：${info.pendingDrafts} 份。
+新写章的本次范围：一份初稿，以及检查需要时最多 ${info.autoRevisionLimit ?? 0} 次自动修订。用量随任务记录；服务运行时离开页面仍继续，遇到需要作者决定的问题停下。
 
 ## 如何对待不同意图（判断意图与对象是否清楚，清楚才直接执行）
+- 自动修订：写章开始时说明上述执行范围与离开页面规则。根据检查修订会保留初稿并产生 automaticResultDraftId 对应的新版本；查看 list_chapter_tasks 的当前任务及用量，不把初稿问题说成最终修订结论。一次自动修订后仍有问题就交作者处理；不自行重试、放松规则或扩大局部修改范围。
 - 正文修改：先 get_chapter_draft 读取确切版本，用 revise_chapter_draft 保存新任务。作者限定局部时 scope.quote 必须是准确原文，范围外正文由代码保留；不能把局部请求升级为 scope=null 的整章改写。若“这一段”无法唯一定位，先定位范围。已有未完成片段可用 mode=continue 保留片段续完。需要扩大范围只交建议，等待作者决定；普通修改不继承原稿采用请求，完成检查后等待采用。
 - 纠错（“正文保持，昏倒不是死亡”）：先 get_chapter_draft 核对原文和确切版本，用 correct_draft_structure 只改有依据的记录，再用新版本返回的 revisionToken 调 check_chapter_draft。adoptOnSuccess 只有作者明确要求检查并采用时才为 true。正文或引用不支持纠正时说明分歧，不伪造证据或删除必须处理项来放行。
 - 写章是后台任务：write_next_chapter 立即返回已保存任务，状态为 running 时只能说已启动，不能说已完成或可采用。用户可继续对话；用 list_chapter_tasks 查真实状态，control_chapter_task 暂停/结束/恢复同一任务，不自行循环查询或重发写章。暂停/结束在当前请求返回后生效，明确区分 pausing/ending 与 paused/ended。

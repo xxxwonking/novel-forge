@@ -11,6 +11,7 @@ import type { Rules } from "../rules/schema.js";
 import type { GateFinding } from "../types/beat.js";
 import type { PreparationChanges, PreparationContent, PreparationProposal, PreparationView } from "./types.js";
 import { parsePreparationInput } from "./schema.js";
+import { automaticRevisionLimit } from "../task/automatic-revision.js";
 
 interface PreparationDeps {
   readonly snapshot: () => ProjectSnapshot;
@@ -52,6 +53,7 @@ export class PreparationService {
       }
     }
     return { fingerprint, confirmed, nextChapter, readiness: { ready: missing.length === 0, missing },
+      taskPolicy: { autoRevisionLimit: automaticRevisionLimit(this.deps.rules.task.maxAutoRevisions) },
       proposals: this.list().map((proposal) => ({ ...proposal, stale: proposal.status === "proposed" && proposal.baseFingerprint !== fingerprint })) };
   }
 

@@ -7,6 +7,12 @@ import type { ChapterBeat } from "../src/types/beat.js";
 import type { C5Declaration } from "../src/types/events.js";
 import type { ChapterDraft } from "../src/task/types.js";
 import { beat, characters, settings, workProfile, workSetting } from "./fixtures.js";
+import { loadRules } from "../src/rules/load.js";
+
+// 协议及单次故障恢复用例关闭额外修订；所有正文质量闸门仍使用原规则。
+// 自动修订额度与恢复在 automatic-revision.test.ts 单独走完整业务服务验证。
+const baseRules = loadRules();
+export const SINGLE_PASS_RULES = { ...baseRules, task: { ...baseRules.task, maxAutoRevisions: 0 } };
 
 export const NOW = "2026-09-10T00:00:00.000Z";
 export const CH1 = "守夜人将一枚青铜钥匙放在桌上。钥匙的齿缝沾着红泥。李长风收起钥匙，记住了守夜人的面容。";

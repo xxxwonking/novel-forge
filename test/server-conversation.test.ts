@@ -12,10 +12,9 @@ import { handle, handleAsync, type ApiResponse } from "../src/server/api.js";
 import { ProjectSession } from "../src/server/state.js";
 import { ProjectStore } from "../src/store/persist.js";
 import { DraftStore } from "../src/task/draft-store.js";
-import { loadRules } from "../src/rules/load.js";
 import type { ClaudeClient } from "../src/client/claude.js";
 import type { ConversationReply } from "../src/agent/types.js";
-import { C5_JSON, PROSE, fakeClient, modelMessage, modelText, savedDraft, writingSnapshot } from "./writing-fixtures.js";
+import { C5_JSON, PROSE, SINGLE_PASS_RULES, fakeClient, modelMessage, modelText, savedDraft, writingSnapshot } from "./writing-fixtures.js";
 
 const roots: string[] = [];
 afterEach(() => {
@@ -31,7 +30,7 @@ function seed(client?: ClaudeClient) {
   return {
     root,
     drafts: new DraftStore(root),
-    session: new ProjectSession(root, loadRules(), client === undefined ? {} : { client }),
+    session: new ProjectSession(root, SINGLE_PASS_RULES, client === undefined ? {} : { client }),
   };
 }
 

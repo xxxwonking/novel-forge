@@ -24,8 +24,8 @@ export interface CrossCheckInput {
  *   声明「信息」事件 → 检查是否对应某条伏笔收束
  *   声明 weight-3    → 应影响 ≥2 条情节线
  *
- * 全部产出 warn 而非 block —— 不自洽是"可能虚报"的信号，不是确证。
- * 作者有权保留一条系统认为可疑的声明。
+ * 自洽性信号产出 warn，作者可保留待核对判断；不存在的原文引文则是
+ * 已确认的依据缺失，必须纠正引用或重新核对结构后才能采用。
  */
 export function crossCheckC5(input: CrossCheckInput): readonly GateFinding[] {
   const d = input.declaration;
@@ -82,12 +82,12 @@ export function crossCheckC5(input: CrossCheckInput): readonly GateFinding[] {
     ...d.relationsChanged.map((r) => r.anchor),
     ...d.characterStates.map((s) => s.anchor),
   ];
-  const unresolvable = allAnchors.filter((a) => a.offsetHint < 0);
+  const unresolvable = allAnchors.filter((a) => !a.quote.trim() || !input.chapterText.includes(a.quote));
   if (unresolvable.length > 0) {
     findings.push({
       rule: "c5_anchor_unresolvable",
-      level: "warn",
-      message: `${unresolvable.length} 条声明的原文片段在本章正文里找不到 —— 模型引用了未写出的内容，这些锚点将无法跳读`,
+      level: "block",
+      message: `${unresolvable.length} 条声明的引文不在当前正文中。请纠正引用或重新核对结构，不能将这些记录直接作为正式事实采用。`,
       measured: unresolvable.length,
       threshold: 0,
     });

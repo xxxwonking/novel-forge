@@ -35,6 +35,7 @@ export interface PreparationProposal extends PreparationInput {
 }
 
 export interface PreparationView {
+  readonly taskPolicy: { readonly autoRevisionLimit: number };
   readonly fingerprint: string;
   readonly confirmed: PreparationContent;
   readonly nextChapter: number;

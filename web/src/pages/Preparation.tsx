@@ -48,6 +48,7 @@ export function Preparation({ refresh, proposalId }: { refresh: () => void; prop
       <div><strong>{view.readiness.ready ? `第 ${view.nextChapter} 章资料已就绪` : "继续准备你的故事"}</strong><p>{view.readiness.ready ? "可以按当前计划创作，结果将作为待采用稿交付。" : `还需要：${view.readiness.missing.join("、")}。`}</p></div>
       <a className="prep-link" href={discuss(planPrompt)}>到对话整理方案 →</a>
     </div>
+    <p className="muted">本次写章包含一份初稿，按需自动修订最多 {view.taskPolicy.autoRevisionLimit} 次，模型用量随任务显示。离开页面后服务继续执行，结果等待你采用。</p>
     {(error ?? data.error) !== null && <div className="finding" role="alert" data-level="block">{error ?? data.error}</div>}
     {notice !== null && <p className="prep-notice" role="status">{notice}</p>}
     <div className="prep-tabs" role="group" aria-label="资料视图">

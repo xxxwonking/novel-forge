@@ -45,6 +45,7 @@ import type { PreparationContent } from "../preparation/types.js";
 import { DraftRevisions, type DraftEditOptions, type DraftCheckOptions, type DraftCorrectionOptions } from "./draft-revisions.js";
 import { toDraftView } from "./draft-view.js";
 import type { DraftRewriteOptions } from "./draft-rewrite.js";
+import { automaticRevisionLimit } from "../task/automatic-revision.js";
 
 export interface SessionDerived {
   readonly projections: Projections;
@@ -409,6 +410,7 @@ export class ProjectSession {
       nextChapter: next,
       nextPlanReady,
       pendingDrafts,
+      autoRevisionLimit: automaticRevisionLimit(this.rules.task.maxAutoRevisions),
     };
   }
 

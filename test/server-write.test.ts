@@ -15,7 +15,7 @@ import { loadRules } from "../src/rules/load.js";
 import { deriveBudget } from "../src/beat/derive.js";
 import { countWords } from "../src/text/measure.js";
 import type { ChapterDraft } from "../src/task/types.js";
-import { C5_JSON, PROSE, WRITE_BEAT, fakeClient, modelMessage, modelText, savedDraft, writingSnapshot } from "./writing-fixtures.js";
+import { C5_JSON, PROSE, SINGLE_PASS_RULES, WRITE_BEAT, fakeClient, modelMessage, modelText, savedDraft, writingSnapshot } from "./writing-fixtures.js";
 
 const roots: string[] = [];
 const servers: Server[] = [];
@@ -30,7 +30,7 @@ function seed(client?: ClaudeClient, snapshot: ProjectSnapshot = writingSnapshot
   roots.push(root);
   const store = new ProjectStore(root);
   store.save(snapshot);
-  return { root, store, drafts: new DraftStore(root), session: new ProjectSession(root, loadRules(), client === undefined ? {} : { client }) };
+  return { root, store, drafts: new DraftStore(root), session: new ProjectSession(root, SINGLE_PASS_RULES, client === undefined ? {} : { client }) };
 }
 
 function write(session: ProjectSession, body: unknown): Promise<ApiResponse> {
@@ -103,7 +103,7 @@ describe("POST /api/chapter/write", () => {
 
     session.putBeat({ ...WRITE_BEAT, chapter: 4, plan: { ...WRITE_BEAT.plan, chapterType: "event", resolves: [], coreEvent: "血刀客查阅账本" } });
     const next = fakeClient([modelText("血刀客翻开了旧账本。首页留着三叔的名字。"), modelText(JSON.stringify({ ...JSON.parse(C5_JSON), events: [], foreshadow_resolved: [], character_states: [] }))]);
-    const continued = await write(new ProjectSession(root, loadRules(), { client: next.client }), { chapter: 4 });
+    const continued = await write(new ProjectSession(root, SINGLE_PASS_RULES, { client: next.client }), { chapter: 4 });
     expect(continued.status).toBe(200);
     expect(JSON.stringify(next.calls[0]?.messages)).toContain("李长风 | 主角 | 毒伤已经痊愈");
     expect(JSON.stringify(next.calls[0]?.messages)).toContain(prose.slice(0, PROSE.length));
@@ -120,7 +120,7 @@ describe("POST /api/chapter/write", () => {
     expect(drafts.loadDraft(3, failed.draftId)?.body).toBe(PROSE);
 
     const second = fakeClient([modelText(C5_JSON)]);
-    const reopened = new ProjectSession(root, loadRules(), { client: second.client });
+    const reopened = new ProjectSession(root, SINGLE_PASS_RULES, { client: second.client });
     const resumed = await write(reopened, { chapter: 3, draftId: failed.draftId });
     expect(resumed.status).toBe(200);
     expect((resumed.body as ChapterDraft).draftId).toBe(failed.draftId);
@@ -137,7 +137,7 @@ describe("POST /api/chapter/write", () => {
     const { root, session } = seed(first.client);
     const failed = (await write(session, { chapter: 3, maxOutputTokens: 9000 })).body as ChapterDraft;
     const second = fakeClient([modelText(PROSE), modelText(C5_JSON)]);
-    const resumed = await write(new ProjectSession(root, loadRules(), { client: second.client }), { chapter: 3 });
+    const resumed = await write(new ProjectSession(root, SINGLE_PASS_RULES, { client: second.client }), { chapter: 3 });
     expect((resumed.body as ChapterDraft).draftId).toBe(failed.draftId);
     expect(second.calls[0]?.maxTokens).toBe(9000);
   });
@@ -161,7 +161,7 @@ describe("POST /api/chapter/write", () => {
     await write(session, { chapter: 3, maxOutputTokens: 9000 });
     await write(session, { chapter: 3, maxOutputTokens: 12000 });
     const second = fakeClient([modelText(PROSE), modelText(C5_JSON)]);
-    await write(new ProjectSession(root, loadRules(), { client: second.client }), { chapter: 3 });
+    await write(new ProjectSession(root, SINGLE_PASS_RULES, { client: second.client }), { chapter: 3 });
     expect(second.calls[0]?.maxTokens).toBe(12000);
   });
 
@@ -203,7 +203,7 @@ describe("POST /api/chapter/write", () => {
     const failed = (await write(session, { chapter: 3 })).body as ChapterDraft;
     store.writeDiscipline({ version: "changed", rules: ["改为第一人称。"] });
     const second = fakeClient([]);
-    const response = await write(new ProjectSession(root, loadRules(), { client: second.client }), { chapter: 3, draftId: failed.draftId });
+    const response = await write(new ProjectSession(root, SINGLE_PASS_RULES, { client: second.client }), { chapter: 3, draftId: failed.draftId });
     expect(response.status).toBe(409);
     expect(JSON.stringify(response.body)).toMatch(/资料|节拍|变化/u);
     expect(second.calls).toHaveLength(0);
@@ -294,6 +294,8 @@ describe("运行中的请求与状态", () => {
 
   it("HTTP 请求断开后任务继续，返回查询原稿不会再次生成", async () => {
     const model = pausedClient();
+    const target = deriveBudget(WRITE_BEAT.plan, writingSnapshot().profile, loadRules()).words.sweet;
+    const complete = PROSE + "风".repeat(target - countWords(PROSE));
     const { root, drafts } = seed();
     const server = serve({ projectRoot: root, port: 0, client: model.client });
     servers.push(server);
@@ -305,19 +307,21 @@ describe("运行中的请求与状态", () => {
       await vi.waitFor(() => expect(model.calls).toHaveLength(1));
       controller.abort();
       await request;
-    } finally { model.release(modelText(PROSE)); }
-    await vi.waitFor(() => expect(drafts.latestDraft(3)?.status).toBe("needs_revision"));
+    } finally { model.release(modelText(complete)); }
+    await vi.waitFor(() => expect(drafts.latestDraft(3)?.status).toBe("ready"));
     const response = await fetch(`${url}/api/chapter/drafts?n=3`);
     const list = await response.json() as ChapterDraft[];
     expect(list).toHaveLength(1);
-    expect(list[0]?.body).toBe(PROSE);
+    expect(list[0]?.body).toBe(complete);
     expect(model.calls).toHaveLength(2);
   });
 });
 
 describe("HTTP 写章传输", () => {
   it("真实 HTTP 等待异步任务完成，既有查询继续可用", async () => {
-    const model = fakeClient([modelText(PROSE), modelText(C5_JSON)]);
+    const target = deriveBudget(WRITE_BEAT.plan, writingSnapshot().profile, loadRules()).words.sweet;
+    const complete = PROSE + "风".repeat(target - countWords(PROSE));
+    const model = fakeClient([modelText(complete), modelText(C5_JSON)]);
     const { root } = seed();
     const server = serve({ projectRoot: root, port: 0, client: model.client });
     servers.push(server);
@@ -326,7 +330,7 @@ describe("HTTP 写章传输", () => {
     const response = await fetch(`${url}/api/chapter/write`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ chapter: 3 }) });
     expect(response.status).toBe(200);
     const draft = await response.json() as ChapterDraft;
-    expect(draft.body).toBe(PROSE);
+    expect(draft.body).toBe(complete);
     expect(draft).not.toHaveProperty("session");
     const detail = await fetch(`${url}/api/chapter/draft?n=3&id=${draft.draftId}`);
     expect(await detail.json()).toEqual(draft);

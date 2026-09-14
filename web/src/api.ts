@@ -306,6 +306,8 @@ export interface ConversationHistory {
 
 /** 草稿的对外视图（后端剔除了内部会话快照）。只声明 UI 用到的字段。 */
 export interface DraftView {
+  autoRevisionsUsed?: number;
+  automaticResultDraftId?: string;
   revisionToken: string;
   isCurrentAdopted: boolean;
   canContinueBody: boolean;
@@ -336,12 +338,15 @@ export interface DraftView {
 
 export interface TaskExecution {
   status: "waiting" | "awaiting_input" | "running" | "pausing" | "ending" | "paused" | "ended" | "completed" | "failed" | "interrupted";
-  stage: "writing" | "declaring" | "checking";
+  stage: "writing" | "revising" | "declaring" | "checking";
   startedAt: string;
   updatedAt: string;
   usage: { calls: number; inputTokens: number; outputTokens: number; unmeasuredCalls: number };
 }
 export interface ChapterTaskView extends TaskExecution {
+  autoRevisionLimit: number;
+  autoRevisionsUsed: number;
+  automaticResultDraftId: string | null;
   isHistory: boolean;
   usageRecorded: boolean;
   chapter: number;
@@ -375,6 +380,7 @@ export interface PreparationProposal {
 }
 
 export interface PreparationPayload {
+  taskPolicy: { autoRevisionLimit: number };
   fingerprint: string; confirmed: PreparationContent; nextChapter: number;
   readiness: { ready: boolean; missing: string[] };
   proposals: PreparationProposal[];

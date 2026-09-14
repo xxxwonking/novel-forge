@@ -6,6 +6,7 @@ import type { DraftStore } from "../task/draft-store.js";
 import type { ChapterDraft, ChapterTaskView, DraftId } from "../task/types.js";
 import { taskView, type TaskControl } from "../task/execution.js";
 import { authoredSession, draftRevisionToken } from "../task/revision.js";
+import { automaticRevisionLimit } from "../task/automatic-revision.js";
 import { validateDraftReference, type DraftCheckOptions } from "./draft-revisions.js";
 import type { ChapterNo } from "../types/primitives.js";
 import type { ProjectSession } from "./state.js";
@@ -30,6 +31,7 @@ export interface ChapterWriterOptions {
 interface ActiveWrite {
   readonly request: ChapterWriteOptions;
   readonly draftId: DraftId;
+  readonly rootDraftId: DraftId;
   readonly promise: Promise<ChapterDraft>;
   readonly control: TaskControl;
 }
@@ -47,11 +49,11 @@ export class ChapterWriter {
   }
 
   /** 后台执行；同步准备和持久化已完成，调用方可立即跳到同一结果页。 */
-  start(options: ChapterWriteOptions): ChapterDraft {
-    const operation = this.write(options);
+  start(options: ChapterWriteOptions, followAutomatic = true): ChapterDraft {
+    const operation = this.write(options, followAutomatic);
     // 失败步骤由服务写入草稿；启动端点不持有长连接，也不产生未处理的拒绝。
     void operation.catch(() => undefined);
-    const draft = this.receipt(options) ?? (this.active === null ? this.findDraft({ ...options, newDraft: false })
+    const draft = this.receipt(options, followAutomatic) ?? (this.active === null ? this.findDraft({ ...options, newDraft: false }, followAutomatic)
       : this.drafts.loadDraft(this.active.request.chapter, this.active.draftId));
     if (draft === undefined) throw new ChapterWriteError(503, "任务未能保存，请检查作品目录后重试");
     return draft;
@@ -89,7 +91,7 @@ export class ChapterWriter {
     if (draft === undefined) throw new ChapterWriteError(404, "草稿不存在");
     if (draft.revision?.scopeAdvice) throw new ChapterWriteError(409, "这份结果仅包含修改范围建议，正文尚未修改；请先明确范围并生成新修订");
     if (draft.review?.requestToken === options.revisionToken && draft.review.adoptOnSuccess === options.adoptOnSuccess) {
-      return this.start({ chapter: options.chapter, draftId: options.draftId });
+      return this.start({ chapter: options.chapter, draftId: options.draftId }, false);
     }
     this.assertNotRunning(options.chapter, options.draftId);
     if (draftRevisionToken(draft) !== options.revisionToken) throw new ChapterWriteError(409, "稿件已变化，请重新打开结果后检查");
@@ -106,19 +108,22 @@ export class ChapterWriter {
       ...(draft.execution === undefined ? {} : { execution: { ...draft.execution, status: "waiting" } }),
       updatedAt: new Date().toISOString(),
     });
-    return this.start({ chapter: options.chapter, draftId: options.draftId });
+    return this.start({ chapter: options.chapter, draftId: options.draftId }, false);
   }
 
   control(chapter: ChapterNo, draftId: DraftId, action: "pause" | "end"): ChapterTaskView {
     validateChapterNumber(chapter);
     if (!new RegExp(`^ch${chapter}d[1-9]\\d*$`, "u").test(draftId)) throw new ChapterWriteError(400, "draftId 必须是本章的草稿编号");
-    const draft = this.drafts.loadDraft(chapter, draftId);
-    if (draft === undefined) throw new ChapterWriteError(404, "任务不存在");
+    const saved = this.drafts.loadDraft(chapter, draftId);
+    if (saved === undefined) throw new ChapterWriteError(404, "任务不存在");
+    const draft = this.active?.draftId === draftId ? saved : this.followAutomatic(saved);
+    draftId = draft.draftId;
     const active = this.active?.request.chapter === chapter && this.active.draftId === draftId ? this.active : null;
     const view = taskView(draft, active !== null);
     if (view.status === "completed" || view.status === "ended") return view;
     if (active !== null && active.control.requested !== "end") active.control.requested = action;
-    const { chapter: _chapter, draftId: _id, draftStatus: _status, words: _words, detail: _detail, isHistory: _history, ...execution } = view;
+    const { chapter: _chapter, draftId: _id, draftStatus: _status, words: _words, detail: _detail, isHistory: _history,
+      autoRevisionLimit: _limit, autoRevisionsUsed: _used, automaticResultDraftId: _result, ...execution } = view;
     const status = active === null ? action === "pause" ? "paused" : "ended"
       : active.control.requested === "end" ? "ending" : "pausing";
     const next: ChapterDraft = { ...draft, execution: { ...execution, status, updatedAt: new Date().toISOString() } };
@@ -126,7 +131,7 @@ export class ChapterWriter {
     return taskView(next, active !== null);
   }
 
-  write(options: ChapterWriteOptions): Promise<ChapterDraft> {
+  write(options: ChapterWriteOptions, followAutomatic = true): Promise<ChapterDraft> {
     validateChapterNumber(options.chapter);
     if (options.requestId !== undefined && !/^[A-Za-z0-9_-]{1,128}$/u.test(options.requestId)) throw new ChapterWriteError(400, "requestId 格式无效");
     if (options.draftId !== undefined && !new RegExp(`^ch${options.chapter}d[1-9]\\d*$`, "u").test(options.draftId)) {
@@ -139,7 +144,7 @@ export class ChapterWriter {
       throw new ChapterWriteError(400, "maxOutputTokens 必须是正整数");
     }
 
-    const receipt = this.receipt(options);
+    const receipt = this.receipt(options, followAutomatic);
     if (receipt !== undefined) {
       return this.active?.draftId === receipt.draftId ? this.active.promise : Promise.resolve(receipt);
     }
@@ -147,7 +152,7 @@ export class ChapterWriter {
     if (this.active !== null) {
       const running = this.active;
       const same = running.request.chapter === options.chapter &&
-        (options.draftId === undefined || options.draftId === running.draftId) &&
+        (options.draftId === undefined || options.draftId === running.draftId || (followAutomatic && options.draftId === running.rootDraftId)) &&
         (options.newDraft !== true || running.request.newDraft === true) &&
         (options.newDraft !== true || options.requestId === undefined || options.requestId === running.request.requestId) &&
         (options.proposalId === undefined || options.proposalId === running.request.proposalId) &&
@@ -156,7 +161,7 @@ export class ChapterWriter {
       throw new ChapterWriteError(409, `第 ${running.request.chapter} 章正在生成，请先等待当前任务完成`);
     }
 
-    const draft = this.findDraft(options);
+    const draft = this.findDraft(options, followAutomatic);
     if (draft !== undefined && options.proposalId !== undefined && options.proposalId !== draft.writeContext?.proposalId) {
       throw new ChapterWriteError(409, "当前草稿依赖另一份资料；切换方案时请明确另写一版");
     }
@@ -179,9 +184,14 @@ export class ChapterWriter {
     const needsModel = draft === undefined || draft.session === null || draft.declaration === null;
     if (needsModel) this.ensureClient();
     const control: TaskControl = { requested: null };
-    const service = new ChapterTaskService({ ...(this.client === undefined ? {} : { client: this.client }), draftStore: this.drafts, readSource, control, maxToolRounds: this.session.rules.task.maxToolIterations });
+    const service = new ChapterTaskService({ ...(this.client === undefined ? {} : { client: this.client }), draftStore: this.drafts, readSource, control, maxToolRounds: this.session.rules.task.maxToolIterations,
+      canBeginAutomaticRevision: saved => !this.basisChanged(saved),
+      onDraftChanged: id => { if (this.active !== null) this.active = { ...this.active, draftId: id }; },
+    });
     const requestId = draft?.writeContext?.requestId ?? options.requestId;
-    const context = { fingerprint, ...(requestId === undefined ? {} : { requestId }), ...(maxOutputTokens === undefined ? {} : { maxOutputTokens }), ...(proposalId === undefined ? {} : { proposalId }) };
+    const autoRevisionLimit = draft === undefined ? automaticRevisionLimit(this.session.rules.task.maxAutoRevisions)
+      : draft.writeContext?.autoRevisionLimit ?? 0;
+    const context = { fingerprint, autoRevisionLimit, ...(requestId === undefined ? {} : { requestId }), ...(maxOutputTokens === undefined ? {} : { maxOutputTokens }), ...(proposalId === undefined ? {} : { proposalId }) };
     const draftId = draft?.draftId ?? this.drafts.nextDraftId(options.chapter);
     const operation = draft === undefined ? service.run(input, context) : service.resume(input, draftId, context);
     const promise = operation.then((result) => {
@@ -191,7 +201,8 @@ export class ChapterWriter {
       }
       return result;
     }).finally(() => { this.active = null; }).then((result) => this.finishAdoption(result));
-    this.active = { request: { ...options, ...(maxOutputTokens === undefined ? {} : { maxOutputTokens }), ...(proposalId === undefined ? {} : { proposalId }) }, draftId, promise, control };
+    this.active = { request: { ...options, ...(maxOutputTokens === undefined ? {} : { maxOutputTokens }), ...(proposalId === undefined ? {} : { proposalId }) }, draftId,
+      rootDraftId: draft?.revision?.kind === "automatic" ? draft.revision.sourceDraftId : draftId, promise, control };
     return promise;
   }
 
@@ -216,7 +227,7 @@ export class ChapterWriter {
   }
 
   assertNotRunning(chapter: ChapterNo, draftId: DraftId): void {
-    if (this.active?.request.chapter === chapter && this.active.draftId === draftId) {
+    if (this.active?.request.chapter === chapter && (this.active.draftId === draftId || this.active.rootDraftId === draftId)) {
       throw new ChapterWriteError(409, "草稿正在执行，请先暂停并等待当前步骤保存后再修改或丢弃");
     }
   }
@@ -235,27 +246,39 @@ export class ChapterWriter {
     }
   }
 
-  private findDraft(options: ChapterWriteOptions): ChapterDraft | undefined {
+  private findDraft(options: ChapterWriteOptions, followAutomatic = true): ChapterDraft | undefined {
     if (options.draftId !== undefined) {
       const draft = this.drafts.loadDraft(options.chapter, options.draftId);
       if (draft === undefined) throw new ChapterWriteError(404, `草稿不存在：ch${options.chapter}/${options.draftId}`);
-      return draft;
+      return followAutomatic ? this.followAutomatic(draft) : draft;
     }
     if (options.newDraft === true) return undefined;
     const latest = this.drafts.latestDraft(options.chapter);
     return latest?.status === "discarded" ? undefined : latest;
   }
 
-  private receipt(options: ChapterWriteOptions): ChapterDraft | undefined {
+  private receipt(options: ChapterWriteOptions, followAutomatic = true): ChapterDraft | undefined {
     if (options.requestId === undefined) return undefined;
     const prior = this.session.allDrafts().find((draft) => draft.writeContext?.requestId === options.requestId);
+    const result = prior === undefined || !followAutomatic ? prior : this.followAutomatic(prior);
     if (prior !== undefined && (prior.chapter !== options.chapter ||
-      (options.draftId !== undefined && options.draftId !== prior.draftId) ||
+      (options.draftId !== undefined && options.draftId !== prior.draftId && options.draftId !== result?.draftId) ||
       (options.proposalId !== undefined && options.proposalId !== prior.writeContext?.proposalId) ||
       (options.maxOutputTokens !== undefined && options.maxOutputTokens !== prior.writeContext?.maxOutputTokens))) {
       throw new ChapterWriteError(409, "请求编号已用于另一组写章参数，请检查原任务");
     }
-    return prior;
+    return result;
+  }
+
+  private followAutomatic(draft: ChapterDraft): ChapterDraft {
+    const id = draft.automaticResultDraftId;
+    if (id === undefined) return draft;
+    if (!new RegExp(`^ch${draft.chapter}d[1-9]\\d*$`, "u").test(id)) throw new ChapterWriteError(409, "自动修订版本链接无效，原稿已保留");
+    const result = this.drafts.loadDraft(draft.chapter, id);
+    if (result === undefined || result.revision?.kind !== "automatic" || result.revision.sourceDraftId !== draft.draftId || result.automaticResultDraftId !== undefined) {
+      throw new ChapterWriteError(409, "自动修订版本缺失或来源不符，请先核对保存结果");
+    }
+    return result;
   }
 
   private markStale(draft: ChapterDraft): ChapterDraft {

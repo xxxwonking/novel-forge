@@ -116,6 +116,8 @@ export interface DraftReview {
 /** 可序列化的写章来源校验；不保存带函数和 Set 的 runInput。旧草稿可缺。 */
 export interface DraftWriteContext {
   readonly fingerprint: string;
+  /** 新写章时冻结的自动修订额度；缺省的历史任务不追加额度。 */
+  readonly autoRevisionLimit?: 0 | 1;
   /** 创建请求的幂等编号，恢复时保留，不被新一轮检查覆盖。 */
   readonly requestId?: string;
   readonly maxOutputTokens?: number;
@@ -146,6 +148,10 @@ export interface ChapterDraft {
   readonly revision?: DraftRevision;
   readonly generation?: DraftGeneration;
   readonly review?: DraftReview;
+  /** 同一次写章已消耗的自动修订轮数，创建修订版本时即落盘。 */
+  readonly autoRevisionsUsed?: number;
+  /** 初稿保留原文与检查，通过此链接定位同任务的自动修订结果。 */
+  readonly automaticResultDraftId?: DraftId;
   /**
    * 生成时的作品版本号（每次采用 +1，见 DraftStore.workVersion）。
    * 采用更早章后，`baseVersion` 落后的后续章草稿被标 `stale`。
@@ -161,7 +167,7 @@ export interface ChapterDraft {
 /** 任务结束的形态。ready 才可采用；needs_revision/refused/failed 停在结果页。 */
 export type ChapterTaskOutcome = "ready" | "needs_revision" | "refused" | "failed" | "paused" | "ended";
 
-export type TaskStage = "writing" | "declaring" | "checking";
+export type TaskStage = "writing" | "revising" | "declaring" | "checking";
 export type TaskStatus = "waiting" | "awaiting_input" | "running" | "pausing" | "ending" | "paused" | "ended" | "completed" | "failed" | "interrupted";
 export interface TaskUsage {
   readonly calls: number;
@@ -179,6 +185,9 @@ export interface DraftExecution {
   readonly usage: TaskUsage;
 }
 export interface ChapterTaskView extends DraftExecution {
+  readonly autoRevisionLimit: number;
+  readonly autoRevisionsUsed: number;
+  readonly automaticResultDraftId: DraftId | null;
   readonly isHistory: boolean;
   readonly usageRecorded: boolean;
   readonly chapter: ChapterNo;

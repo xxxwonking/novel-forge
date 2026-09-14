@@ -9,8 +9,8 @@
  * 已完成的步骤直接返回空更新，因此「C5 失败重试从声明起、不重跑 C4」成立。
  * 跨重启的持久化靠草稿（DraftStore），MemorySaver 只提供进程内的线程态。
  *
- * 自动修订（rules.task.maxAutoRevisions）暂不接线：需要基于 findings 的修订 prompt，
- * 属 Stage 1 之后的细化；当前 check 未过即停在 needs_revision，交用户处理。
+ * 检查后的自动修订受冻结额度限制；保存初稿及新版本后重新走同一组节点，
+ * 失败、超出范围或再次未通过即停下，不放宽原检查。
  */
 
 import { Annotation, END, MemorySaver, START, StateGraph } from "@langchain/langgraph";
@@ -18,6 +18,7 @@ import type { ModelClient } from "../client/model.js";
 import type { ChapterRunInput } from "../chapter/pipeline.js";
 import { checkChapter, declareStructure, writeChapterBody, type WriteResult } from "./steps.js";
 import { rewriteChapterBody } from "./rewrite.js";
+import { automaticRevisionLimit, canAutomaticallyRevise } from "./automatic-revision.js";
 import type { ToolContext } from "./tool-exec.js";
 import type { C5Declaration } from "../types/events.js";
 import type { GateFinding } from "../types/beat.js";
@@ -35,6 +36,9 @@ export interface ChapterGraphDeps {
   readonly stopRequested?: () => "pause" | "end" | null;
   /** 节点完成后同步保存，再允许下一节点执行；不能依赖流消费者的调度速度。 */
   readonly onState?: (state: ChapterGraphState) => void;
+  readonly maxAutoRevisions?: number;
+  /** 在开始修订前原子保存版本关系及冻结输入，返回新版本的图状态。 */
+  readonly beginAutomaticRevision?: (state: ChapterGraphState) => Partial<ChapterGraphState> | null;
 }
 
 const StateSpec = Annotation.Root({
@@ -48,6 +52,7 @@ const StateSpec = Annotation.Root({
   proposals: Annotation<readonly DraftProposal[]>,
   generation: Annotation<DraftGeneration | null>,
   revision: Annotation<DraftRevision | null>,
+  autoRevisionsUsed: Annotation<number>,
   outcome: Annotation<ChapterTaskOutcome | null>,
   error: Annotation<DraftError | null>,
   refusalMessage: Annotation<string | null>,
@@ -68,6 +73,7 @@ export function initialGraphState(runInput: ChapterRunInput): ChapterGraphState 
     proposals: [],
     generation: null,
     revision: null,
+    autoRevisionsUsed: 0,
     outcome: null,
     error: null,
     refusalMessage: null,
@@ -125,6 +131,15 @@ export function buildChapterGraph(deps: ChapterGraphDeps) {
     };
   };
 
+  const shouldRevise = (s: ChapterGraphState): boolean => s.outcome === "needs_revision" &&
+    s.autoRevisionsUsed < automaticRevisionLimit(deps.maxAutoRevisions) &&
+    s.revision === null && s.generation === null && canAutomaticallyRevise(s.findings) &&
+    deps.beginAutomaticRevision !== undefined;
+  const revise = (s: ChapterGraphState): Partial<ChapterGraphState> => {
+    const stop = stopped(); if (stop !== null) return stop;
+    return shouldRevise(s) ? deps.beginAutomaticRevision?.(s) ?? {} : {};
+  };
+
   // outcome 非 null 即已终结（refused/failed）→ END；否则进下一步。
   // 节点名刻意加前缀，避免与状态通道名（write 等）冲突 —— LangGraph 不允许同名。
   const gate =
@@ -143,9 +158,11 @@ export function buildChapterGraph(deps: ChapterGraphDeps) {
     .addNode("step_write", persist(write))
     .addNode("step_declare", persist(declare))
     .addNode("step_check", persist(check))
+    .addNode("step_revise", persist(revise))
     .addEdge(START, "step_write")
     .addConditionalEdges("step_write", gate("step_declare"), ["step_declare", END])
     .addConditionalEdges("step_declare", gate("step_check"), ["step_check", END])
-    .addEdge("step_check", END)
+    .addConditionalEdges("step_check", s => shouldRevise(s) ? "step_revise" : END, ["step_revise", END])
+    .addConditionalEdges("step_revise", s => s.outcome === null ? "step_write" : END, ["step_write", END])
     .compile({ checkpointer: new MemorySaver() });
 }

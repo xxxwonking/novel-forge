@@ -232,14 +232,20 @@ describe("crossCheckC5：用自洽性抓虚报", () => {
     expect(findings.some((f) => f.rule === "c5_weight3_single_line")).toBe(true);
   });
 
-  it("锚点在正文里找不到时告警（模型引用了没写出的内容）", () => {
+  it("锚点在正文里找不到时阻止采用（模型引用了没写出的内容）", () => {
     const raw = {
       ...validRaw,
       events: [{ ...validRaw.events[0], quote: "这句话根本不在正文里" }],
     };
     const { declaration } = parseC5(raw, ctx);
     const findings = crossCheckC5({ declaration, chapterText });
-    expect(findings.some((f) => f.rule === "c5_anchor_unresolvable")).toBe(true);
+    expect(findings.find((f) => f.rule === "c5_anchor_unresolvable")?.level).toBe("block");
+  });
+
+  it("重核引文时检查实际正文，不信任旧偏移", () => {
+    const { declaration } = parseC5(validRaw, ctx);
+    const findings = crossCheckC5({ declaration, chapterText: "正文已全部改为另一场对话。" });
+    expect(findings.find(f => f.rule === "c5_anchor_unresolvable")?.level).toBe("block");
   });
 
   it("事件参与者未出现在出场声明里时告警", () => {

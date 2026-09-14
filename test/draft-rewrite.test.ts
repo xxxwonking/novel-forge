@@ -259,4 +259,52 @@ describe("模型局部修订与片段续写", () => {
     expect(buildChapterReadSource(session, 4).loadChapter(3, "full")).toContain(replacement);
     expect(round).toBe(6);
   });
+
+  it("前章采用新版本后，过期的下一章按最新正式事实修改并重检才能采用", async () => {
+    const nextBeat = { ...WRITE_BEAT, chapter: 4, plan: { ...WRITE_BEAT.plan, chapterType: "event" as const, resolves: [],
+      coreEvent: "带着谈判取得的信物离开密库", stageFeedback: "双方按约同行", hook: "门外留下新脚印" } };
+    const newOpening = "李长风握紧刚收下的信物，确认血刀客履约后才答应同行。";
+    let nextBody = "";
+    const model = fakeClient([
+      rewritten(), modelText(C5_JSON),
+      { kind: "ok", message: modelMessage([{ type: "tool_use", id: "read-latest-previous", name: "load_chapter", caller: { type: "direct" }, input: { chapter: 3, excerpt: "full" } }], "tool_use") },
+      modelText("unused"),
+      modelText(JSON.stringify({ events: [{ kind: "action", summary: "按约取得信物后同行", weight: 2, plot_line: "P01", participants: ["C01", "C02"], quote: newOpening }], foreshadow_planted: [], foreshadow_resolved: [], relations_changed: [], character_states: [], character_presence: [{ character_id: "C01", role: "pov" }, { character_id: "C02", role: "major" }] })),
+    ]);
+    const underlying = model.client.call.bind(model.client);
+    const client: ModelClient = { official: false, call: async options => {
+      const response = await underlying(options);
+      if (model.calls.length !== 4) return response;
+      const serialized = JSON.stringify(options.messages);
+      expect(serialized).toContain(replacement);
+      expect(serialized).not.toContain(selected);
+      return rewritten(nextBody);
+    } };
+    const { session, store, body } = fixture(client);
+    session.adopt(3, "ch3d1"); session.putBeat(nextBeat);
+    const words = deriveBudget(nextBeat.plan, session.meta.profile, session.rules).words.sweet;
+    const oldOpening = "李长风没有取得信物，先前已经直接答应同行。";
+    const oldNextBody = oldOpening + "风".repeat(words - countWords(oldOpening));
+    nextBody = newOpening + "风".repeat(words - countWords(newOpening));
+    store.saveDraft(savedDraft({ chapter: 4, draftId: "ch4d1", body: oldNextBody, baseVersion: store.workVersion(), baseAdoptedThrough: 3 }));
+    const revisedPrevious = await start(session, payload(session));
+    expect((await finish(session, revisedPrevious)).status).toBe("ready");
+    expect(session.chapterText(3)).toBe(body);
+    session.adopt(3, revisedPrevious.draftId);
+    const stale = store.loadDraft(4, "ch4d1")!;
+    expect(stale.status).toBe("stale");
+    expect(() => session.adopt(4, stale.draftId)).toThrow();
+    const detail = handle(session, { method: "GET", path: "/api/chapter/draft", body: undefined, query: new URLSearchParams({ n: "4", id: "ch4d1" }) }).body as View;
+    const response = await handleAsync(session, request({ chapter: 4, draftId: stale.draftId, revisionToken: detail.revisionToken,
+      mode: "rewrite", instruction: "先查第3章的新正式版本，再按取得信物后才答应的事实修改本章。", scope: null, requestId: "rebase-next-chapter" }));
+    expect(response.status).toBe(200);
+    const result = await finish(session, response.body as View);
+    expect(result).toMatchObject({ chapter: 4, status: "ready", body: nextBody, revision: { rebased: true, sourceDraftId: "ch4d1" } });
+    expect(store.loadDraft(4, "ch4d1")?.body).toBe(oldNextBody);
+    expect(session.chapterText(4)).toBeUndefined();
+    session.adopt(4, result.draftId);
+    expect(session.chapterText(4)).toBe(nextBody);
+    expect(buildChapterReadSource(session, 5).loadChapter(3, "full")).toContain(replacement);
+    expect(model.calls).toHaveLength(5);
+  });
 });

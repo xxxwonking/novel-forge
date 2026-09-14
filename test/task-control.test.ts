@@ -10,7 +10,7 @@ import { DraftStore } from "../src/task/draft-store.js";
 import type { CallOptions, CallResult } from "../src/client/claude.js";
 import type { ModelClient } from "../src/client/model.js";
 import { handle, handleAsync } from "../src/server/api.js";
-import { C5_JSON, PROSE, fakeClient, modelMessage, modelText, savedDraft, writingSnapshot } from "./writing-fixtures.js";
+import { C5_JSON, PROSE, SINGLE_PASS_RULES, fakeClient, modelMessage, modelText, savedDraft, writingSnapshot } from "./writing-fixtures.js";
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
@@ -22,7 +22,7 @@ function deferred<T>() {
 function fixture(client: ModelClient) {
   const root = mkdtempSync(join(tmpdir(), "nf-task-control-")); roots.push(root);
   new ProjectStore(root).save(writingSnapshot());
-  return { root, session: new ProjectSession(root, undefined, { client }) };
+  return { root, session: new ProjectSession(root, SINGLE_PASS_RULES, { client }) };
 }
 const request = (path: string, body?: unknown) => ({ method: body === undefined ? "GET" : "POST", path, body, query: new URLSearchParams() });
 
@@ -64,7 +64,7 @@ describe("章节任务控制与返回恢复", () => {
     expect(paused.declaration).toBeNull();
     expect(calls).toBe(1);
     const next = fakeClient([modelText(C5_JSON)]);
-    const reopened = new ProjectSession(root, undefined, { client: next.client });
+    const reopened = new ProjectSession(root, SINGLE_PASS_RULES, { client: next.client });
     expect(reopened.chapterTasks()[0]?.status).toBe("paused");
     expect(next.calls).toHaveLength(0);
     const resumed = await reopened.writeChapter({ chapter: 3, draftId: paused.draftId });
@@ -95,7 +95,7 @@ describe("章节任务控制与返回恢复", () => {
     const model = fakeClient([]); const { root } = fixture(model.client);
     const store = new DraftStore(root);
     store.saveDraft(savedDraft({ status: "writing", body: "", declaration: null, acceptable: false }));
-    const reopened = new ProjectSession(root, undefined, { client: model.client });
+    const reopened = new ProjectSession(root, SINGLE_PASS_RULES, { client: model.client });
     expect(reopened.chapterTasks()[0]).toMatchObject({ status: "interrupted", stage: "writing", draftId: "ch3d1" });
     expect(handle(reopened, request("/api/tasks")).body).toMatchObject([{ status: "interrupted" }]);
     expect(store.loadDraft(3, "ch3d1")?.status).toBe("writing");
@@ -181,12 +181,14 @@ describe("章节任务控制与返回恢复", () => {
     const model = fakeClient([modelText(C5_JSON)]);
     const { root } = fixture(model.client);
     const childScript = `import { ProjectSession } from ${JSON.stringify(pathToFileURL(resolve("src/server/state.ts")).href)};
+      import { loadRules } from ${JSON.stringify(pathToFileURL(resolve("src/rules/load.ts")).href)};
+      const rules = loadRules();
       let calls = 0;
       const client = { official: false, call: async () => { if (++calls === 1) return ${JSON.stringify(modelText(PROSE))}; process.exit(17); } };
-      await new ProjectSession(${JSON.stringify(root)}, undefined, { client }).writeChapter({ chapter: 3 });`;
+      await new ProjectSession(${JSON.stringify(root)}, { ...rules, task: { ...rules.task, maxAutoRevisions: 0 } }, { client }).writeChapter({ chapter: 3 });`;
     const child = spawnSync(process.execPath, ["--import", "tsx", "--input-type=module", "-e", childScript], { cwd: process.cwd(), encoding: "utf8", timeout: 10000 });
     expect(child.status, child.stderr).toBe(17);
-    const reopened = new ProjectSession(root, undefined, { client: model.client });
+    const reopened = new ProjectSession(root, SINGLE_PASS_RULES, { client: model.client });
     const task = reopened.chapterTasks()[0]!;
     expect(task).toMatchObject({ status: "interrupted", stage: "declaring" });
     expect(reopened.getDraft(3, "ch3d1")?.body).toBe(PROSE);

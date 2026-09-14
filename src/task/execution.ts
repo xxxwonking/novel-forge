@@ -6,7 +6,7 @@ export interface TaskControl { requested: "pause" | "end" | null }
 
 export const emptyUsage = () => ({ calls: 0, inputTokens: 0, outputTokens: 0, unmeasuredCalls: 0, pendingCalls: 0 });
 export function draftStage(draft: ChapterDraft): TaskStage {
-  if (draft.status === "writing" || draft.body === "" || draft.error?.step === "C4") return "writing";
+  if (draft.status === "writing" || draft.body === "" || draft.error?.step === "C4") return draft.revision?.kind === "automatic" ? "revising" : "writing";
   return draft.declaration === null ? "declaring" : "checking";
 }
 
@@ -25,6 +25,8 @@ export function taskView(draft: ChapterDraft, active: boolean, isHistory = false
   else if (["running", "pausing", "ending"].includes(status) && !active) status = "interrupted";
   const usage = !active && (execution.usage.pendingCalls ?? 0) > 0 ? { ...execution.usage, pendingCalls: 0, unmeasuredCalls: execution.usage.unmeasuredCalls + execution.usage.pendingCalls! } : execution.usage;
   return { ...execution, usage, usageRecorded: draft.execution !== undefined, isHistory, status, chapter: draft.chapter, draftId: draft.draftId,
+    autoRevisionLimit: draft.writeContext?.autoRevisionLimit ?? 0, autoRevisionsUsed: draft.autoRevisionsUsed ?? 0,
+    automaticResultDraftId: draft.automaticResultDraftId ?? null,
     draftStatus: draft.status, words: countWords(draft.body),
     detail: status === "interrupted" ? "服务中没有此任务的活动执行，已保存的内容仍可查看；继续需要你主动发起。" : draft.error?.detail ?? null };
 }

@@ -14,7 +14,7 @@ import type { ChapterDraft } from "../src/task/types.js";
 import { loadRules } from "../src/rules/load.js";
 import { deriveBudget } from "../src/beat/derive.js";
 import { countWords } from "../src/text/measure.js";
-import { C5_JSON, PROSE, WRITE_BEAT, writingSnapshot } from "./writing-fixtures.js";
+import { C5_JSON, PROSE, SINGLE_PASS_RULES, WRITE_BEAT, writingSnapshot } from "./writing-fixtures.js";
 import { C5_OUTPUT_SCHEMA } from "../src/chapter/c5-schema.js";
 
 type Body = Record<string, any>;
@@ -57,7 +57,7 @@ async function setup(reply: (request: Body, number: number) => { status?: number
   roots.push(root);
   const store = new ProjectStore(root);
   store.save(writingSnapshot());
-  return { root, store, requests, claude, drafts: new DraftStore(root), session: new ProjectSession(root, loadRules()) };
+  return { root, store, requests, claude, drafts: new DraftStore(root), session: new ProjectSession(root, SINGLE_PASS_RULES) };
 }
 
 function write(session: ProjectSession, draftId?: string) {
@@ -98,7 +98,7 @@ describe("Chat 章节入口", () => {
     expect(failed.error?.step).toBe("C5");
     expect(failed.error?.detail).not.toContain("local-test-key");
     expect(failed.body).toBe(PROSE);
-    const restored = new ProjectSession(state.root, loadRules());
+    const restored = new ProjectSession(state.root, SINGLE_PASS_RULES);
     const resumed = await write(restored, failed.draftId);
     expect(resumed.status).toBe(200);
     expect((resumed.body as ChapterDraft).status).toBe("needs_revision");
