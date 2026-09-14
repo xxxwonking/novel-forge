@@ -140,7 +140,8 @@ function seed(): string {
     volume: 3,
     plan: nextPlan,
     budget: deriveBudget(nextPlan, workProfile, rules, { now: NOW }),
-    provenance: chapter === LAST ? "committed" : "proposed",
+    // 动作闭环操作的是已确认计划；未确认方案的拦截另有业务用例。
+    provenance: chapter === LAST ? "committed" : "authored",
     updatedAt: NOW,
   }));
 

@@ -53,6 +53,7 @@ export interface MainAgentToolContext {
   readonly proposePreparation: (input: unknown, author: boolean) => Promise<AgentActionOutcome>;
   readonly confirmPreparation: (proposalId: string) => Promise<AgentActionOutcome>;
   readonly getOverview: () => string;
+  readonly getStoryProgress: () => string;
   readonly listChapterDrafts: (chapter: number | null) => string;
   readonly getChapterText: (chapter: number, excerpt: ChapterExcerpt) => string | null;
   readonly getCharacter: (name: string) => string | null;
@@ -158,6 +159,8 @@ export async function executeMainTool(
       return { result: ok(ctx.listOpenForeshadows(asFilter(readStr("weight")))) };
     case "get_next_plan":
       return { result: ok(ctx.getNextPlan()) };
+    case "get_story_progress":
+      return { result: ok(ctx.getStoryProgress()) };
 
     // ── 计划类：改节拍/伏笔安排（计划态）───────────────────────────────
     case "plan_add_to_next_chapter": {

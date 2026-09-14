@@ -135,18 +135,30 @@ describe("buildChapterRunInput", () => {
     expect(() => buildChapterRunInput(session, 3)).toThrow(new RegExp(_label, "u"));
   });
 
-  it.each(["resolved", "abandoned", "planned"] as const)("%s 伏笔不能作为已经埋设的待收伏笔", (status) => {
-    const { session } = seed();
+  it.each(["abandoned", "planned"] as const)("%s 伏笔不能作为已经埋设的待收伏笔", (status) => {
+    const snapshot = writingSnapshot();
+    // 只有规划、没有真实埋设；追加 P4 不能覆盖已经发生的正文事实。
+    const { session } = seed(status === "planned" ? {
+      ...snapshot,
+      events: snapshot.events.map(event => event.payload.type === "foreshadow_planted" && event.payload.foreshadowId === "F01"
+        ? { ...event, envelope: { ...event.envelope, origin: "P4_outline" as const } } : event),
+    } : snapshot);
     if (status === "planned") {
-      const original = session.events().find((e) => e.payload.type === "foreshadow_planted")!;
-      session.appendEvents([{ chapter: 2, origin: "P4_outline", provenance: "authored", payload: original.payload }]);
+      expect(session.derived.projections.foreshadows.find(f => f.id === "F01")?.status).toBe("planned");
     } else {
-      const payload = status === "resolved"
-        ? { type: "foreshadow_resolved" as const, foreshadowId: "F01" as const, completeness: "full" as const, anchor: { chapter: 2, quote: "旧图", offsetHint: 0, occurrence: 0 } }
-        : { type: "foreshadow_abandoned" as const, foreshadowId: "F01" as const, reason: "改线" };
+      const payload = { type: "foreshadow_abandoned" as const, foreshadowId: "F01" as const, reason: "改线" };
       session.appendEvents([{ chapter: 2, origin: "user_edit", provenance: "authored", payload }]);
     }
     expect(() => buildChapterRunInput(session, 3)).toThrow(/伏笔/u);
+  });
+
+  it("缺少正文依据的兑现记录不能让未来回收要求静默消失", () => {
+    const { session } = seed();
+    session.appendEvents([{ chapter: 2, origin: "user_edit", provenance: "authored", payload: {
+      type: "foreshadow_resolved", foreshadowId: "F01", completeness: "full",
+      anchor: { chapter: 2, quote: "正文中不存在的兑现依据", offsetHint: 0, occurrence: 0 },
+    } }]);
+    expect(() => buildChapterRunInput(session, 3)).toThrow(/伏笔|依据/u);
   });
 
   it("埋设原文已删除时要求修正依据，不能把旧 quote 当作现有正文", () => {

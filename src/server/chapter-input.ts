@@ -7,6 +7,7 @@ import { buildL2Snapshot } from "../context/build-l2.js";
 import { selectL3, type PlantedExcerpt } from "../context/select-l3.js";
 import { anchorContext, resolveAnchor } from "../anchor/resolve.js";
 import { project, projectCharacterState } from "../store/project.js";
+import { fullResolution, remainingPlan } from "../planning/effective.js";
 import type { ToolReadSource } from "../task/service.js";
 import type { ChapterBeat } from "../types/beat.js";
 import type { CharacterCard } from "../types/character.js";
@@ -43,7 +44,8 @@ function readContext(session: ChapterSource, chapter: ChapterNo) {
   validateChapterNumber(chapter);
   const meta = session.meta;
   const events = session.events()
-    .filter((e) => e.envelope.chapter < chapter &&
+    .filter((e) => (e.envelope.chapter < chapter || e.envelope.origin === "P4_outline" ||
+      (e.envelope.origin === "user_edit" && (e.payload.type === "foreshadow_rescheduled" || e.payload.type === "foreshadow_abandoned"))) &&
       (e.envelope.provenance === "committed" || e.envelope.provenance === "authored"))
     .sort((a, b) => a.envelope.seq - b.envelope.seq);
   const characters: readonly CharacterCard[] = meta.characters
@@ -112,9 +114,22 @@ export function buildChapterRunInput(
   if (chapter > 1 && previousText === undefined) {
     throw new ChapterWriteError(409, `第 ${chapter - 1} 章尚无正式正文，请先完成并采用上一章`);
   }
+  const fulfilledResolutions = ctx.projections.foreshadows.flatMap(f => {
+    if (!originalBeat.plan.resolves.some(r => r.foreshadowId === f.id)) return [];
+    const resolution = fullResolution(f, n => ctx.chapters.get(n), session.rules.anchor);
+    return resolution === undefined ? [] : [{ id: f.id, label: f.label, chapter: resolution.chapter }];
+  });
+  const fulfilledPlants = originalBeat.plan.plants.flatMap(plant => {
+    const matches = ctx.projections.foreshadows.filter(f => f.label.trim() === plant.label.trim());
+    const f = matches.length === 1 ? matches[0] : undefined;
+    return f === undefined || f.status === "planned" || !f.plantedAnchor.quote.trim() || resolveAnchor(f.plantedAnchor, n => ctx.chapters.get(n), session.rules.anchor).status === "stale"
+      ? [] : [{ id: f.id, label: f.label, chapter: f.plantedAt }];
+  });
+  const plan = remainingPlan(originalBeat.plan, new Set(fulfilledResolutions.map(f => f.id)), new Set(fulfilledPlants.map(f => f.label.trim())));
   const beat: ChapterBeat = {
     ...originalBeat,
-    budget: deriveBudget(originalBeat.plan, ctx.meta.profile, session.rules, { now: originalBeat.updatedAt }),
+    plan,
+    budget: deriveBudget(plan, ctx.meta.profile, session.rules, { now: originalBeat.updatedAt }),
   };
   const characters = beat.plan.characters.map((id) => {
     const card = ctx.characters.find((c) => c.id === id);
@@ -162,17 +177,23 @@ export function buildChapterRunInput(
       volatile: {
         previous: previousText === undefined ? null : { chapter: chapter - 1, headSummary: null, tailText: previousText },
         beat,
+        fulfilledResolutions,
+        fulfilledPlants,
         resolves: resolves.map(({ foreshadow: f, completeness }) => ({ id: f.id, label: f.label, intent: f.intent, weight: f.weight, completeness })),
         avoid: ctx.projections.foreshadows
           .filter((f) => f.status === "open" && f.visibility === "covert" && !resolvingIds.has(f.id))
           .map((f) => ({ id: f.id, label: f.label })),
+        plannedForeshadows: ctx.projections.foreshadows
+          .filter(f => f.status === "planned" && beat.plan.plants.some(p => p.label.trim() === f.label.trim()))
+          .map(f => ({ id: f.id, label: f.label, intent: f.intent, weight: f.weight, expectedBy: f.expectedBy })),
         task: C4_TASK,
       },
     },
     parseContextBase: {
       chapter,
       knownCharacters: new Set(ctx.characters.map((c) => c.id)),
-      knownForeshadows: new Set(ctx.projections.foreshadows.filter((f) => f.status !== "planned").map((f) => f.id)),
+      knownForeshadows: new Set(ctx.projections.foreshadows.filter((f) => f.status === "open").map((f) => f.id)),
+      foreshadows: ctx.projections.foreshadows.map(f => ({ id: f.id, label: f.label, status: f.status })),
       knownPlotLines: new Set(ctx.meta.plotLines.map((p) => p.id)),
       allocateForeshadowId: foreshadowAllocator(session),
     },

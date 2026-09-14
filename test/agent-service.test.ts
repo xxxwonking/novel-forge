@@ -46,6 +46,7 @@ function ctxWith(over: Partial<MainAgentToolContext> = {}): MainAgentToolContext
     proposePreparation: async () => ({ message: "方案已保存", effect: { kind: "preparation_proposed", proposalId: "proposal-test", summary: "开篇" } }),
     confirmPreparation: async (proposalId) => ({ message: "已确认", effect: { kind: "preparation_confirmed", proposalId, summary: "开篇" } }),
     getOverview: () => "OVERVIEW",
+    getStoryProgress: () => "PROGRESS",
     listChapterDrafts: () => "DRAFTS",
     getChapterText: () => "TEXT",
     getCharacter: () => "CARD",

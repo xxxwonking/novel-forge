@@ -24,6 +24,7 @@ import type {
 } from "../types/events.js";
 import { C5_LIMITS } from "../types/events.js";
 import type { CharacterId, ForeshadowId, PlotLineId, TextAnchor } from "../types/primitives.js";
+import type { ForeshadowTimelineItem } from "../types/projections.js";
 
 /**
  * 结构化输出 schema。传给 `output_config.format`。
@@ -68,6 +69,7 @@ export const C5_OUTPUT_SCHEMA: Record<string, unknown> = {
         additionalProperties: false,
         required: ["label", "intent", "weight", "visibility", "expected_by", "quote"],
         properties: {
+          planned_foreshadow_id: { type: ["string", "null"], description: "本章将已确认的未来规划写成真实埋设时，填写原规划 ID；全新伏笔可省略或为 null。没有原文依据不能声明埋设。" },
           label: { type: "string", description: "短标签，6 字以内" },
           intent: { type: "string", description: "这条伏笔将来要兑现什么。这是最重要的字段。" },
           weight: { type: "string", enum: ["main", "sub", "detail"] },
@@ -148,6 +150,8 @@ export interface ParseContext {
   /** 已知人物 ID 集合。模型引用不存在的 ID 时丢弃该条并记 warn。 */
   readonly knownCharacters: ReadonlySet<string>;
   readonly knownForeshadows: ReadonlySet<string>;
+  /** 正式清单含规划与结束项，用于识别原规划、同名冲突；不代表它们都可以兑现。 */
+  readonly foreshadows?: readonly Pick<ForeshadowTimelineItem, "id" | "label" | "status">[];
   readonly knownPlotLines: ReadonlySet<string>;
   /** 新伏笔 ID 的分配器。由存储层提供，保证 F 序号不冲突。 */
   readonly allocateForeshadowId: () => ForeshadowId;
@@ -157,6 +161,8 @@ export interface ParseResult {
   readonly declaration: C5Declaration;
   /** 被丢弃或修正的项。这是校准 C5 prompt 的数据来源。 */
   readonly warnings: readonly string[];
+  /** 不能通过丢弃该条就把整稿视为声明成功的身份/生命周期冲突。 */
+  readonly errors: readonly string[];
 }
 
 /** 把模型给的 quote 定位到正文，生成锚点。找不到时 offsetHint 为 -1。 */
@@ -185,8 +191,9 @@ function arr(v: unknown): readonly unknown[] {
  */
 export function parseC5(raw: unknown, ctx: ParseContext): ParseResult {
   const warnings: string[] = [];
+  const errors: string[] = [];
   if (!isRecord(raw)) {
-    return { declaration: emptyDeclaration(), warnings: ["C5 返回的不是对象，整章声明作废"] };
+    return { declaration: emptyDeclaration(), warnings: ["C5 返回的不是对象，整章声明作废"], errors: [] };
   }
 
   const events: PlotEventPayload[] = [];
@@ -229,6 +236,8 @@ export function parseC5(raw: unknown, ctx: ParseContext): ParseResult {
   }
 
   const foreshadowPlanted: ForeshadowPlantedPayload[] = [];
+  const usedPlans = new Set<string>();
+  const usedLabels = new Set<string>();
   for (const item of arr(raw["foreshadow_planted"]).slice(0, C5_LIMITS.foreshadowPlanted)) {
     if (!isRecord(item)) continue;
     const label = str(item["label"]);
@@ -245,23 +254,40 @@ export function parseC5(raw: unknown, ctx: ParseContext): ParseResult {
       warnings.push(`丢弃一条 weight/visibility 非法的伏笔声明：${label}`);
       continue;
     }
-    if (typeof expectedBy !== "number" || expectedBy <= ctx.chapter) {
+    if (!Number.isSafeInteger(expectedBy) || (expectedBy as number) <= ctx.chapter) {
       warnings.push(`伏笔「${label}」的 expected_by 非法或不在未来，已丢弃`);
       continue;
     }
+    const explicit = str(item["planned_foreshadow_id"]);
+    const matches = (ctx.foreshadows ?? []).filter(f => explicit !== null ? f.id === explicit : f.label.trim() === label.trim());
+    if ((explicit !== null && (matches.length !== 1 || matches[0]!.status !== "planned")) ||
+        (explicit === null && (matches.length > 1 || matches.some(f => f.status !== "planned")))) {
+      errors.push(explicit !== null ? `规划 ${explicit} 不存在、尚未确认或已经埋设/结束，请核对原编号`
+        : `「${label}」已有同名伏笔或不能唯一定位的规划，请明确规划编号，不能重复创建`);
+      continue;
+    }
+    const linked = matches[0];
+    if ((linked !== undefined && usedPlans.has(linked.id)) || usedLabels.has(label.trim())) {
+      errors.push(`本稿重复声明埋设「${label}」${linked === undefined ? "" : `（规划 ${linked.id}）`}，请保留一条准确记录`);
+      continue;
+    }
+    if (linked !== undefined) usedPlans.add(linked.id);
+    usedLabels.add(label.trim());
     foreshadowPlanted.push({
       type: "foreshadow_planted",
-      foreshadowId: ctx.allocateForeshadowId(),
+      foreshadowId: linked?.id ?? ctx.allocateForeshadowId(),
+      ...(linked === undefined ? {} : { plannedForeshadowId: linked.id }),
       label,
       intent,
       weight,
       visibility,
-      expectedBy,
+      expectedBy: expectedBy as number,
       anchor: makeAnchor(ctx.chapter, ctx.chapterText, quote),
     });
   }
 
   const foreshadowResolved: ForeshadowResolvedPayload[] = [];
+  const resolvedIds = new Set<string>();
   for (const item of arr(raw["foreshadow_resolved"])) {
     if (!isRecord(item)) continue;
     const id = str(item["foreshadow_id"]);
@@ -270,8 +296,14 @@ export function parseC5(raw: unknown, ctx: ParseContext): ParseResult {
     if (id === null || quote === null) continue;
     if (!ctx.knownForeshadows.has(id)) {
       warnings.push(`声明收束了不存在的伏笔 ${id}，已丢弃`);
+      errors.push(`伏笔 ${id} 尚未正式埋设、已经结束或不存在，不能声明兑现`);
       continue;
     }
+    if (resolvedIds.has(id)) {
+      errors.push(`本稿对伏笔 ${id} 重复声明兑现，请保留一个明确的完整或部分判断`);
+      continue;
+    }
+    resolvedIds.add(id);
     if (completeness !== "full" && completeness !== "partial") {
       warnings.push(`伏笔 ${id} 的 completeness 非法，已按 partial 处理`);
     }
@@ -362,6 +394,7 @@ export function parseC5(raw: unknown, ctx: ParseContext): ParseResult {
       characterPresence,
     },
     warnings,
+    errors,
   };
 }
 

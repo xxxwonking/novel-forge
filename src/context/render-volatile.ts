@@ -49,6 +49,10 @@ export interface VolatileInput {
   readonly beat: ChapterBeat;
   readonly resolves: readonly ResolveInstruction[];
   readonly avoid: readonly AvoidInstruction[];
+  /** 仅本章要埋设的作者规划，不是已发生事实或本章要兑现的承诺。 */
+  readonly plannedForeshadows?: readonly { readonly id: ForeshadowId; readonly label: string; readonly intent: string; readonly weight: "main" | "sub" | "detail"; readonly expectedBy: number }[];
+  readonly fulfilledResolutions?: readonly { readonly id: ForeshadowId; readonly label: string; readonly chapter: number }[];
+  readonly fulfilledPlants?: readonly { readonly id: ForeshadowId; readonly label: string; readonly chapter: number }[];
   /** 本章的任务指令。C3/C4/C5 各不相同，由调用方给出。 */
   readonly task: string;
 }
@@ -109,6 +113,24 @@ export function renderVolatile(input: VolatileInput): string {
 
   lines.push("# 本章节拍");
   lines.push(renderPlan(input.beat));
+
+  if ((input.fulfilledResolutions?.length ?? 0) > 0) {
+    lines.push("", "# 原计划中已提前完成的回收");
+    for (const item of input.fulfilledResolutions!) lines.push(`- ${item.id}「${item.label}」已在第 ${item.chapter} 章的正式正文中完整兑现。`);
+    lines.push("这些目标已从本次回收要求和预算中扣除。保持既有事实，推进尚未完成的事件；不要重复上演揭晓或再次声明兑现。");
+  }
+  if ((input.fulfilledPlants?.length ?? 0) > 0) {
+    lines.push("", "# 原计划中已提前埋设的伏笔");
+    for (const item of input.fulfilledPlants!) lines.push(`- ${item.id}「${item.label}」已在第 ${item.chapter} 章埋设，不要再次创建同一条伏笔。`);
+  }
+
+  if ((input.plannedForeshadows?.length ?? 0) > 0) {
+    lines.push("", "# 本章要埋设的已确认规划（此前尚未写成正文）");
+    for (const plan of input.plannedForeshadows!) {
+      lines.push(`- ${plan.id}「${plan.label}」：${plan.intent}；${WEIGHT_LABEL[plan.weight]}，预期第 ${plan.expectedBy} 章前兑现。`);
+    }
+    lines.push("这些只是作者规划。本章若确实写出埋设，结构声明用 planned_foreshadow_id 关联原编号并引用原文；不要当成此前已发生，也不要提前兑现。");
+  }
 
   if (input.resolves.length > 0) {
     lines.push("");

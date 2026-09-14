@@ -19,6 +19,7 @@ const sections = {
 } as const;
 const names: Readonly<Record<string, string>> = {
   plotLine: "plot_line", expectedBy: "expected_by", foreshadowId: "foreshadow_id", fromKind: "from_kind",
+  plannedForeshadowId: "planned_foreshadow_id",
   toKind: "to_kind", characterId: "character_id",
 };
 const outputProperties = C5_OUTPUT_SCHEMA["properties"] as Record<string, { items: OutputShape; maxItems?: number }>;
@@ -63,7 +64,7 @@ export function correctDeclaration(original: C5Declaration, changes: readonly St
       allocateForeshadowId: () => previous?.type === "foreshadow_planted" ? previous.foreshadowId : ctx.allocateForeshadowId(),
     });
     const entry = parsed.declaration[change.section][0];
-    if (parsed.warnings.length > 0 || entry === undefined) throw new ChapterWriteError(400, `结构记录含无效人物/伏笔引用或字段：${parsed.warnings.join("；") || change.section}`);
+    if (parsed.warnings.length > 0 || parsed.errors.length > 0 || entry === undefined) throw new ChapterWriteError(400, `结构记录含无效人物/伏笔引用或字段：${[...parsed.errors, ...parsed.warnings].join("；") || change.section}`);
     const normalized = correctionValue(entry);
     if (Object.keys(value).some(name => JSON.stringify(value[name]) !== JSON.stringify(normalized[name]))) throw new ChapterWriteError(400, "结构记录含无效人物引用或字段；未静默删改，请核对后重试");
     if (entry.type === "character_state_changed" && entry.field === "vital" && !["alive", "dead", "missing"].includes(entry.to)) throw new ChapterWriteError(400, "人物生存状态必须是 alive、dead 或 missing");
@@ -83,5 +84,14 @@ export function correctDeclaration(original: C5Declaration, changes: readonly St
     const limit = outputProperties[raw]!.maxItems;
     if (limit !== undefined && revised[section as Section].length > limit) throw new ChapterWriteError(400, `${section} 超出结构条目上限 ${limit}`);
   }
-  return revised as unknown as C5Declaration;
+  const declaration = revised as unknown as C5Declaration;
+  // 单项有效不代表整稿有效：未改条目也参与重复规划、兑现和出场校验。
+  const raw = Object.fromEntries(Object.entries(sections).map(([section, name]) => [name,
+    declaration[section as Section].map(entry => Object.fromEntries(Object.entries(correctionValue(entry)).map(([key, value]) => [names[key] ?? key, value]))),
+  ]));
+  const ids = declaration.foreshadowPlanted.filter(entry => entry.plannedForeshadowId === undefined).map(entry => entry.foreshadowId);
+  let nextId = 0;
+  const checked = parseC5(raw, { ...ctx, allocateForeshadowId: () => ids[nextId++]! });
+  if (checked.errors.length > 0 || checked.warnings.length > 0) throw new ChapterWriteError(400, `整份结构记录仍需核对：${[...checked.errors, ...checked.warnings].join("；")}`);
+  return declaration;
 }

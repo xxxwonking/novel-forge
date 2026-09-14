@@ -69,9 +69,9 @@ interface BodyProps {
 
 const STATUS_LABEL: Record<string, string> = {
   planned: "已规划",
-  open: "未收",
-  resolved: "已收",
-  abandoned: "已废弃",
+  open: "待兑现",
+  resolved: "已兑现",
+  abandoned: "已放弃",
 };
 
 function ForeshadowBody({ views, onJump, highlight }: BodyProps): React.ReactElement {
@@ -98,7 +98,7 @@ function ForeshadowBody({ views, onJump, highlight }: BodyProps): React.ReactEle
         <span>空心点 = 原文已变动，无法定位</span>
       </div>
 
-      <Timeline axis={views.axis} lanes={views.foreshadows.filter(f => f.status !== "planned")} onJump={onJump} highlight={highlight} />
+      <Timeline axis={views.axis} lanes={views.foreshadows.filter(f => f.status !== "planned" && f.planted.anchor.quote.trim())} onJump={onJump} highlight={highlight} />
 
       <table>
         <thead>
@@ -125,11 +125,11 @@ function ForeshadowBody({ views, onJump, highlight }: BodyProps): React.ReactEle
                   </div>
                 </td>
                 <td>{f.intent}</td>
-                <td className="num">{f.status === "planned" ? "尚未埋设" : f.planted.chapter}</td>
+                <td className="num">{f.planted.anchor.quote.trim() ? f.planted.chapter : "尚未埋设"}</td>
                 <td className="num">{f.expectedBy}</td>
                 <td>
                   <span className="tag" data-tone={f.status === "open" ? undefined : "done"}>
-                    {STATUS_LABEL[f.status] ?? f.status}
+                    {f.status === "open" && f.resolutions.some(r => r.completeness === "partial") ? "部分兑现" : STATUS_LABEL[f.status] ?? f.status}
                   </span>
                   {overdue > 0 && (
                     <span className="tag" data-tone="alarm" style={{ marginLeft: 4 }}>

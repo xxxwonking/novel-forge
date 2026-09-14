@@ -7,7 +7,7 @@
  */
 
 import { ProjectSession } from "./state.js";
-import { applyActionToBeat, acknowledgeAlert, ignoreAlert, initialAlertState, unacknowledgeAlert } from "../alerts/apply.js";
+import { acknowledgeAlert, ignoreAlert, initialAlertState, unacknowledgeAlert } from "../alerts/apply.js";
 import { anchorContext, resolveAnchor } from "../anchor/resolve.js";
 import { gateChapter } from "../gate/code-channel.js";
 import { gateCrossChapter } from "../gate/cross-chapter.js";
@@ -84,6 +84,8 @@ export function handle(session: ProjectSession, req: ApiRequest): ApiResponse {
         return ok(session.derived.views);
       case "/api/alerts":
         return ok(alerts(session));
+      case "/api/issues":
+        return ok(session.storyProgress());
       case "/api/chapters":
         return ok(chapterList(session));
       case "/api/chapter":
@@ -105,6 +107,8 @@ export function handle(session: ProjectSession, req: ApiRequest): ApiResponse {
     switch (path) {
       case "/api/alerts/action":
         return alertAction(session, req.body);
+      case "/api/planning/action":
+        return planningAction(session, req.body);
       case "/api/alerts/ignore":
         return alertStateChange(session, req.body, ignoreAlert);
       case "/api/alerts/acknowledge":
@@ -210,6 +214,7 @@ function alerts(session: ProjectSession): unknown {
     fullList: selection.fullList,
     repairQueue: selection.repairQueue,
     suppressed: selection.suppressed,
+    progress: session.storyProgress(),
   };
 }
 
@@ -330,12 +335,31 @@ function anchor(session: ProjectSession, query: URLSearchParams): ApiResponse {
  * 全部做完后**立刻重算**，响应里带上新的首页三条 —— 前端不需要再发一次
  * GET 才知道那条告警消失了。
  */
+function planningAction(session: ProjectSession, body: unknown): ApiResponse {
+  if (!isRecord(body)) return bad("请求体必须是对象");
+  try {
+    const result = session.planning.apply(body["action"], body["reason"] === undefined ? {} : { reason: body["reason"] as string });
+    return ok({ ...result, ...refreshed(session, false) });
+  } catch (error) {
+    return { status: error instanceof ChapterWriteError ? error.status : 400, body: { error: error instanceof Error ? error.message : String(error) } };
+  }
+}
+
 function alertAction(session: ProjectSession, body: unknown): ApiResponse {
   if (!isRecord(body)) return bad("请求体必须是对象");
   const id = body["alertId"];
   const action = body["action"];
   if (typeof id !== "string") return bad("缺少 alertId");
   if (!isRecord(action) || typeof action["kind"] !== "string") return bad("缺少 action.kind");
+
+  if (["add_resolution_to_beat", "add_advance_to_beat", "add_character_to_beat", "reschedule", "abandon", "confirm_exit"].includes(action["kind"])) {
+    try {
+      const result = session.planning.apply(action, { alertId: id, ...(body["reason"] === undefined ? {} : { reason: body["reason"] as string }) });
+      return ok({ ...result, ...refreshed(session, false) });
+    } catch (error) {
+      return { status: error instanceof ChapterWriteError ? error.status : 400, body: { error: error instanceof Error ? error.message : String(error) } };
+    }
+  }
 
   const alert = session.derived.candidates.find((c) => c.alert.id === id)?.alert;
   if (alert === undefined) return missing(`告警 ${id} 不在当前候选里`);
@@ -344,79 +368,6 @@ function alertAction(session: ProjectSession, body: unknown): ApiResponse {
   const now = new Date().toISOString();
 
   switch (typed.kind) {
-    case "add_resolution_to_beat":
-    case "add_advance_to_beat":
-    case "add_character_to_beat": {
-      const beat = session.beatFor(typed.targetChapter);
-      if (beat === undefined) return missing(`第 ${typed.targetChapter} 章还没有节拍表，先排章`);
-      const applied = applyActionToBeat(
-        { beat, action: typed, profile: session.meta.profile, now },
-        session.rules,
-      );
-      if (applied.changed) session.putBeat(applied.beat);
-      return ok({
-        changed: applied.changed,
-        promotedToPayoff: applied.promotedToPayoff,
-        beat: applied.beat,
-        ...refreshed(session),
-      });
-    }
-
-    case "reschedule": {
-      session.appendEvents([
-        {
-          chapter: session.currentChapter,
-          origin: "user_edit",
-          provenance: "authored",
-          payload: {
-            type: "foreshadow_rescheduled",
-            foreshadowId: typed.foreshadowId,
-            expectedBy: typed.expectedBy,
-          },
-        },
-      ]);
-      return ok({ changed: true, ...refreshed(session) });
-    }
-
-    case "abandon": {
-      session.appendEvents([
-        {
-          chapter: session.currentChapter,
-          origin: "user_edit",
-          provenance: "authored",
-          payload: {
-            type: "foreshadow_abandoned",
-            foreshadowId: typed.foreshadowId,
-            reason: typeof body["reason"] === "string" ? body["reason"] : "用户在首页告警里废弃",
-          },
-        },
-      ]);
-      return ok({ changed: true, ...refreshed(session) });
-    }
-
-    case "confirm_exit": {
-      // 确认退场落成人物状态变更而不是新事件类型：`vital: missing` 已经能
-      // 表达"不再出场"，而 projectCharacterState 会把它投影进人物卡。
-      session.appendEvents([
-        {
-          chapter: session.currentChapter,
-          origin: "user_edit",
-          provenance: "authored",
-          payload: {
-            type: "character_state_changed",
-            characterId: typed.characterId,
-            field: "vital",
-            from: "alive",
-            to: "missing",
-            anchor: { chapter: session.currentChapter, quote: "", offsetHint: 0, occurrence: 0 },
-          },
-        },
-      ]);
-      // 同时静音，否则 characterAbsent 还会继续报（missing 不参与 arc 的判定）。
-      session.putAlertState(acknowledgeAlert(stateOf(session, id, now)));
-      return ok({ changed: true, ...refreshed(session) });
-    }
-
     case "acknowledge": {
       session.putAlertState(acknowledgeAlert(stateOf(session, id, now)));
       return ok({ changed: true, ...refreshed(session) });
@@ -450,8 +401,8 @@ function stateOf(session: ProjectSession, id: string, now: string): AlertState {
 }
 
 /** 写操作后的新首页。带上它省掉前端一次往返。 */
-function refreshed(session: ProjectSession): { readonly alerts: unknown } {
-  session.syncAlertStates();
+function refreshed(session: ProjectSession, sync = true): { readonly alerts: unknown } {
+  if (sync) session.syncAlertStates();
   const { selection } = session.derived;
   return {
     alerts: {

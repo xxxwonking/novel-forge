@@ -85,6 +85,8 @@ export type AlertSubject =
   | { kind: "chapter"; chapter: number }
   | { kind: "anchor"; anchor: TextAnchor };
 
+export type PlanningAction = Extract<AlertAction, { kind: "add_resolution_to_beat" | "add_advance_to_beat" | "add_character_to_beat" | "reschedule" | "abandon" | "confirm_exit" }>;
+
 export interface Alert {
   id: string;
   category: string;
@@ -153,6 +155,20 @@ export interface AlertsPayload {
   fullList: Alert[];
   repairQueue: Alert[];
   suppressed: { alert: Alert; reason: "scheduled" | "acknowledged" | "fatigued" }[];
+  progress: StoryProgress[];
+}
+
+export interface StoryProgress {
+  id: string;
+  kind: "foreshadow" | "plotline" | "character";
+  title: string;
+  state: "planned" | "pending" | "scheduled" | "rescheduled" | "partial" | "resolved" | "abandoned" | "exited";
+  detail: string;
+  expectedBy?: number;
+  arrangements: { chapter: number; goal: string }[];
+  evidence: { chapter: number; label: string; anchor?: TextAnchor }[];
+  history: { chapter: number; state: StoryProgress["state"]; detail: string }[];
+  actions?: PlanningAction[];
 }
 
 export interface ForeshadowLane {
@@ -260,6 +276,8 @@ export interface AnchorPayload {
 
 export interface ActionResult {
   changed: boolean;
+  message?: string;
+  adjustedChapters?: number[];
   /** 主线收束让目标章升级为回收章。要显式告诉用户 —— 一次点击改了两处。 */
   promotedToPayoff?: boolean;
   beat?: ChapterBeat;
@@ -410,6 +428,7 @@ function isRecord(v: unknown): v is Record<string, unknown> {
 }
 
 export const api = {
+  planningAction: (action: PlanningAction, reason?: string) => post<ActionResult>("/api/planning/action", { action, ...(reason === undefined ? {} : { reason }) }),
   preparation: () => request<PreparationPayload>("/api/preparation"),
   confirmPreparation: (proposalId: string) => post<{ changed: boolean; proposal: PreparationProposal }>("/api/preparation/confirm", { proposalId }),
   rejectPreparation: (proposalId: string) => post<PreparationProposal>("/api/preparation/reject", { proposalId }),
@@ -430,8 +449,8 @@ export const api = {
       `/api/anchor?chapter=${a.chapter}&quote=${encodeURIComponent(a.quote)}&offsetHint=${a.offsetHint}&occurrence=${a.occurrence}`,
     ),
 
-  action: (alertId: string, action: AlertAction) =>
-    post<ActionResult>("/api/alerts/action", { alertId, action }),
+  action: (alertId: string, action: AlertAction, reason?: string) =>
+    post<ActionResult>("/api/alerts/action", { alertId, action, ...(reason === undefined ? {} : { reason }) }),
   ignore: (alertId: string) => post<ActionResult>("/api/alerts/ignore", { alertId }),
   acknowledge: (alertId: string) => post<ActionResult>("/api/alerts/acknowledge", { alertId }),
   unacknowledge: (alertId: string) => post<ActionResult>("/api/alerts/unacknowledge", { alertId }),

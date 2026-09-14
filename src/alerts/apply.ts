@@ -71,15 +71,11 @@ export function applyActionToBeat(input: ApplyToBeatInput, rules: Rules): ApplyT
 /** 返回新 plan；动作与节拍表无关或已生效则返回 null。 */
 function planAfter(plan: ChapterPlan, action: AlertAction): ChapterPlan | null {  switch (action.kind) {
     case "add_resolution_to_beat": {
-      if (plan.resolves.some((r) => r.foreshadowId === action.foreshadowId)) return null;
-      const resolves = [
-        ...plan.resolves,
-        {
-          foreshadowId: action.foreshadowId,
-          weight: action.weight,
-          completeness: action.completeness,
-        },
-      ];
+      const existing = plan.resolves.find((r) => r.foreshadowId === action.foreshadowId);
+      if (existing?.weight === action.weight && existing.completeness === action.completeness) return null;
+      const resolution = { foreshadowId: action.foreshadowId, weight: action.weight, completeness: action.completeness };
+      const resolves = existing === undefined ? [...plan.resolves, resolution]
+        : plan.resolves.map(r => r.foreshadowId === action.foreshadowId ? resolution : r);
       return { ...plan, resolves, chapterType: typeAfterResolution(plan, action.weight) };
     }
 

@@ -7,7 +7,7 @@
  */
 
 import { useCallback, useState } from "react";
-import { api, selectedProjectId, type Alert, type AlertAction } from "./api.js";
+import { api, selectedProjectId, type Alert, type AlertAction, type PlanningAction } from "./api.js";
 import { useFetch, usePolling, useRoute, useToast } from "./hooks.js";
 import { TaskPanel } from "./components/TaskPanel.js";
 import type { ChapterTaskView } from "./api.js";
@@ -20,6 +20,7 @@ import { Chat } from "./pages/Chat.js";
 import { Works } from "./pages/Works.js";
 import { Preparation } from "./pages/Preparation.js";
 import { Drafts } from "./pages/Drafts.js";
+import { PlanningActionDialog, type EditablePlanningAction } from "./components/PlanningActionDialog.js";
 
 const VIEWS = [
   { path: "/foreshadow", label: "伏笔时间线" },
@@ -45,6 +46,7 @@ function ProjectApp(): React.ReactElement {
   const [toast, showToast] = useToast();
   const [nonce, setNonce] = useState(0);
   const [navOpen, setNavOpen] = useState(false);
+  const [planningAction, setPlanningAction] = useState<{ title: string; alertId?: string; action: EditablePlanningAction } | null>(null);
 
   const overview = useFetch(() => api.overview(), [nonce]);
   const tasks = usePolling(api.chapterTasks);
@@ -70,15 +72,19 @@ function ProjectApp(): React.ReactElement {
         go(target?.path ?? "/foreshadow");
         return;
       }
+      if (action.kind === "reschedule" || action.kind === "abandon") {
+        setPlanningAction({ title: alert.title, alertId: alert.id, action });
+        return;
+      }
       try {
         const result = await api.action(alert.id, action);
         const budget = result.beat?.budget;
         showToast(
-          !result.changed
+          result.message ?? (!result.changed
             ? `${actionLabel(action)}：无需改动`
             : result.promotedToPayoff === true && budget != null
               ? `已${actionLabel(action)}；该章已改为回收章，预算随之放宽到 ${budget.words.min}–${budget.words.max} 字（主线收束需要呼应空间）`
-              : `已${actionLabel(action)}`,
+              : `已${actionLabel(action)}`),
         );
         refresh();
       } catch (e) {
@@ -87,6 +93,15 @@ function ProjectApp(): React.ReactElement {
     },
     [go, refresh, showToast],
   );
+
+  const onPlanningAction = useCallback(async (title: string, action: PlanningAction) => {
+    if (action.kind === "reschedule" || action.kind === "abandon") { setPlanningAction({ title, action }); return; }
+    try {
+      const result = await api.planningAction(action);
+      showToast(result.message ?? "安排已保存");
+      refresh();
+    } catch (cause) { showToast(`失败：${cause instanceof Error ? cause.message : String(cause)}`); }
+  }, [refresh, showToast]);
 
   const onIgnore = useCallback(
     async (alert: Alert) => {
@@ -155,11 +170,19 @@ function ProjectApp(): React.ReactElement {
             refresh={refresh}
             tasks={tasks.data ?? []}
             reloadTasks={tasks.reload}
+            refreshKey={nonce}
+            onPlanningAction={onPlanningAction}
           />
         )}
       </main>
 
       {toast !== null && <div className="toast">{toast}</div>}
+      {planningAction !== null && <PlanningActionDialog title={planningAction.title} action={planningAction.action} currentChapter={overview.data?.currentChapter ?? 0}
+        onClose={() => setPlanningAction(null)} onApply={async (action, reason) => {
+          const result = planningAction.alertId === undefined ? await api.planningAction(action, reason) : await api.action(planningAction.alertId, action, reason);
+          showToast(result.message ?? "安排已保存");
+          refresh();
+        }} />}
     </div>
   );
 }
@@ -173,9 +196,11 @@ interface RoutedProps {
   refresh: () => void;
   tasks: readonly ChapterTaskView[];
   reloadTasks: () => void;
+  refreshKey: number;
+  onPlanningAction: (title: string, action: PlanningAction) => void;
 }
 
-function Routed({ route, overview, onAction, onIgnore, onJump, refresh, tasks, reloadTasks }: RoutedProps): React.ReactElement {
+function Routed({ route, overview, onAction, onIgnore, onJump, refresh, tasks, reloadTasks, refreshKey, onPlanningAction }: RoutedProps): React.ReactElement {
   const [path, search] = route.split("?");
   const query = new URLSearchParams(search ?? "");
 
@@ -193,7 +218,7 @@ function Routed({ route, overview, onAction, onIgnore, onJump, refresh, tasks, r
     return <Home overview={overview} onAction={onAction} onIgnore={onIgnore} />;
   }
   if (path === "/alerts") {
-    return <AlertList onAction={onAction} onIgnore={onIgnore} refreshKey={overview.currentChapter} />;
+    return <AlertList onAction={onAction} onIgnore={onIgnore} refreshKey={refreshKey} onPlanningAction={onPlanningAction} />;
   }
   if (path?.startsWith("/chapter/")) {
     const n = Number(path.slice("/chapter/".length));

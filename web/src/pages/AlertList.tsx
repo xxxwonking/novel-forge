@@ -6,12 +6,13 @@
  * 所以把 gate 的判断结果显式列出来。
  */
 
-import { api, type Alert, type AlertAction } from "../api.js";
+import { api, type Alert, type AlertAction, type PlanningAction } from "../api.js";
 import { useFetch } from "../hooks.js";
 import { AlertCard } from "../components/AlertCard.js";
+import { StoryProgressList } from "../components/StoryProgressList.js";
 
 const REASON_LABEL: Record<string, string> = {
-  scheduled: "已排进下一章节拍表",
+  scheduled: "已安排，等待正文完成并采用",
   acknowledged: "已标「有意为之」",
   fatigued: "忽略多次，退出首页",
 };
@@ -20,9 +21,10 @@ export interface AlertListProps {
   onAction: (alert: Alert, action: AlertAction) => void;
   onIgnore: (alert: Alert) => void;
   refreshKey: number;
+  onPlanningAction: (title: string, action: PlanningAction) => void;
 }
 
-export function AlertList({ onAction, onIgnore, refreshKey }: AlertListProps): React.ReactElement {
+export function AlertList({ onAction, onIgnore, refreshKey, onPlanningAction }: AlertListProps): React.ReactElement {
   const { data, error, loading } = useFetch(() => api.alerts(), [refreshKey]);
 
   if (error !== null) return <div className="empty">读取失败：{error}</div>;
@@ -35,10 +37,11 @@ export function AlertList({ onAction, onIgnore, refreshKey }: AlertListProps): R
       <div className="page-head">
         <h1>全部提示</h1>
         <p>
-          首页只放三条 —— 用户能处理完的告警才有价值。其余在这里，按同一个分数排序。
-          后向修复（要回头改已写的章）单独进「待返修」，不占首页。
+          查看当前需要处理的问题、后续安排及完成依据。需要修改已写章节的问题单独放在「待返修」。
         </p>
       </div>
+
+      <StoryProgressList entries={data.progress} onAction={onPlanningAction} />
 
       <section className="section">
         <h2>首页三条</h2>
@@ -79,9 +82,9 @@ export function AlertList({ onAction, onIgnore, refreshKey }: AlertListProps): R
       </section>
 
       <section className="section">
-        <h2>已被挡下（{data.suppressed.length}）</h2>
+        <h2>暂不在当前提示中（{data.suppressed.length}）</h2>
         {data.suppressed.length === 0 ? (
-          <div className="empty">没有被挡下的提示。</div>
+          <div className="empty">没有暂时移出的提示。</div>
         ) : (
           <table>
             <thead>
@@ -97,7 +100,7 @@ export function AlertList({ onAction, onIgnore, refreshKey }: AlertListProps): R
                 <tr key={alert.id}>
                   <td>{alert.title}</td>
                   <td>
-                    <span className="tag" data-tone="done">
+                    <span className="tag" data-tone={reason === "scheduled" ? "warn" : "done"}>
                       {REASON_LABEL[reason] ?? reason}
                     </span>
                   </td>

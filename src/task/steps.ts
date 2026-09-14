@@ -134,6 +134,7 @@ export async function declareStructure(
   if (issue !== null) return { kind: "failed", detail: `C5 输出结构不完整或字段无效：${issue}` };
 
   const parse = parseC5(json, { ...input.parseContextBase, chapterText: write.body });
+  if (parse.errors.length > 0) return { kind: "failed", detail: `C5 伏笔记录需要核对：${parse.errors.join("；")}` };
   const c5Findings = [
     ...crossCheckC5({ declaration: parse.declaration, chapterText: write.body }),
     ...checkPromisedResolutions(parse.declaration, input.promisedResolutions),

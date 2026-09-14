@@ -18,6 +18,11 @@ import { CORRECTION_VALUE_SCHEMAS } from "../chapter/c5-correction.js";
 
 export const MAIN_AGENT_TOOLS: readonly Anthropic.Tool[] = [
   {
+    name: "get_story_progress",
+    description: "读取故事安排与处理进度：未来规划、未处理、已安排、改期、放弃、部分兑现、已兑现，以及情节推进、人物出场和作者确认退场。返回具体章节、依据和历史。安排或改期不代表正文已解决；部分兑现仍需跟踪剩余承诺。只读，不启动写作或采用。",
+    input_schema: { type: "object", additionalProperties: false, properties: {}, required: [] },
+  },
+  {
     name: "revise_chapter_draft",
     description: "按作者要求启动正文局部改写或未完成片段续写，保存新版本，随后核对与检查，不自动采用。先 get_chapter_draft 取得正文和 revisionToken。rewrite 必须以 scope.quote 指定精确原文，重复出现时 occurrence 从 0 开始；scope=null 仅用于作者明确允许修改整章。continue 仅追加并保留已有片段，scope=null。需要扩大范围时只返回建议。requestId 为本次操作稳定且唯一的字符串，重试沿用。返回 running 仅表示已启动，不等于已完成。",
     input_schema: { type: "object", additionalProperties: false, properties: {
@@ -199,6 +204,7 @@ export const MAIN_AGENT_TOOLS: readonly Anthropic.Tool[] = [
 
 /** 回归测试的期望顺序。改动工具集必须同步改这里，让测试逼你确认一次（§13.8 同款纪律）。 */
 export const EXPECTED_MAIN_AGENT_TOOL_ORDER: readonly string[] = [
+  "get_story_progress",
   "revise_chapter_draft",
   "get_chapter_draft",
   "correct_draft_structure",

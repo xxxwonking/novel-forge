@@ -101,6 +101,8 @@ export type ForeshadowVisibility = "overt" | "covert";
 export interface ForeshadowPlantedPayload {
   readonly type: "foreshadow_planted";
   readonly foreshadowId: ForeshadowId;
+  /** 从作者已确认规划进入正文时，沿用该规划的编号并保留关联。 */
+  readonly plannedForeshadowId?: ForeshadowId;
   /** 短标签，进 L2 索引（§13.4 只给 label 不给 intent）。 */
   readonly label: string;
   /**

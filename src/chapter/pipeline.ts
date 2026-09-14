@@ -176,6 +176,7 @@ export async function runChapter(
   if (issue !== null) return { kind: "failed", step: "C5", detail: `C5 输出结构不完整或字段无效：${issue}`, chapterText, metrics };
 
   const parsed = parseC5(parse, { ...input.parseContextBase, chapterText });
+  if (parsed.errors.length > 0) return { kind: "failed", step: "C5", detail: `C5 伏笔记录需要核对：${parsed.errors.join("；")}`, chapterText, metrics };
   const c5Findings = [
     ...crossCheckC5({ declaration: parsed.declaration, chapterText }),
     ...checkPromisedResolutions(parsed.declaration, input.promisedResolutions),

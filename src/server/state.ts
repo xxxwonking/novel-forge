@@ -35,7 +35,6 @@ import { MainAgentService } from "../agent/service.js";
 import type { AgentActionOutcome, MainAgentToolContext, PlanAddInput } from "../agent/tool-exec.js";
 import type { MainAgentContextInfo } from "../agent/system-prompt.js";
 import type { AlternativeIdea, ConversationReply, ConversationTurn } from "../agent/types.js";
-import { applyActionToBeat } from "../alerts/apply.js";
 import { createModelClient } from "../client/create.js";
 import type { ModelClient } from "../client/model.js";
 import { countWords } from "../text/measure.js";
@@ -50,6 +49,8 @@ import { prepareDraftProposals, previewDraftProposals, selectedProposalIndices }
 import { draftRevisionToken, stableFingerprint } from "../task/revision.js";
 import { checkChapter } from "../task/steps.js";
 import { crossCheckC5, checkPromisedResolutions } from "../chapter/c5-crosscheck.js";
+import { PlanningService } from "../planning/service.js";
+import { buildStoryProgress } from "../alerts/progress.js";
 
 export interface SessionDerived {
   readonly projections: Projections;
@@ -60,6 +61,7 @@ export interface SessionDerived {
 
 export class ProjectSession {
   readonly preparation: PreparationService;
+  readonly planning: PlanningService;
   private readonly store: ProjectStore;
   private readonly drafts: DraftStore;
   private readonly writer: ChapterWriter;
@@ -105,6 +107,7 @@ export class ProjectSession {
       transaction: (operation) => this.transact(operation), rules: this.rules,
       checkChapter: (chapter) => { buildChapterRunInput(this, chapter); },
     });
+    this.planning = new PlanningService(this, operation => this.transact(operation));
   }
 
   // ── 读 ────────────────────────────────────────────────────────────────
@@ -178,6 +181,8 @@ export class ProjectSession {
   alertState(id: AlertId): AlertState | undefined {
     return this.alertStates.get(id);
   }
+
+  storyProgress(): ReturnType<typeof buildStoryProgress> { return buildStoryProgress(this); }
 
   // ── 写 ────────────────────────────────────────────────────────────────
 
@@ -542,6 +547,7 @@ export class ProjectSession {
       getChapterText: (chapter, excerpt) => readSource().loadChapter(chapter, excerpt),
       getCharacter: (name) => readSource().loadCharacter(name),
       listOpenForeshadows: (weight) => readSource().listOpenForeshadows(weight),
+      getStoryProgress: () => JSON.stringify(this.storyProgress()),
       getNextPlan: () => {
         const next = this.nextChapter;
         const beat = this.beatFor(next);
@@ -564,47 +570,24 @@ export class ProjectSession {
       },
       addToNextChapter: async (input) => {
         const next = this.nextChapter;
-        const beat = this.beatFor(next);
-        if (beat === undefined) return fail("plan_add_to_next_chapter", `第 ${next} 章还没有节拍表，先排章`);
         const action = toAlertAction(input, next);
         if (typeof action === "string") return fail("plan_add_to_next_chapter", action);
-        const applied = applyActionToBeat({ beat, action, profile: this.profile, now: now() }, this.rules);
-        if (applied.changed) this.putBeat(applied.beat);
-        return {
-          message: applied.changed
-            ? `已加入第 ${next} 章计划${applied.promotedToPayoff ? "；该章升级为回收章，字数预算随之放宽" : ""}`
-            : "该安排已在计划中，无需重复",
-          effect: { kind: "plan_updated", chapter: next, promotedToPayoff: applied.promotedToPayoff },
-        };
+        try {
+          const applied = this.planning.apply(action);
+          return { message: applied.message, effect: { kind: "plan_updated", chapter: next, promotedToPayoff: applied.promotedToPayoff ?? false } };
+        } catch (error) { return fail("plan_add_to_next_chapter", error instanceof Error ? error.message : String(error)); }
       },
       rescheduleForeshadow: async (foreshadowId, expectedBy) => {
-        this.appendEvents([
-          {
-            chapter: this.currentChapter,
-            origin: "user_edit",
-            provenance: "authored",
-            payload: { type: "foreshadow_rescheduled", foreshadowId: foreshadowId as ForeshadowId, expectedBy },
-          },
-        ]);
-        return {
-          message: `已把伏笔 ${foreshadowId} 的预期收束改到第 ${expectedBy} 章`,
-          effect: { kind: "foreshadow_rescheduled", foreshadowId, expectedBy },
-        };
+        try {
+          const applied = this.planning.apply({ kind: "reschedule", foreshadowId, expectedBy });
+          return { message: applied.message, effect: { kind: "foreshadow_rescheduled", foreshadowId, expectedBy } };
+        } catch (error) { return fail("plan_reschedule_foreshadow", error instanceof Error ? error.message : String(error)); }
       },
       abandonForeshadow: async (foreshadowId, reason) => {
-        this.appendEvents([
-          {
-            chapter: this.currentChapter,
-            origin: "user_edit",
-            provenance: "authored",
-            payload: {
-              type: "foreshadow_abandoned",
-              foreshadowId: foreshadowId as ForeshadowId,
-              reason: reason || "作者在对话中废弃",
-            },
-          },
-        ]);
-        return { message: `已废弃伏笔 ${foreshadowId}`, effect: { kind: "foreshadow_abandoned", foreshadowId } };
+        try {
+          const applied = this.planning.apply({ kind: "abandon", foreshadowId }, { reason });
+          return { message: applied.message, effect: { kind: "foreshadow_abandoned", foreshadowId } };
+        } catch (error) { return fail("plan_abandon_foreshadow", error instanceof Error ? error.message : String(error)); }
       },
       recordIdea: async (text) => {
         const idea = this.conversation.recordIdea(text, now());
@@ -695,7 +678,7 @@ export class ProjectSession {
       projections,
       candidates,
       selection: selectAlerts(
-        { candidates, nextPlan: this.nextBeat?.plan ?? null },
+        { candidates, nextPlan: this.nextBeat?.provenance === "authored" || this.nextBeat?.provenance === "committed" ? this.nextBeat.plan : null },
         this.rules.alerts,
       ),
       views: buildViewModel(
@@ -715,8 +698,7 @@ export class ProjectSession {
 
 /**
  * PlanAddInput → AlertAction（三种 what）。返回错误字符串表示入参非法。
- * 品牌 ID（ForeshadowId/PlotLineId/CharacterId）在此按用户输入断言 —— 真实存在性由
- * applyActionToBeat 之后的写章/派生环节校验（引用不存在的 ID 会在写章装配时报错）。
+ * 品牌 ID 在此转换，真实存在性和当前可操作状态由 PlanningService 在保存前校验。
  */
 function toAlertAction(input: PlanAddInput, targetChapter: ChapterNo): AlertAction | string {
   switch (input.what) {

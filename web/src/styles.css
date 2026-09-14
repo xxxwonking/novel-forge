@@ -38,6 +38,25 @@
   box-sizing: border-box;
 }
 
+.story-progress-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap: 14px; }
+.story-progress-card { min-width: 0; border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; background: var(--bg-raised); overflow-wrap: anywhere; }
+.story-progress-card .row { flex-wrap: wrap; justify-content: space-between; gap: 8px; }
+.story-progress-card p { margin: 10px 0; line-height: 1.7; font-size: 13px; }
+.story-progress-card details { margin-top: 12px; font-size: 12px; color: var(--ink-dim); }
+.story-progress-card summary { cursor: pointer; }
+.story-progress-card ol { padding-left: 22px; line-height: 1.8; }
+.story-arrangements, .story-evidence { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; font-size: 12px; }
+.story-evidence a { color: #9abbd1; text-underline-offset: 3px; }
+.story-progress-card .alert-actions button { color: var(--ink-dim); }
+.planning-dialog { width: min(540px, calc(100vw - 32px)); max-height: calc(100dvh - 40px); overflow: auto; color: var(--ink); background: var(--bg-raised); border: 1px solid var(--line-bright); border-radius: 8px; padding: 24px; }
+.planning-dialog::backdrop { background: rgb(0 0 0 / 65%); }
+.planning-dialog h2 { margin-top: 0; }
+.planning-dialog p { line-height: 1.7; overflow-wrap: anywhere; }
+.planning-dialog fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
+.planning-dialog label { display: block; margin: 16px 0 8px; }
+.planning-dialog input, .planning-dialog textarea { width: 100%; min-width: 0; box-sizing: border-box; }
+.planning-dialog .row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 18px; }
+
 html,
 body,
 #root {
