@@ -181,6 +181,8 @@ export interface AgentLoopResult {
   readonly toolRounds: number;
   /** 达到步数上限时仍在请求工具 —— 回复可能不完整。 */
   readonly hitCap: boolean;
+  /** 可回放的完整前缀；不会含尚未执行或被截断的工具调用。 */
+  readonly modelMessages: readonly Anthropic.MessageParam[];
 }
 
 /**
@@ -197,29 +199,29 @@ export async function runAgentLoop(
   let messages: readonly Anthropic.MessageParam[] = callOpts.messages;
   let toolRounds = 0;
   const effects: AgentEffect[] = [];
+  const stopped = (text: string, hitCap = false): AgentLoopResult => ({
+    text, effects, toolRounds, hitCap,
+    // 错误说明来自程序，不伪装成带有模型内部字段的 assistant 消息。
+    modelMessages: [...messages, { role: "user", content: `系统记录：上一轮在此停止，已返回的工具结果仍有效。对作者显示的结果：${text}` }],
+  });
 
   for (;;) {
     const result = await client.call({ ...callOpts, messages });
 
     if (result.kind === "error") {
-      return { text: `（模型调用失败：${result.error.message}）`, effects, toolRounds, hitCap: false };
+      return stopped(`（模型调用失败：${result.error.message}）`);
     }
     if (result.kind === "refusal") {
-      return { text: result.userMessage, effects, toolRounds, hitCap: false };
+      return stopped(result.userMessage);
     }
     if (result.kind === "max_tokens") {
-      return { text: extractText(result.message) || "（回复超出长度上限，未完成）", effects, toolRounds, hitCap: false };
+      return stopped(extractText(result.message) || "（回复超出长度上限，未完成）");
     }
     if (result.message.stop_reason !== "tool_use") {
-      return { text: extractText(result.message), effects, toolRounds, hitCap: false };
+      return { text: extractText(result.message), effects, toolRounds, hitCap: false, modelMessages: appendTurn(messages, result.message, []) };
     }
     if (toolRounds >= maxRounds) {
-      return {
-        text: extractText(result.message) || "（这一步涉及的操作较多，我先停下。请把要做的事说得更具体一点。）",
-        effects,
-        toolRounds,
-        hitCap: true,
-      };
+      return stopped(extractText(result.message) || "（这一步涉及的操作较多，我先停下。请把要做的事说得更具体一点。）", true);
     }
     toolRounds += 1;
     const toolResults: Anthropic.ToolResultBlockParam[] = [];

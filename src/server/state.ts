@@ -267,11 +267,11 @@ export class ProjectSession {
    */
   async converse(text: string): Promise<ConversationReply> {
     const client = this.getModelClient();
-    const readSource = buildChapterReadSource(this, Math.max(this.nextChapter, 1));
     const service = new MainAgentService({
       client,
       store: this.conversation,
-      ctx: this.buildAgentContext(readSource),
+      // 排队的回合在真正开始时取资料，包含前一回合已采用的正文和状态。
+      ctx: () => this.buildAgentContext(buildChapterReadSource(this, Math.max(this.nextChapter, 1))),
       contextInfo: () => this.agentContextInfo(),
       maxRounds: this.rules.agent.maxConversationRounds,
     });

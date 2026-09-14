@@ -13,7 +13,7 @@ CHAT_API_KEY=your-api-key
 CHAT_MODEL=gemini-3-flash
 ```
 
-`CHAT_BASE_URL` 可使用服务根地址或以 `/v1` 结尾的地址。`.env.local` 已被 Git 忽略，`npm run serve` 和 `npm run acceptance:chat` 会加载它；进程已有同名环境变量时以进程环境为准。不要将真实配置写入 `.env.example`。
+`CHAT_BASE_URL` 可使用服务根地址、API 路径前缀或完整 `/chat/completions` 地址。`.env.local` 已被 Git 忽略，`npm run serve` 和 `npm run acceptance:chat` 会加载它；进程已有同名环境变量时以进程环境为准。不要将真实配置写入 `.env.example`。上述旧 Gemini 配置保持有效；国内官方模型、代理与可选兼容参数见[统一模型配置](model-configuration.md)。
 
 chat 配置缺失或请求失败会明确报错。未设置 `NOVEL_MODEL_PROVIDER` 的旧环境仍使用 Claude 客户端；进行本轮 Gemini 测试时应明确设置 `chat`。
 
@@ -32,14 +32,15 @@ npm run acceptance:chat
 
 通过检查的 ready 稿会在这个测试作品内采用，再验证下一章能读取该正文；不会继续生成第二章。未通过检查或生成失败时保留结果。退出码 0 表示本次流程通过，2 表示正文需要修改，1 表示任务或运行失败。
 
-可把输出父目录作为参数，例如 `npm run acceptance:chat -- C:/path/to/test-data`。该命令始终新建作品，不覆盖同级已有目录。用 `npm run serve -- <测试作品路径>` 可打开其中的阅读视图；写作结果界面仍待开发。
+可把输出父目录作为参数，例如 `npm run acceptance:chat -- C:/path/to/test-data`。该命令始终新建作品，不覆盖同级已有目录。用 `npm run serve -- <测试作品路径>` 可打开阅读视图和 `/chat` 对话页；完整草稿结果页仍待开发。
 
 ## 协议与恢复
 
-- C4 支持工具往返和 SSE 长输出，C5 请求 JSON schema；所有声明仍经过原有解析和检查。
+- C4 支持工具往返和 SSE 长输出，C5 默认请求 JSON schema，也可配置 JSON Object 或提示模式；所有声明仍经过原有解析和检查。
 - 原始 assistant 消息连同代理的工具签名、reasoning 等内部字段随草稿保存，供工具后续轮次及 C5 恢复；读取草稿 API 不返回内部会话。
-- 更换模型或端点后，已有 chat 会话不能直接恢复；使用原配置恢复该稿，或明确另建草稿。密钥轮换不改变会话目标标识。
-- Claude 专用的 thinking、effort 和缓存标记不会发送到 chat 接口。代理的模型别名可能自行决定推理设置。
+- 更换模型、端点或显式思考配置后，已有草稿会话不能直接恢复；使用原配置恢复该稿，或明确另建草稿。密钥轮换及 JSON 模式调整不改变会话目标标识。
+- Claude 调用中的 thinking、effort 和缓存标记不会发送到 chat 接口。可以另行显式配置 Chat 的思考扩展，具体字段必须由所用代理支持；默认仍由代理模型自行决定。
+- 主 Agent 跨回合也保留完整 Chat 消息；旧对话或切换模型时使用可见文字接续，内部推理字段不返回网页。
 - 用量按代理返回记录；不同服务对总量和推理 token 的口径可能不同。此实测不替代 `acceptance:m1` 的 Claude 官方缓存验收。
 
 现有阅读演示的下一章节拍及设定仍需准备；本脚本使用完整的独立测试资料。常规 `npm test` 仅使用假模型/本地 HTTP 服务。
@@ -54,4 +55,4 @@ npm run acceptance:chat
 
 本地作品位于 `data/chat-smoke-2026-09-10-4xJ2NV/`。`report.md` / `report.json` 保留首次失败记录，`report-resume.md` / `report-resume.json` 记录修复后的恢复验证，正文在 `drafts/ch1/ch1d1.txt`。这些产物和真实配置均被 Git 忽略。
 
-随后在 Chromium 中验证首页、全部提示、四种结构视图、正文与体检，确认显示 2287 字，点击情节节点会滚动到高亮原文，未发现脚本错误或失败请求。相关报告和截图保存在同一作品目录，见 `web-report.json` 及 `web-*.png`。网页写章/采用入口仍待接入。
+随后在 Chromium 中验证首页、全部提示、四种结构视图、正文与体检，确认显示 2287 字，点击情节节点会滚动到高亮原文，未发现脚本错误或失败请求。相关报告和截图保存在同一作品目录，见 `web-report.json` 及 `web-*.png`。该次实测发生在对话页接入之前；后续 Stage 2 已提供通过对话写章与采用的入口，以上历史记录不代表新增界面的真实模型验收。

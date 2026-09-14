@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ChatClient } from "../client/chat.js";
+import { chatOptionsFromEnv } from "../client/chat-config.js";
 import type { ModelClient } from "../client/model.js";
 import { WRITING_DISCIPLINE } from "../context/discipline.js";
 import { ProjectStore, type ProjectSnapshot } from "../store/persist.js";
@@ -81,20 +82,16 @@ export async function runChatSmoke(
   };
   writeFileSync(join(root, "report.json"), JSON.stringify(report, null, 2) + "\n", "utf8");
   const findings = draft.findings.map((finding) => `- ${finding.level} / ${finding.rule}：${finding.message}`).join("\n") || "无。";
-  writeFileSync(join(root, "report.md"), `# Gemini chat 单章测试\n\n模型：${model}\n\n状态：${draft.status}；字数：${report.words}；目标范围：${budget.min}–${budget.max}。\n\n测试作品采用：${adopted}；下一章读取采用正文：${nextChapterReadsBody}。\n\n[查看正文](drafts/ch1/${draft.draftId}.txt)\n\n## 检查结果\n\n${findings}\n\n${draft.error === null ? "" : `失败步骤：${draft.error.step}；${draft.error.detail}\n\n`}${report.scope}\n`, "utf8");
+  writeFileSync(join(root, "report.md"), `# Chat 单章测试\n\n模型：${model}\n\n状态：${draft.status}；字数：${report.words}；目标范围：${budget.min}–${budget.max}。\n\n测试作品采用：${adopted}；下一章读取采用正文：${nextChapterReadsBody}。\n\n[查看正文](drafts/ch1/${draft.draftId}.txt)\n\n## 检查结果\n\n${findings}\n\n${draft.error === null ? "" : `失败步骤：${draft.error.step}；${draft.error.detail}\n\n`}${report.scope}\n`, "utf8");
   return { root, report };
 }
 
 async function main() {
   if (process.env.NOVEL_MODEL_PROVIDER !== "chat") throw new Error("单章 chat 实测要求 NOVEL_MODEL_PROVIDER=chat");
-  const required = (name: string) => {
-    const value = process.env[name]?.trim();
-    if (!value) throw new Error(`缺少 ${name}`);
-    return value;
-  };
+  const config = chatOptionsFromEnv();
   const usage: unknown[] = [];
-  const model = required("CHAT_MODEL");
-  const client = new ChatClient({ baseURL: required("CHAT_BASE_URL"), apiKey: required("CHAT_API_KEY"), model, onUsage: (record) => { usage.push(record); process.stdout.write(`模型调用 ${usage.length} 完成。\n`); } });
+  const model = config.model;
+  const client = new ChatClient({ ...config, onUsage: (record) => { usage.push(record); process.stdout.write(`模型调用 ${usage.length} 完成。\n`); } });
   const result = await runChatSmoke(resolve(process.argv[2] ?? "data"), client, model, { usage: () => usage, log: (message) => process.stdout.write(message + "\n") });
   process.stdout.write(JSON.stringify(result, null, 2) + "\n");
   process.exitCode = result.report.adopted && result.report.nextChapterReadsBody ? 0 : result.report.status === "needs_revision" ? 2 : 1;

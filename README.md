@@ -2,7 +2,7 @@
 
 基于 TypeScript、LangGraph JS 和 React 的小说创作 Agent 项目，主要参考 [OpenFic](https://github.com/syrizelink/OpenFic)，持续探索作者通过对话创作、通过结构视图监督长篇小说的体验。
 
-当前代码包含章节生成与结构声明、规则检查、事件存储、告警计算，以及本地 Web 阅读工作区。服务端已通过 LangGraph JS 接通写章、草稿保存、失败恢复和按版本采用；支持原生 Claude SDK 及 chat 接口的 Gemini 代理。Web 已有首页、四种结构视图、正文定位和章节体检，对话式创建作品、写章与草稿结果界面仍待接入。
+当前代码包含章节生成与结构声明、规则检查、事件存储、告警计算，以及本地 Web 工作区。服务端已通过 LangGraph JS 接通写章、草稿保存、失败恢复和按版本采用；支持 Claude Messages，以及 DeepSeek 等国内官方 API 和代理提供的 Chat 兼容接口。Web 已有首页、结构视图、正文定位、章节体检和对话页，可通过主 Agent 调用写章与采用工具；对话式创建作品和完整草稿结果页仍待接入。
 
 ## 首次运行
 
@@ -41,7 +41,7 @@ npm run web:build
 
 请求格式、资料准备、错误码和恢复行为见[写章 API 使用说明](docs/chapter-write-api.md)。自动化测试使用假模型与临时项目，包含真实本地 HTTP 测试。
 
-Gemini 代理的配置和单章真实测试见[Gemini chat 使用说明](docs/gemini-chat.md)。将连接信息放入被忽略的 `.env.local`，设置 `NOVEL_MODEL_PROVIDER=chat`，再运行 `npm run acceptance:chat`；每次创建独立测试作品并保存正文、检查结果和用量。单章测试与长期创作质量、Claude 缓存验收分别记录。
+官方 API、代理／聚合平台、JSON 输出与思考模式的配置见[统一模型配置](docs/model-configuration.md)，之前的 Gemini 真实单章结果见[Gemini chat 使用说明](docs/gemini-chat.md)。将连接信息放入被忽略的 `.env.local`，设置 `NOVEL_MODEL_PROVIDER=chat`，再运行 `npm run acceptance:chat`；每次创建独立测试作品并保存正文、检查结果和用量。DeepSeek 已通过本地协议与工作流测试，官方真实 API 尚待实测。单章测试与长期创作质量、Claude 缓存验收分别记录。
 
 ## 目录与设计记录
 

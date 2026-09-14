@@ -1,5 +1,6 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import type { CallOptions, CallResult } from "./claude.js";
+import type { ChatCapabilities } from "./chat-config.js";
 
 export type JsonRecord = Record<string, unknown>;
 export function isRecord(value: unknown): value is JsonRecord {
@@ -44,7 +45,7 @@ function assistantMessage(content: string | readonly Anthropic.ContentBlockParam
   for (const block of content) {
     const saved = (block as unknown as JsonRecord)[SNAPSHOT];
     if (isRecord(saved)) {
-      if (saved.target !== target) throw new Error("草稿会话的模型或接口已变化，请恢复原配置后重试，或另写一版");
+      if (saved.target !== target) throw new Error("草稿会话的模型、接口或思考配置已变化，请恢复原配置后重试，或另写一版");
       if (!isRecord(saved.message) || saved.message.role !== "assistant") throw new Error("chat 会话快照损坏");
       return structuredClone(saved.message) as ChatAssistant;
     }
@@ -59,12 +60,20 @@ function assistantMessage(content: string | readonly Anthropic.ContentBlockParam
   return { role: "assistant", content: texts.length === 0 ? null : texts.join("\n\n"), ...(tools.length === 0 ? {} : { tool_calls: tools }) };
 }
 
-export function chatRequest(options: CallOptions, model: string, target: string, stream: boolean): JsonRecord {
+export function chatRequest(options: CallOptions, model: string, target: string, stream: boolean, capabilities: ChatCapabilities): JsonRecord {
   const messages: JsonRecord[] = [];
-  if (options.system !== undefined) messages.push({ role: "system", content: textContent(options.system) });
+  let system = options.system === undefined ? "" : textContent(options.system);
+  if (options.outputSchema !== undefined && capabilities.jsonMode !== "json_schema") {
+    system += `${system === "" ? "" : "\n\n"}最终回复必须是一个合法 JSON 对象，不要 Markdown 围栏或额外解释。可以先调用工具获取资料；完成后严格按以下 JSON Schema 输出 JSON：\n${JSON.stringify(options.outputSchema)}`;
+  }
+  if (system !== "") messages.push({ role: "system", content: system });
   for (const message of options.messages) {
     if (message.role === "assistant") {
-      messages.push(assistantMessage(message.content, target));
+      const assistant = assistantMessage(message.content, target);
+      if (capabilities.thinking === "enabled" && (options.tools?.length ?? 0) > 0 && typeof assistant.reasoning_content !== "string") {
+        throw new Error("思考模式的工具会话缺少原始 reasoning_content，请使用完整会话或设置 CHAT_THINKING=disabled");
+      }
+      messages.push(assistant);
       continue;
     }
     if (typeof message.content === "string") {
@@ -84,16 +93,18 @@ export function chatRequest(options: CallOptions, model: string, target: string,
   }
   return {
     model, messages, max_tokens: options.maxTokens, stream,
-    ...(stream ? { stream_options: { include_usage: true } } : {}),
+    ...(stream && capabilities.includeUsage ? { stream_options: { include_usage: true } } : {}),
+    ...(capabilities.thinking === "default" ? {} : { thinking: { type: capabilities.thinking } }),
+    ...(capabilities.reasoningEffort === "default" ? {} : { reasoning_effort: capabilities.reasoningEffort }),
     ...(options.tools === undefined || options.tools.length === 0 ? {} : { tools: options.tools.map((tool) => ({ type: "function", function: { name: tool.name, description: tool.description ?? "", parameters: tool.input_schema } })) }),
-    ...(options.outputSchema === undefined ? {} : { response_format: { type: "json_schema", json_schema: { name: "chapter_declaration", strict: true, schema: options.outputSchema } } }),
+    ...(options.outputSchema === undefined || capabilities.jsonMode === "prompt" ? {} : { response_format: capabilities.jsonMode === "json_object" ? { type: "json_object" } : { type: "json_schema", json_schema: { name: "chapter_declaration", strict: true, schema: options.outputSchema } } }),
   };
 }
 
 export function parseChatCompletion(value: unknown): ChatCompletion {
   if (!isRecord(value) || !Array.isArray(value.choices) || !isRecord(value.choices[0])) throw new Error("chat 响应缺少有效 choices");
   const choice = value.choices[0];
-  if (!isRecord(choice.message) || !["stop", "tool_calls", "length", "content_filter"].includes(String(choice.finish_reason))) throw new Error("chat 响应缺少有效消息或结束原因");
+  if (!isRecord(choice.message) || !["stop", "tool_calls", "length", "content_filter", "insufficient_system_resource", "aborted"].includes(String(choice.finish_reason))) throw new Error("chat 响应缺少有效消息或结束原因");
   const message = choice.message;
   if (message.content !== null && message.content !== undefined && typeof message.content !== "string") throw new Error("chat 返回了非文本内容");
   if (message.tool_calls !== undefined && message.tool_calls !== null && !Array.isArray(message.tool_calls)) throw new Error("chat 工具调用格式无效");
@@ -112,6 +123,9 @@ function tokenCount(value: unknown): number {
 export function chatResult(response: ChatCompletion, model: string, target: string): CallResult {
   const choice = response.choices[0];
   if (choice === undefined) throw new Error("chat 响应为空");
+  if (choice.finish_reason === "insufficient_system_resource" || choice.finish_reason === "aborted") {
+    return { kind: "error", error: { type: "status", status: null, retryable: true, message: `模型未完成生成（${choice.finish_reason}），请稍后重试。` } };
+  }
   const raw = choice.message;
   const refusal = typeof raw.refusal === "string" && raw.refusal !== "" ? raw.refusal : null;
   const stopReason = refusal !== null || choice.finish_reason === "content_filter" ? "refusal" : choice.finish_reason === "length" ? "max_tokens" : (raw.tool_calls?.length ?? 0) > 0 ? "tool_use" : "end_turn";

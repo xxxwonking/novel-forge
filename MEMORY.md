@@ -1,8 +1,8 @@
 # novel-forge 工作记忆
 
-更新时间：2026-09-10（Asia/Shanghai；Gemini chat 接入和真实单章恢复验证已完成；最新交接见第 14 节）
+更新时间：2026-09-14（Asia/Shanghai；国内官方与代理模型兼容实现和验证已完成；最新交接见第 16 节）
 
-记录范围：本文件汇总项目调研、用户流程设计、能力映射和开发进展。早前发布与复核记录在第 10、11 节；Mac 会话锁定 v1 决策并实现 Stage 1，见第 12 节；写章输入和 API 交付见第 13 节。**接手先读第 14 节：用户代理站的 Gemini 已通过 `/v1/chat/completions` 接入章节任务，真实生成 2287 字，修复返回格式兼容问题后只恢复 C5，通过检查、测试作品内采用和第二章读取验证。574 项测试、类型检查和前端构建通过，浏览器验证了阅读、体检和原文跳转，暂不调用 Claude。下一步是 Stage 2 文件级实施计划和产品界面接入。旧章节的历史待办以最新记录为准，不重新讨论已确认的框架与采用节奏。**
+记录范围：本文件汇总项目调研、用户流程设计、能力映射和开发进展。Stage 1 见第 12 节，写章 API 见第 13 节，Gemini 真实单章见第 14 节，Stage 2 对话式主 Agent 见第 15 节。**接手先读第 16 节：用户要求国内模型官方 API 与代理／聚合接口都支持，已补齐 Chat 能力配置、DeepSeek 预设、JSON Object 与完整思考会话保存。650 项测试、类型检查和前端构建通过；当前 Gemini 配置及真实作品保留，DeepSeek 官方 API 尚未真实调用。Stage 2 的对话页和写章／采用工具已经存在，后续是作品准备与完整结果页，不要重复实现对话入口。旧章节的历史待办以最新记录为准；沿用 LangGraph，当前代理单独实现和复核，暂不调用 Claude。**
 
 ## 1. 当前状态与接续位置
 
@@ -10,7 +10,7 @@
 - 前期完成了：阅读项目核心源码和历史记忆；核对工程进度；调研 LangChain / LangGraph 官方 JavaScript 文档及 OpenFic 核心实现；梳理首版用户流程；将作者操作映射到现有模块与缺口，提出能力建设顺序。
 - ~~当前处于用户流程设计与能力映射阶段。尚未选定流程框架，尚未开始本轮讨论对应的新功能开发。~~ **已过时（2026-09-10 下午）**：用户已评审并锁定 v1 决策（逐章采用、引入 LangGraph JS、不用 Codex/Gemini），Stage 1「可靠的章节任务基础」已实现并提交（第 12 节）。
 - 前期设计整理只新增本 MEMORY.md、docs/superpowers/specs/2026-09-09-novel-forge-user-flow-design.md，以及同目录的 2026-09-09-novel-forge-user-flow-capability-map.md，没有实现新功能或安装编排框架。2026-09-10 的发布准备另补充 README、忽略规则和 Node.js 类型依赖，见第 10 节。
-- **现接续入口是第 14 节**：写章 API 已接通 Gemini chat，`gemini-3-flash` 的工具往返、SSE 正文、结构声明、跨 Session 恢复及采用后读取均经真实单章验证；当前常规检查为 574 项测试、类型检查和前端构建通过，浏览器复测通过。Stage 2（对话式主 Agent、作品准备与草稿结果界面）仍待形成文件级计划，暂不使用 Claude。不要重复仓库调研、模型适配或框架讨论。
+- **现接续入口是第 16 节**：官方／代理 Chat 兼容配置和完整思考历史已实现，650 项测试、类型检查和构建通过。Stage 2 的对话式主 Agent 已在第 15 节交付；新建作品准备和完整草稿结果页仍待后续切片。用户现有 Gemini 配置未切换，DeepSeek 官方真实验证需要对应凭证。不要重复仓库调研、模型适配或框架讨论。
 - 助手提出的建议不等于用户批准的决策；下文分别标注。
 - 2026-09-09 的独立审查曾成功提出两项缺口：结构误读的纠正入口、生成中离开页面后的行为。两项均已补入流程草案及能力映射；之后的复核因服务限流失败。
 - 2026-09-10 早前曾再次尝试独立复核，仍因模型服务 rate limit 未完成。用户随后明确要求不使用独立 Agent，后续复核统一由当前主代理完成；不再将独立代理服务可用性作为后续工作的前置条件。
@@ -446,7 +446,7 @@ Mac 上 GitHub 的 HTTPS(443) 直连被掐、SSH 正常：git 用 SSH 远端；`
 
 ## 14. 2026-09-10 Gemini chat 接入与真实单章验证
 
-**当前接续入口。** 用户授权使用自有代理站 Gemini，并指定 chat 接口。本轮由当前代理完成实现、真实测试和复核，没有启动子代理、没有调用 Claude，也没有改动已有 `data/demo`。
+**历史交付记录，当前接续见第 16 节。** 用户授权使用自有代理站 Gemini，并指定 chat 接口。本轮由当前代理完成实现、真实测试和复核，没有启动子代理、没有调用 Claude，也没有改动已有 `data/demo`。
 
 ### 交付状态与当前网页
 
@@ -505,7 +505,7 @@ Mac 上 GitHub 的 HTTPS(443) 直连被掐、SSH 正常：git 用 SSH 远端；`
 
 ## 15. 2026-09-11 Stage 2·切片 1：对话式主 Agent（Mac 会话）
 
-**当前接续入口。** 本轮由当前代理独立实现、测试、自审，未调用 Codex/Gemini、未 spawn 子代理（沿用项目锁定规则）。基线 master `4df4a58`；分支 `stage2-conversation-agent` → **PR #2**（https://github.com/xxxwonking/novel-forge/pull/2），提交 `f54fde7`（引擎/agent + 服务端 + rules + 测试）、`b2313e5`（web），本节随后提交。
+**历史交付记录，当前接续见第 16 节。** 本轮由当前代理独立实现、测试、自审，未调用 Codex/Gemini、未 spawn 子代理（沿用项目锁定规则）。基线 master `4df4a58`；分支 `stage2-conversation-agent` → **PR #2**（https://github.com/xxxwonking/novel-forge/pull/2），提交 `f54fde7`（引擎/agent + 服务端 + rules + 测试）、`b2313e5`（web），本节随后提交。
 
 Stage 2 =「作者通过对话完成首章」，切成三片、先做第 1 片（对话式主 Agent），切片 2/3 见文末。
 
@@ -534,3 +534,45 @@ Stage 2 =「作者通过对话完成首章」，切成三片、先做第 1 片�
 - **切片 2**：作品准备（新建作品 + 对话建设定/人物/地点/写作纪律/首章节拍）。
 - **切片 3**：完整结果页富 UI（摘要/关键变化/伏笔情节四象限 + 跳原文）、手动编辑后重新检查、"已安排/已解决"语义衔接。
 - 真机验收：待官方 key（M1 缓存）或在 Windows 机用 Gemini 跑一轮 对话→写章→采用→下一章。
+
+## 16. 2026-09-14 国内官方与代理模型兼容
+
+**当前接续入口。** 用户明确回答“官方 API 和代理／聚合平台两种都需要支持”。本轮基于已拉取的 `aeff8b3`（PR #2 合并结果）开发；由当前代理独立实现、测试、自审，没有使用子代理。提交、合入和推送沿用已有授权。
+
+### 实现与配置
+
+- 保留两种接口：Claude Messages 与通用 Chat Completions。国内官方接口和代理共用 Chat 客户端，不引入 LangChain 模型抽象，不按域名或模型名猜测供应商能力，不自动换模型或回退 Claude。
+- 新增 `src/client/chat-config.ts`，服务工厂与 `acceptance:chat` 工装读取同一套配置。必填仍为 `NOVEL_MODEL_PROVIDER=chat`、`CHAT_BASE_URL`、`CHAT_API_KEY`、`CHAT_MODEL`。
+- 可选 `CHAT_PRESET=generic|deepseek`。generic 保持旧 Gemini 行为；deepseek 默认 `json_object`、显式 `thinking.disabled`，可单独覆盖。
+- 可配置三种 JSON 模式（json_schema/json_object/prompt）、思考开关、reasoning effort、每次最大输出预算、流式方式、流式 usage 扩展及超时。空的可选变量视为未配置，非法值在发请求前报错。
+- JSON Object 与 prompt 模式会加入完整 C5 schema 和明确 JSON 提示；原有本地解析、引用核对和业务检查保留。资源不足／aborted 明确返回模型错误，不解析残缺工具参数。
+- 支持服务根地址、任意 API 路径前缀（如 `/api/v3`、`/compatible-mode/v1`）和完整 `/chat/completions`。只有空路径自动补 `/v1`；旧 `/proxy` 若实际要求 `/proxy/v1/chat/completions`，应填 `/proxy/v1` 或完整 endpoint。
+- DeepSeek thinking 使用 `thinking.type`，effort 使用 `reasoning_effort`，独立于 Claude 的调用参数。未实现其他厂商的 `enable_thinking` 等扩展自动翻译；其标准 Chat 功能可用，扩展能力需按文档核对。
+- 同一次部署当前共用一组 Chat 地址、密钥、模型与能力，尚未提供 UI 模型选择、按角色选不同 Chat 模型、Responses 或 Gemini 原生 generateContent。
+
+### 完整会话与兼容决策
+
+- Chat 客户端提供不含凭证和明文端点的 `conversationKey`；`conversation.json` 增加内部 `modelHistory`，保存完整工具往返与最终 assistant（即使没有调用工具，也保留 reasoning_content）。Web GET/POST API 仍只返回可见文本、effects 和 ideas。
+- 原始历史不存在、目标改变或可见记录数不匹配时，将可见旧对话转为用户上下文。不会伪造 reasoning_content，也不会把旧模型内部字段直接发给新模型。
+- 错误、拒绝、截断、工具轮数到顶时，仅保存已完整执行的往返与说明性上下文；未执行或残缺的工具请求不在后续回合重放。回合内新记录的 ideas 不被旧状态覆盖。
+- 可见 user/agent 对与内部历史一次原子写入。同一个 ProjectSession 的对话顺序执行，资料在排队回合实际开始时取快照；仍没有跨进程锁、自动历史压缩或同回合采用后资料源刷新。
+- 默认 Chat 摘要算法保持兼容；模型、端点或显式思考配置变化会隔离草稿会话。密钥轮换、JSON 模式、预算与超时调整不改变目标，可修正 JSON 配置后只恢复 C5。
+- `official=false` 沿用 Claude 官方缓存验收口径，不表示 DeepSeek 官方 API 被误认为代理。
+
+### 验证与本地数据
+
+- 最新基线为 **31 文件／602 测试**；实现后 **32 文件／650 测试全部通过**（新增 48 项），`npm.cmd run typecheck` 和 `npm.cmd run web:build` 通过，`git diff --check` 无问题。依赖及锁文件未改动。
+- 先用 29 个失败用例复现配置／协议缺口，再实现；用 10 个失败用例复现思考历史丢失与回合交错，再修复。补充 DeepSeek 风格“对话 → 写章 → C5 → 采用 → 下一轮读取”、C5 失败跨 Session 恢复、JSON 本地拦截与 API 内部字段隔离测试。
+- 本轮 HTTP 测试使用本地脚本化服务。**没有调用 DeepSeek 官方或其他真实模型，没有声称国内模型写作质量已验收。** 官方文档已核对：JSON Object、thinking 工具历史、当前模型 ID、停止原因与输出上限。
+- 只读核对已有 Gemini 真实作品 `data/chat-smoke-2026-09-10-4xJ2NV/drafts/ch1/ch1d1.json` 的 **2 个原始会话目标**，与当前 `.env.local` 经新客户端计算的目标一致，未发网络请求、未修改正文。
+- 主目录 `.env.local`、`data/demo`、Gemini 真实作品及原报告保留；本轮没有 seed、没有切换默认模型、没有输出或提交密钥。原网页进程是否正在使用新代码需启动／重启时核对，不能沿用历史 PID 直接终止。
+- 工作目录为 `C:/Users/Administrator/Desktop/novel-forge-worktrees/model-compatibility`，分支 `feat-model-compatibility`。实现和验证已完成；本节初次提交时准备按授权快进合入、推送，最终集成记录随后补充。
+
+### 文档与下一步
+
+- 配置入口：`docs/model-configuration.md`，有官方 API 和代理两套完整示例；`.env.example` 保留旧 Gemini 默认配置并列出可选项；`docs/gemini-chat.md` 保留真实验收记录。
+- 设计：`docs/superpowers/specs/2026-09-14-model-compatibility-design.md`；计划：`docs/superpowers/plans/2026-09-14-model-compatibility.md`。
+- [x] 国内官方／代理 Chat 兼容能力与 DeepSeek 预设；主 Agent 完整思考历史；本地协议和工作流验证。
+- [ ] 使用用户提供的对应凭证、地址和模型 ID，分别进行目标国内官方／代理的真实单章验收；现有代理密钥不得用于官方域名。
+- [ ] 继续 Stage 2·切片 2 的作品准备与切片 3 的完整结果页；先核对最新分支进度，避免重复已存在的对话页和动作工具。
+- [ ] 界面完整后验证同一故事连续 3～5 章质量；Claude 与 10 章官方缓存验收继续暂缓。

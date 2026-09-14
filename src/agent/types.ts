@@ -14,6 +14,7 @@
 import type { IsoTimestamp } from "../types/primitives.js";
 import type { ChapterDraftStatus, DraftId } from "../task/types.js";
 import type { ChapterNo } from "../types/primitives.js";
+import type Anthropic from "@anthropic-ai/sdk";
 
 /** 一次对话回合里发生的状态变化。只记真实副作用与失败，不记纯问答。 */
 export type AgentEffect =
@@ -60,6 +61,15 @@ export interface AlternativeIdea {
 export interface ConversationState {
   readonly turns: readonly ConversationTurn[];
   readonly ideas: readonly AlternativeIdea[];
+  /** 内部模型会话，不随 turns/ideas 返回到 Web。 */
+  readonly modelHistory?: ConversationModelHistory;
+}
+
+export interface ConversationModelHistory {
+  readonly target: string;
+  /** 与可见记录数一致才可回放，手动追加或旧版本写入后转为文本上下文。 */
+  readonly turnCount: number;
+  readonly messages: readonly Anthropic.MessageParam[];
 }
 
 /** 一次 converse() 的返回：回复文本 + 本回合的 effects + 工具轮数（成本可见）。 */

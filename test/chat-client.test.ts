@@ -89,6 +89,105 @@ describe("ChatClient", () => {
     expect(service.requests[0]?.response_format).toEqual({ type: "json_schema", json_schema: { name: "chapter_declaration", strict: true, schema } });
   });
 
+  it.each(["/api/v3", "/compatible-mode/v1/", "/chat/completions", "/custom/v2/chat/completions/"])("保留国内官方与代理的路径前缀 %s", async (suffix) => {
+    let path: string | undefined;
+    const service = await endpoint((_body, res, req) => { path = req.url; json(res, completion()); });
+    const client = new ChatClient({ baseURL: service.baseURL + suffix, apiKey: "local-test-key", model: "domestic-model" });
+    expect((await client.call(options())).kind).toBe("ok");
+    const clean = suffix.replace(/\/$/u, "");
+    expect(path).toBe(clean.endsWith("/chat/completions") ? clean : `${clean}/chat/completions`);
+  });
+
+  it.each(["json_object", "prompt"] as const)("C5 %s 提供完整 schema 与 JSON 指令，普通正文不受影响", async (jsonMode) => {
+    const service = await endpoint((_body, res) => json(res, completion()));
+    const schema = { type: "object", properties: { events: { type: "array", items: { type: "string" } } }, required: ["events"], additionalProperties: false };
+    const client = new ChatClient({ baseURL: service.baseURL, apiKey: "local-test-key", model: "domestic-model", jsonMode });
+    const system = [{ type: "text" as const, text: "保持设定一致。" }];
+    await client.call(options({ system, outputSchema: schema }));
+    const request = service.requests[0]!;
+    expect(request.messages[0].role).toBe("system");
+    expect(request.messages[0].content).toContain("保持设定一致。");
+    expect(request.messages[0].content).toContain(JSON.stringify(schema));
+    expect(request.messages[0].content).toMatch(/JSON/u);
+    expect(request.response_format).toEqual(jsonMode === "json_object" ? { type: "json_object" } : undefined);
+    expect(system).toEqual([{ type: "text", text: "保持设定一致。" }]);
+    await client.call(options());
+    expect(service.requests[1]?.messages).toEqual([{ role: "user", content: "写一段雨夜。" }]);
+    expect(service.requests[1]).not.toHaveProperty("response_format");
+  });
+
+  it("JSON Object 没有原 system 时仍加入 JSON 格式要求", async () => {
+    const service = await endpoint((_body, res) => json(res, completion()));
+    const client = new ChatClient({ baseURL: service.baseURL, apiKey: "local-test-key", model: "deepseek-test", preset: "deepseek" });
+    await client.call(options({ outputSchema: { type: "object", properties: {} } }));
+    expect(service.requests[0]?.messages[0]).toMatchObject({ role: "system" });
+    expect(service.requests[0]?.messages[0].content).toContain('"properties":{}');
+  });
+
+  it("思考参数由 Chat 配置显式决定，适用于对话和创作两个角色", async () => {
+    const service = await endpoint((_body, res) => json(res, completion()));
+    const client = new ChatClient({ baseURL: service.baseURL, apiKey: "local-test-key", model: "deepseek-test", thinking: "enabled", reasoningEffort: "low" });
+    await client.call(options({ role: "judge" }));
+    await client.call(options({ thinking: false, effort: "xhigh" }));
+    for (const request of service.requests) expect(request).toMatchObject({ thinking: { type: "enabled" }, reasoning_effort: "low" });
+  });
+
+  it("开启思考并携带工具时拒绝没有原始 reasoning_content 的 assistant 历史", async () => {
+    const service = await endpoint((_body, res) => json(res, completion()));
+    const client = new ChatClient({ baseURL: service.baseURL, apiKey: "local-test-key", model: "deepseek-test", thinking: "enabled" });
+    const result = await client.call(options({ tools: [{ name: "read", input_schema: { type: "object" } }], messages: [{ role: "assistant", content: "旧的纯文本回复" }, { role: "user", content: "继续" }] }));
+    expect(result).toMatchObject({ kind: "error", error: { retryable: false, message: expect.stringContaining("reasoning_content") } });
+    expect(service.requests).toHaveLength(0);
+  });
+
+  it("输出预算先按配置限额，流式选择使用限额后的预算", async () => {
+    const service = await endpoint((_body, res) => json(res, completion()));
+    const client = new ChatClient({ baseURL: service.baseURL, apiKey: "local-test-key", model: "domestic-test", maxOutputTokens: 4096 });
+    await client.call(options({ maxTokens: 16000 }));
+    await client.call(options({ maxTokens: 1000 }));
+    expect(service.requests[0]).toMatchObject({ max_tokens: 4096, stream: false });
+    expect(service.requests[1]).toMatchObject({ max_tokens: 1000, stream: false });
+  });
+
+  it.each(["always", "never"] as const)("代理可显式选择 %s 流式并省略不支持的 usage 扩展", async (stream) => {
+    const service = await endpoint((_body, res) => json(res, completion()));
+    const client = new ChatClient({ baseURL: service.baseURL, apiKey: "local-test-key", model: "domestic-test", stream, includeUsage: false });
+    await client.call(options({ maxTokens: stream === "always" ? 100 : 16000 }));
+    expect(service.requests[0]?.stream).toBe(stream === "always");
+    expect(service.requests[0]).not.toHaveProperty("stream_options");
+  });
+
+  it("思考配置变化阻止旧草稿恢复，JSON 模式与密钥轮换允许恢复", async () => {
+    const service = await endpoint((_body, res) => json(res, completion()));
+    const config = { baseURL: service.baseURL, apiKey: "local-test-key", model: "domestic-test" };
+    const result = await new ChatClient(config).call(options());
+    expect(result.kind).toBe("ok");
+    if (result.kind !== "ok") return;
+    const messages = appendTurn([], JSON.parse(JSON.stringify(result.message)), []);
+    const changed = await new ChatClient({ ...config, thinking: "disabled" }).call(options({ messages }));
+    expect(changed.kind).toBe("error");
+    expect(service.requests).toHaveLength(1);
+    const compatible = await new ChatClient({ ...config, apiKey: "rotated-test-key", jsonMode: "json_object" }).call(options({ messages }));
+    expect(compatible.kind).toBe("ok");
+    expect(service.requests).toHaveLength(2);
+  });
+
+  it.each(["insufficient_system_resource", "aborted"])("国内模型 %s 返回明确错误，残缺工具参数不会执行", async (reason) => {
+    const service = await endpoint((_body, res) => json(res, completion({ role: "assistant", content: "部分内容", tool_calls: [{ id: "partial", type: "function", function: { name: "load_character", arguments: "{" } }] }, reason)));
+    const result = await new ChatClient({ baseURL: service.baseURL, apiKey: "local-test-key", model: "deepseek-test" }).call(options());
+    expect(result).toMatchObject({ kind: "error", error: { type: "status", retryable: true, message: expect.stringContaining(reason) } });
+    expect(service.requests).toHaveLength(1);
+  });
+
+  it("SSE 的资源不足停止原因同样返回模型错误", async () => {
+    const service = await endpoint((_body, res) => {
+      res.writeHead(200, { "content-type": "text/event-stream" });
+      res.end('data: {"choices":[{"delta":{"content":"未完成"},"finish_reason":"insufficient_system_resource"}]}\n\ndata: [DONE]\n\n');
+    });
+    const result = await new ChatClient({ baseURL: service.baseURL, apiKey: "local-test-key", model: "deepseek-test" }).call(options({ maxTokens: 9000 }));
+    expect(result).toMatchObject({ kind: "error", error: { type: "status", retryable: true } });
+  });
+
   it("兼容代理用 tool_calls: null 表示没有工具调用的 JSON 响应", async () => {
     const service = await endpoint((_body, res) => json(res, completion({ role: "assistant", content: '{"events":[]}', tool_calls: null })));
     const client = new ChatClient({ baseURL: service.baseURL, apiKey: "local-test-key", model: "gemini-test" });

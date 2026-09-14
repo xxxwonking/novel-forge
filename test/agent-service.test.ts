@@ -126,4 +126,15 @@ describe("MainAgentService.send", () => {
   it("空消息被拒", async () => {
     await expect(service([modelText("x")]).send("   ")).rejects.toThrow();
   });
+
+  it("同一个 store 的并发回合有序执行，后发消息包含先前已完成的回复", async () => {
+    const { client, calls } = fakeClient([modelText("第一轮完成"), modelText("第二轮完成")]);
+    const first = new MainAgentService({ client, store, ctx: ctxWith(), contextInfo: () => INFO, maxRounds: 8 });
+    const second = new MainAgentService({ client, store, ctx: ctxWith(), contextInfo: () => INFO, maxRounds: 8 });
+    await Promise.all([first.send("第一条"), second.send("第二条")]);
+    expect(calls[1]?.messages).toEqual([
+      { role: "user", content: "第一条" }, { role: "assistant", content: "第一轮完成" }, { role: "user", content: "第二条" },
+    ]);
+    expect(store.load().turns.map((turn) => turn.text)).toEqual(["第一条", "第一轮完成", "第二条", "第二轮完成"]);
+  });
 });

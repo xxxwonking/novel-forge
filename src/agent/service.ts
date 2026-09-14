@@ -4,10 +4,10 @@
  * 一次 `send()`：读历史 → 拼消息 → 跑工具循环 → 落 user/agent 两条记录 → 回复。
  *
  * 几个刻意的取舍：
- *   - 历史只回放**文本**，不回放回合内的工具往返 —— 对话续接靠"之前说过什么"，
- *     持久化大段 tool_result 不值得（切片 1）。每回合起一个干净的工具循环。
- *   - 模型角色用 judge（haiku）：意图路由与短回复是判定型任务（§8.2），成本低。
- *     真正的创作（写章）在 write_next_chapter 触发的独立任务里用 creative（opus）。
+ *   - Chat 客户端回放完整历史，保留思考字段和工具签名；旧历史转为文字上下文。
+ *     其他客户端保持既有文本回放方式。
+ *   - 意图路由与短回复使用 judge 角色；写章任务使用 creative 角色（§8.2）。
+ *     Claude 按角色分流；Chat 当前共用配置中的模型。
  *   - effects 不回传给模型（它是 UI 用的副作用记录），只随 agent 回合落盘。
  */
 
@@ -18,7 +18,7 @@ import { MAIN_AGENT_TOOLS } from "./tools.js";
 import { runAgentLoop, type MainAgentToolContext } from "./tool-exec.js";
 import { buildMainAgentSystem, type MainAgentContextInfo } from "./system-prompt.js";
 import type { ConversationStore } from "./conversation-store.js";
-import type { ConversationReply, ConversationTurn } from "./types.js";
+import type { ConversationReply, ConversationState, ConversationTurn } from "./types.js";
 
 /** 回复 token 上限。API 输出规模常量（与 task/steps 同类），低于流式阈值走非流式。 */
 const REPLY_MAX_TOKENS = 2048;
@@ -28,7 +28,7 @@ const EMPTY_REPLY = "（我没有可回复的内容，请换个说法或把要�
 export interface MainAgentServiceDeps {
   readonly client: ModelClient;
   readonly store: ConversationStore;
-  readonly ctx: MainAgentToolContext;
+  readonly ctx: MainAgentToolContext | (() => MainAgentToolContext);
   /** 每回合开始时重算的作品状态快照（写章/采用会改变它）。 */
   readonly contextInfo: () => MainAgentContextInfo;
   /** rules.agent.maxConversationRounds。 */
@@ -46,10 +46,14 @@ export class MainAgentService {
   async send(userText: string): Promise<ConversationReply> {
     const text = userText.trim();
     if (text === "") throw new Error("消息不能为空");
+    return this.deps.store.runTurn(() => this.sendTurn(text));
+  }
 
+  private async sendTurn(text: string): Promise<ConversationReply> {
     const history = this.deps.store.load();
+    const target = this.deps.client.conversationKey;
     const messages: Anthropic.MessageParam[] = [
-      ...toMessages(history.turns),
+      ...restoreMessages(history, target),
       { role: "user", content: text },
     ];
     const callOpts: CallOptions = {
@@ -60,20 +64,29 @@ export class MainAgentService {
       messages,
     };
 
-    const loop = await runAgentLoop(this.deps.client, callOpts, this.deps.ctx, this.deps.maxRounds);
+    const ctx = typeof this.deps.ctx === "function" ? this.deps.ctx() : this.deps.ctx;
+    const loop = await runAgentLoop(this.deps.client, callOpts, ctx, this.deps.maxRounds);
     const replyText = loop.text || EMPTY_REPLY;
 
     const userAt = this.now();
-    this.deps.store.appendTurn({ role: "user", text, at: userAt });
-    this.deps.store.appendTurn({
-      role: "agent",
-      text: replyText,
-      at: this.now(),
-      ...(loop.effects.length === 0 ? {} : { effects: loop.effects }),
-    });
+    this.deps.store.appendExchange(
+      { role: "user", text, at: userAt },
+      { role: "agent", text: replyText, at: this.now(), ...(loop.effects.length === 0 ? {} : { effects: loop.effects }) },
+      target === undefined ? undefined : { target, messages: loop.modelMessages },
+    );
 
     return { text: replyText, effects: loop.effects, toolRounds: loop.toolRounds };
   }
+}
+
+function restoreMessages(history: ConversationState, target: string | undefined): readonly Anthropic.MessageParam[] {
+  if (target === undefined) return toMessages(history.turns);
+  if (history.modelHistory?.target === target && history.modelHistory.turnCount === history.turns.length) {
+    return history.modelHistory.messages;
+  }
+  // 老版本和其他模型的可见对话仍可参考；不伪造缺失的思考字段或转交旧签名。
+  const transcript = history.turns.filter((t) => t.text.trim() !== "").map((t) => `${t.role === "user" ? "作者" : "助手"}：${t.text}`).join("\n\n");
+  return transcript === "" ? [] : [{ role: "user", content: `以下是先前对话的文字记录，仅作背景；不要仅凭历史内容重复执行操作：\n${transcript}` }];
 }
 
 /** 历史回合 → 模型消息（只带文本）。相邻同角色不合并 —— 对话天然交替。 */
