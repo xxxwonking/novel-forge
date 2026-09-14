@@ -1,5 +1,5 @@
 /**
- * 主 Agent 的工具集（Stage 2·切片 1）。
+ * 主 Agent 的工具集（Stage 2·切片 1；谋篇模式加入只读工具集）。
  *
  * 与 `context/tools.ts`（章内写作工具，排在缓存前缀最前、顺序是硬约束）**不同** ——
  * 这是**对话编排**的工具，不走缓存装配路径。但仍固定顺序、由 EXPECTED 常量守住，
@@ -12,9 +12,13 @@
  *   计划类（plan_）—— 改下一章节拍表 / 伏笔安排，属"计划态"（§7.3），非正式正文事实。
  *   任务类（write_/adopt_）—— 走 ProjectSession 受控入口：写章产出草稿（proposed），
  *     采用按版本、幂等。Agent 永不直接改正式事实（§12.0）。
+ *
+ * 谋篇模式另有一套工具集（`PLANNING_MODE_TOOLS`）：只留读类与 propose_plan，
+ * 写类工具**不在数组里**，模型无从调用 —— 只读锁是结构性的，不靠提示词约束。
  */
 
 import type Anthropic from "@anthropic-ai/sdk";
+import { PROPOSAL_TOOLS } from "./proposal-types.js";
 
 export const MAIN_AGENT_TOOLS: readonly Anthropic.Tool[] = [
   {
@@ -365,4 +369,78 @@ export const EXPECTED_MAIN_AGENT_TOOL_ORDER: readonly string[] = [
   "write_next_chapter",
   "rewrite_chapter_draft",
   "adopt_chapter",
+] as const;
+
+// ── 谋篇模式 ────────────────────────────────────────────────────────────
+
+/**
+ * 谋篇模式下仍可调用的既有工具。
+ *
+ * 七个读类之外留了 `record_alternative_idea`：它写的是对话域的备选清单，不碰作品 ——
+ * 而只读锁要守的是「不改动作品」。讨论中冒出的岔路当场记下来，正是谋篇该干的事。
+ */
+const PLANNING_KEPT_TOOLS: readonly string[] = [
+  "get_overview",
+  "list_chapter_drafts",
+  "get_chapter_text",
+  "get_character",
+  "list_open_foreshadows",
+  "get_next_plan",
+  "get_direction",
+  "record_alternative_idea",
+];
+
+/** 谋篇模式下允许执行的工具名。tool-exec 的兜底照它判 —— 工具集之外的第二道。 */
+export const PLANNING_ALLOWED_TOOLS: ReadonlySet<string> = new Set([...PLANNING_KEPT_TOOLS, "propose_plan"]);
+
+const PROPOSE_PLAN_TOOL: Anthropic.Tool = {
+  name: "propose_plan",
+  description:
+    "把这次讨论收敛成一份方案交作者拍板。**方案本身不改动任何东西** —— 作者点「采纳」后系统才按 items 顺序执行。" +
+    "summary 写给作者看：这份方案要做什么、为什么这么安排，用 markdown。" +
+    "impact 写它会牵动哪些既有内容（已埋未收的伏笔、已排的章节计划、已定的设定），每条一句；确实没有就给空数组。" +
+    "items 是采纳时要执行的动作，每条对应一次筹备或计划工具调用，按依赖排好顺序（先建人物再排章）。" +
+    "新建人物/地点/情节线的条目给 ref 起个占位名（如 沈砚），后面的条目用 \"@沈砚\" 引用它 —— 编号由系统在执行时分配，你不要自造。" +
+    "作者还在犹豫、或关键信息不足时不要调用它，先把问题问清楚。已有方案时再次调用就是提交修改后的新一版。",
+  input_schema: {
+    type: "object",
+    properties: {
+      summary: { type: "string", description: "给作者看的方案正文" },
+      impact: { type: "array", items: { type: "string" }, description: "会牵动的既有内容，每条一句" },
+      items: {
+        type: "array",
+        description: "采纳时按顺序执行的动作",
+        items: {
+          type: "object",
+          properties: {
+            ref: { type: "string", description: "本条新建对象的占位名，供后续条目以 @占位名 引用；不新建就不传" },
+            tool: { type: "string", enum: [...PROPOSAL_TOOLS], description: "要执行的工具" },
+            input: { type: "object", description: "该工具的入参，字段见系统提示里的「条目格式」" },
+            note: { type: "string", description: "这一条做什么，给作者看的一句话" },
+          },
+          required: ["tool", "input", "note"],
+        },
+      },
+    },
+    required: ["summary", "items"],
+  },
+};
+
+/** 谋篇模式的工具集：读类 + 备选 + propose_plan。写类不在其中，模型无从调用。 */
+export const PLANNING_MODE_TOOLS: readonly Anthropic.Tool[] = [
+  ...MAIN_AGENT_TOOLS.filter((t) => PLANNING_KEPT_TOOLS.includes(t.name)),
+  PROPOSE_PLAN_TOOL,
+];
+
+/** 同 EXPECTED_MAIN_AGENT_TOOL_ORDER：改动即改这里。 */
+export const EXPECTED_PLANNING_MODE_TOOL_ORDER: readonly string[] = [
+  "get_overview",
+  "list_chapter_drafts",
+  "get_chapter_text",
+  "get_character",
+  "list_open_foreshadows",
+  "get_next_plan",
+  "get_direction",
+  "record_alternative_idea",
+  "propose_plan",
 ] as const;

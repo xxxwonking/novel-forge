@@ -64,6 +64,7 @@ function ctxWith(over: Partial<MainAgentToolContext> = {}): MainAgentToolContext
     writeNextChapter: async () => ({ message: "已写草稿", effect: { kind: "chapter_written", chapter: 3, draftId: "ch3d1", status: "ready", acceptable: true, revisions: 0 } }),
     rewriteChapterDraft: async (chapter) => ({ message: "已另写一版", effect: { kind: "chapter_written", chapter: chapter ?? 3, draftId: "ch3d2", status: "ready", acceptable: true, revisions: 0 } }),
     adoptChapter: async (draftId) => ({ message: "已采用", effect: { kind: "chapter_adopted", chapter: 3, draftId, superseded: 0, staleMarked: [] } }),
+    proposePlan: async () => ({ message: "已出方案", effect: { kind: "proposal_ready", id: "p1", version: 1, scope: "revision", items: 1, summary: "S" } }),
     ...over,
   };
 }
@@ -80,7 +81,7 @@ afterEach(() => {
 
 function service(results: Parameters<typeof fakeClient>[0], ctx: MainAgentToolContext = ctxWith()): MainAgentService {
   const { client } = fakeClient(results);
-  return new MainAgentService({ client, store, ctx, contextInfo: () => INFO, maxRounds: 8, clock: () => "2026-09-11T00:00:00.000Z" });
+  return new MainAgentService({ client, store, ctx, contextInfo: () => INFO, maxRounds: 8, maxPlanningRounds: 12, clock: () => "2026-09-11T00:00:00.000Z" });
 }
 
 describe("MainAgentService.send", () => {
@@ -131,7 +132,7 @@ describe("MainAgentService.send", () => {
   it("第二轮把历史作为消息带给模型", async () => {
     await service([modelText("好的。")]).send("第一句");
     const { client, calls } = fakeClient([modelText("收到。")]);
-    const svc = new MainAgentService({ client, store, ctx: ctxWith(), contextInfo: () => INFO, maxRounds: 8 });
+    const svc = new MainAgentService({ client, store, ctx: ctxWith(), contextInfo: () => INFO, maxRounds: 8, maxPlanningRounds: 12 });
     await svc.send("第二句");
     // 历史两条 + 本轮一条
     const messages = calls[0]?.messages ?? [];

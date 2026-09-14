@@ -65,6 +65,9 @@ export async function handleAsync(session: ProjectSession, req: ApiRequest): Pro
   if (req.method === "POST" && req.path === "/api/conversation") {
     return conversationSend(session, req.body);
   }
+  if (req.method === "POST" && req.path === "/api/proposal/adopt") {
+    return proposalAdopt(session, req.body);
+  }
   return handle(session, req);
 }
 
@@ -78,7 +81,11 @@ export function handle(session: ProjectSession, req: ApiRequest): ApiResponse {
       case "/api/prep":
         return ok(prep(session));
       case "/api/conversation":
-        return ok({ turns: session.conversationTurns(), ideas: session.listIdeas() });
+        return ok({ turns: session.conversationTurns(), ideas: session.listIdeas(), mode: session.conversationMode() });
+      case "/api/proposals":
+        return ok(session.listProposals());
+      case "/api/proposal":
+        return proposal(session, req.query);
       case "/api/views":
         return ok(session.derived.views);
       case "/api/alerts":
@@ -116,6 +123,8 @@ export function handle(session: ProjectSession, req: ApiRequest): ApiResponse {
         return chapterAdopt(session, req.body);
       case "/api/chapter/discard":
         return chapterDiscard(session, req.body);
+      case "/api/conversation/mode":
+        return conversationMode(session, req.body);
       default:
         return missing(`未知端点 ${path}`);
     }
@@ -472,6 +481,37 @@ async function conversationSend(session: ProjectSession, body: unknown): Promise
   if (typeof text !== "string" || text.trim() === "") return bad("缺少 text");
   try {
     return ok(await session.converse(text));
+  } catch (error) {
+    if (error instanceof ChapterWriteError) return { status: error.status, body: { error: error.message } };
+    throw error;
+  }
+}
+
+/** 切换对话模式。纯状态切换，不调模型，所以留在同步 handle 里。 */
+function conversationMode(session: ProjectSession, body: unknown): ApiResponse {
+  if (!isRecord(body)) return bad("请求体必须是对象");
+  const mode = body["mode"];
+  if (mode !== "normal" && mode !== "planning") return bad("mode 必须是 normal 或 planning");
+  return ok({ mode: session.setConversationMode(mode) });
+}
+
+function proposal(session: ProjectSession, query: URLSearchParams): ApiResponse {
+  const id = query.get("id");
+  if (id === null) return bad("缺少参数 id");
+  const p = session.getProposal(id);
+  return p === undefined ? missing(`方案不存在：${id}`) : ok(p);
+}
+
+/**
+ * 采纳一份方案：按条目顺序执行既有的受控入口。放在 handleAsync —— 条目里可能有
+ * 排章这类要走校验的动作，入口本身是异步的。部分成功回 200，由前端按 status 展示。
+ */
+async function proposalAdopt(session: ProjectSession, body: unknown): Promise<ApiResponse> {
+  if (!isRecord(body)) return bad("请求体必须是对象");
+  const id = body["id"];
+  if (typeof id !== "string" || id === "") return bad("缺少 id");
+  try {
+    return ok(await session.adoptProposal(id));
   } catch (error) {
     if (error instanceof ChapterWriteError) return { status: error.status, body: { error: error.message } };
     throw error;

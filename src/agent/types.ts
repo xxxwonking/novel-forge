@@ -14,6 +14,8 @@
 import type { IsoTimestamp } from "../types/primitives.js";
 import type { ChapterDraftStatus, DraftId } from "../task/types.js";
 import type { ChapterNo, CharacterId, PlotLineId, SettingId } from "../types/primitives.js";
+// 纯类型互引（两边都是 import type，编译后全部擦除，没有运行时环）。
+import type { ConversationMode, ProposalScope } from "./proposal-types.js";
 
 /** 一次对话回合里发生的状态变化。只记真实副作用与失败，不记纯问答。 */
 export type AgentEffect =
@@ -44,6 +46,15 @@ export type AgentEffect =
   | { readonly kind: "plotline_defined"; readonly id: PlotLineId; readonly label: string; readonly created: boolean }
   | { readonly kind: "discipline_updated"; readonly version: string; readonly count: number }
   | { readonly kind: "chapter_planned"; readonly chapter: ChapterNo; readonly chapterType: string; readonly warnings: number }
+  /** 谋篇模式出了一份方案。它不改动作品 —— 前端据此把中间区切到方案页等作者拍板。 */
+  | {
+      readonly kind: "proposal_ready";
+      readonly id: string;
+      readonly version: number;
+      readonly scope: ProposalScope;
+      readonly items: number;
+      readonly summary: string;
+    }
   /** 动作类工具被拒或失败（如采用一份未就绪草稿、写章 409）。让 Agent 如实转述。 */
   | { readonly kind: "action_failed"; readonly tool: string; readonly message: string };
 
@@ -69,6 +80,11 @@ export interface AlternativeIdea {
 export interface ConversationState {
   readonly turns: readonly ConversationTurn[];
   readonly ideas: readonly AlternativeIdea[];
+  /**
+   * 当前对话模式。存在后端而不是前端 localStorage —— 模式决定这一轮能不能写入，
+   * 它得和工具集是同一份真相；刷新页面、换个标签页都不该把锁打开。
+   */
+  readonly mode: ConversationMode;
 }
 
 /** 一次 converse() 的返回：回复文本 + 本回合的 effects + 工具轮数（成本可见）。 */
@@ -76,4 +92,5 @@ export interface ConversationReply {
   readonly text: string;
   readonly effects: readonly AgentEffect[];
   readonly toolRounds: number;
+  readonly mode: ConversationMode;
 }

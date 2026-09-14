@@ -38,6 +38,7 @@ function fakeCtx(over: Partial<MainAgentToolContext> = {}): MainAgentToolContext
     writeNextChapter: async () => ({ message: "已写草稿", effect: { kind: "chapter_written", chapter: 3, draftId: "ch3d1", status: "ready", acceptable: true, revisions: 0 } }),
     rewriteChapterDraft: async (chapter) => ({ message: "已另写一版", effect: { kind: "chapter_written", chapter: chapter ?? 3, draftId: "ch3d2", status: "ready", acceptable: true, revisions: 0 } }),
     adoptChapter: async (draftId) => ({ message: "已采用", effect: { kind: "chapter_adopted", chapter: 3, draftId, superseded: 0, staleMarked: [] } }),
+    proposePlan: async () => ({ message: "已出方案", effect: { kind: "proposal_ready", id: "p1", version: 1, scope: "revision", items: 1, summary: "S" } }),
     ...over,
   };
 }

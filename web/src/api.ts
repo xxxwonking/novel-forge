@@ -244,7 +244,43 @@ export type AgentEffect =
   | { kind: "plotline_defined"; id: string; label: string; created: boolean }
   | { kind: "discipline_updated"; version: string; count: number }
   | { kind: "chapter_planned"; chapter: number; chapterType: string; warnings: number }
+  | { kind: "proposal_ready"; id: string; version: number; scope: ProposalScope; items: number; summary: string }
   | { kind: "action_failed"; tool: string; message: string };
+
+/** 对话模式。planning（谋篇）下后端把工具集裁成只读，写入只能经方案。 */
+export type ConversationMode = "normal" | "planning";
+
+export type ProposalScope = "preparation" | "revision";
+export type ProposalStatus = "open" | "adopted" | "partially_applied";
+
+export interface ProposalItem {
+  ref?: string;
+  tool: string;
+  input: Record<string, unknown>;
+  note: string;
+}
+
+export interface Proposal {
+  id: string;
+  version: number;
+  scope: ProposalScope;
+  summary: string;
+  impact: string[];
+  items: ProposalItem[];
+  status: ProposalStatus;
+  at: string;
+  appliedAt?: string;
+  appliedEffects?: AgentEffect[];
+  failure?: { index: number; tool: string; message: string };
+}
+
+export interface ProposalAdoptResponse {
+  proposal: Proposal;
+  messages: string[];
+}
+
+/** 只有 open 的方案能采纳。与后端 adoptProposal 的前置条件一致。 */
+export const proposalAdoptable = (p: Pick<Proposal, "status">): boolean => p.status === "open";
 
 export interface ConversationTurn {
   role: "user" | "agent";
@@ -263,11 +299,13 @@ export interface ConversationReply {
   text: string;
   effects: AgentEffect[];
   toolRounds: number;
+  mode: ConversationMode;
 }
 
 export interface ConversationHistory {
   turns: ConversationTurn[];
   ideas: AlternativeIdea[];
+  mode: ConversationMode;
 }
 
 /** 一次自动修订前的快照（被替换掉的那一版）。 */
@@ -422,6 +460,13 @@ export const api = {
   // 对话式主 Agent 与章节草稿
   conversationHistory: () => request<ConversationHistory>("/api/conversation"),
   converse: (text: string) => post<ConversationReply>("/api/conversation", { text }),
+  setConversationMode: (mode: ConversationMode) => post<{ mode: ConversationMode }>("/api/conversation/mode", { mode }),
+
+  // 谋篇模式的方案
+  proposals: () => request<Proposal[]>("/api/proposals"),
+  proposal: (id: string) => request<Proposal>(`/api/proposal?id=${encodeURIComponent(id)}`),
+  adoptProposal: (id: string) => post<ProposalAdoptResponse>("/api/proposal/adopt", { id }),
+
   chapterDrafts: (n: number) => request<DraftView[]>(`/api/chapter/drafts?n=${n}`),
   chapterDraft: (n: number, id: string) => request<DraftView>(`/api/chapter/draft?n=${n}&id=${encodeURIComponent(id)}`),
   chapterDiff: (n: number, id: string, rev?: number) =>

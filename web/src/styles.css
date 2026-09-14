@@ -1019,6 +1019,98 @@ a.tag:hover {
   text-indent: 0;
 }
 
+/* ── 谋篇模式与方案页 ────────────────────────────────────────────────── */
+
+/*
+ * 谋篇是一种"此刻改不动东西"的状态。它的信号是两根石青的线 —— 栏头的下缘与
+ * 输入区的上缘 —— 把整段对话夹在中间，不用一句话反复说。石青＝进行中、未落定，
+ * 与朱批（要你处理）分得开；左缘仍然只属于朱批。
+ */
+.dock[data-mode="planning"] .dock-head {
+  border-bottom-color: var(--calm);
+}
+
+.dock[data-mode="planning"] .dock-title {
+  color: var(--calm);
+}
+
+.dock[data-mode="planning"] .composer {
+  border-top-color: var(--calm);
+}
+
+/* 未定之事：方案标签、待拍板状态 */
+.tag[data-tone="calm"] {
+  color: var(--calm);
+  border-color: #2f474d;
+}
+
+/* 方案摘要是要读进去的字，归稿本；但它不是正文，所以比章节窄、不缩进首行 */
+.prose-note {
+  font-size: 15.5px;
+  line-height: 1.95;
+  padding: var(--s5) var(--s6);
+}
+
+.prose-note p {
+  text-indent: 0;
+}
+
+.plain-list {
+  margin: 0;
+  padding-left: 1.2em;
+  font-size: var(--t-small);
+  color: var(--ink-dim);
+}
+
+.plain-list li {
+  margin: 4px 0;
+}
+
+.item-group {
+  margin-bottom: var(--s4);
+}
+
+.item-group-title {
+  font: var(--t-label) var(--mono);
+  letter-spacing: 0.06em;
+  color: var(--ink-faint);
+  margin-bottom: 6px;
+}
+
+.item {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s3);
+  padding: 7px var(--s3);
+  border: 1px solid var(--line);
+  border-top-width: 0;
+  background: var(--bg-raised);
+  font-size: var(--t-small);
+}
+
+/* 组里第一条补回上缘；用相邻选择器而不是 :first-of-type —— 组标题也是 div */
+.item-group-title + .item {
+  border-top-width: 1px;
+}
+
+/* 已执行过的条目退到背景里 —— 剩下亮着的就是还没落的 */
+.item[data-done="true"] {
+  color: var(--ink-faint);
+}
+
+.item-no {
+  font: var(--t-label) var(--mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-faint);
+  min-width: 1.6em;
+  text-align: right;
+}
+
+.item-note {
+  flex: 1;
+  min-width: 0;
+}
+
 /* ── 窄屏：不为手机设计，但不许散架 ──────────────────────────────────── */
 
 @media (max-width: 1100px) {

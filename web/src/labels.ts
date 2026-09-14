@@ -68,3 +68,23 @@ export function genreLabel(genre: string): string {
 export function platformLabel(platform: string): string {
   return PLATFORM[platform] ?? platform;
 }
+
+/** 方案条目按对象类别分组显示。作者关心的是"这份方案动了什么"，不是调了哪个工具。 */
+const ITEM_GROUP: Record<string, string> = {
+  set_direction: "作品方向",
+  set_discipline: "作品方向",
+  upsert_character: "人物",
+  upsert_location: "场景",
+  define_plotline: "情节线",
+  plan_chapter: "章节安排",
+  plan_add_to_next_chapter: "章节安排",
+  plan_reschedule_foreshadow: "伏笔",
+  plan_abandon_foreshadow: "伏笔",
+};
+
+/** 分组的显示顺序 = 执行的依赖顺序：先立方向，再建对象，最后排章。 */
+export const ITEM_GROUP_ORDER: readonly string[] = ["作品方向", "人物", "场景", "情节线", "伏笔", "章节安排"];
+
+export function itemGroupLabel(tool: string): string {
+  return ITEM_GROUP[tool] ?? "其他";
+}

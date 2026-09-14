@@ -12,10 +12,11 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { IsoTimestamp } from "../types/primitives.js";
+import type { ConversationMode } from "./proposal-types.js";
 import type { AlternativeIdea, ConversationState, ConversationTurn } from "./types.js";
 
 const FILE = "conversation.json";
-const EMPTY: ConversationState = { turns: [], ideas: [] };
+const EMPTY: ConversationState = { turns: [], ideas: [], mode: "normal" };
 
 export class ConversationStore {
   constructor(private readonly root: string) {}
@@ -33,6 +34,8 @@ export class ConversationStore {
       return {
         turns: Array.isArray(raw.turns) ? raw.turns : [],
         ideas: Array.isArray(raw.ideas) ? raw.ideas : [],
+        // 旧文件没有 mode 字段：默认常规模式，锁是要显式打开的。
+        mode: raw.mode === "planning" ? "planning" : "normal",
       };
     } catch {
       return EMPTY;
@@ -61,6 +64,15 @@ export class ConversationStore {
 
   listIdeas(): readonly AlternativeIdea[] {
     return this.load().ideas;
+  }
+
+  mode(): ConversationMode {
+    return this.load().mode;
+  }
+
+  setMode(mode: ConversationMode): void {
+    const state = this.load();
+    if (state.mode !== mode) this.save({ ...state, mode });
   }
 }
 

@@ -351,6 +351,8 @@ export function buildRules(root: unknown): Rules {
     }),
     agent: Object.freeze({
       maxConversationRounds: num(root, "agent.maxConversationRounds"),
+      maxPlanningRounds: num(root, "agent.maxPlanningRounds"),
+      maxProposalItems: num(root, "agent.maxProposalItems"),
     }),
   });
 }

@@ -34,6 +34,10 @@ import { ChapterWriter, type ChapterWriteOptions, type ChapterWriterOptions } fr
 import { ChapterWriteError, buildChapterReadSource } from "./chapter-input.js";
 import { ConversationStore } from "../agent/conversation-store.js";
 import { MainAgentService } from "../agent/service.js";
+import { ProposalStore } from "../agent/proposal-store.js";
+import { applyProposal, parseProposalDraft } from "../agent/proposal.js";
+import { proposalScopeOf } from "../agent/system-prompt.js";
+import type { ConversationMode, Proposal } from "../agent/proposal-types.js";
 import type { AgentActionOutcome, MainAgentToolContext, PlanAddInput } from "../agent/tool-exec.js";
 import {
   DIRECTION_LABELS,
@@ -73,6 +77,7 @@ export class ProjectSession {
   private chapters: Map<ChapterNo, string>;
   private cache: SessionDerived | null = null;
   private readonly conversation: ConversationStore;
+  private readonly proposals: ProposalStore;
   private modelClient: ModelClient | undefined;
 
   constructor(
@@ -95,6 +100,7 @@ export class ProjectSession {
     this.stream = EventStream.restore(snap.events);
     this.writer = new ChapterWriter(this, this.drafts, writing);
     this.conversation = new ConversationStore(root);
+    this.proposals = new ProposalStore(root);
     this.modelClient = writing.client;
   }
 
@@ -337,6 +343,7 @@ export class ProjectSession {
       ctx: this.buildAgentContext(),
       contextInfo: () => this.agentContextInfo(),
       maxRounds: this.rules.agent.maxConversationRounds,
+      maxPlanningRounds: this.rules.agent.maxPlanningRounds,
     });
     return service.send(text);
   }
@@ -347,6 +354,48 @@ export class ProjectSession {
 
   listIdeas(): readonly AlternativeIdea[] {
     return this.conversation.listIdeas();
+  }
+
+  // ── 谋篇模式（方案）──────────────────────────────────────────────────
+
+  conversationMode(): ConversationMode {
+    return this.conversation.mode();
+  }
+
+  setConversationMode(mode: ConversationMode): ConversationMode {
+    this.conversation.setMode(mode);
+    return mode;
+  }
+
+  listProposals(): readonly Proposal[] {
+    return this.proposals.list();
+  }
+
+  getProposal(id: string): Proposal | undefined {
+    return this.proposals.get(id);
+  }
+
+  /**
+   * 采纳一份方案：按条目顺序执行，失败即停。
+   *
+   * 复用 `buildAgentContext()` —— 条目走的就是对话里那几个受控入口，没有第二套写入路径。
+   * 不检查当前模式：采纳是**作者**的动作，与 Agent 此刻处在哪个模式无关。
+   */
+  async adoptProposal(id: string): Promise<{ readonly proposal: Proposal; readonly messages: readonly string[] }> {
+    const target = this.proposals.get(id);
+    if (target === undefined) throw new ChapterWriteError(404, `没有编号为 ${id} 的方案`);
+    if (target.status !== "open") {
+      throw new ChapterWriteError(409, `方案 ${id} 已经处理过了（${target.status}）；要继续请让助手重提一份`);
+    }
+
+    const result = await applyProposal(target.items, this.buildAgentContext());
+    const saved = this.proposals.markApplied(id, {
+      status: result.status,
+      effects: result.effects,
+      at: new Date().toISOString(),
+      ...(result.failure === undefined ? {} : { failure: result.failure }),
+    });
+    return { proposal: saved ?? target, messages: result.messages };
   }
 
   /**
@@ -610,6 +659,26 @@ export class ProjectSession {
       recordIdea: async (text) => {
         const idea = this.conversation.recordIdea(text, now());
         return { message: `已记为备选：${idea.text}`, effect: { kind: "idea_recorded", id: idea.id, text: idea.text } };
+      },
+      /**
+       * 谋篇模式的唯一出口。方案只落 proposals.json，作品一个字不动 ——
+       * 校验不过时回字符串（is_error，模型当轮自纠），不产 effect、不给作者留噪声 chip。
+       */
+      proposePlan: async (input) => {
+        const draft = await parseProposalDraft(input, this.rules.agent.maxProposalItems);
+        if (typeof draft === "string") return draft;
+        const proposal = this.proposals.put(draft, proposalScopeOf(this.agentContextInfo()), now());
+        return {
+          message: `已出方案 ${proposal.id}（第 ${proposal.version} 版，${proposal.items.length} 条）。作者在方案页点「采纳」后才会执行，现在作品没有任何改动。`,
+          effect: {
+            kind: "proposal_ready",
+            id: proposal.id,
+            version: proposal.version,
+            scope: proposal.scope,
+            items: proposal.items.length,
+            summary: proposal.summary,
+          },
+        };
       },
       writeNextChapter: async () => {
         try {

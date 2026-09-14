@@ -10,7 +10,7 @@
  */
 
 import { useCallback, useState } from "react";
-import { api, type Alert, type AlertAction, type Overview, type PrepPayload } from "./api.js";
+import { api, type Alert, type AlertAction, type Overview, type PrepPayload, type Proposal } from "./api.js";
 import { useDockWidth, useFetch, useRoute, useToast } from "./hooks.js";
 import { actionLabel } from "./components/AlertCard.js";
 import { ChatDock } from "./components/ChatDock.js";
@@ -20,6 +20,7 @@ import { ViewPage } from "./pages/ViewPage.js";
 import { Reader } from "./pages/Reader.js";
 import { Desk } from "./pages/Desk.js";
 import { DraftPage } from "./pages/DraftPage.js";
+import { ProposalPage } from "./pages/ProposalPage.js";
 import { Works } from "./pages/Works.js";
 
 const VIEWS = [
@@ -120,6 +121,24 @@ export function App(): React.ReactElement {
     [go],
   );
 
+  const onOpenProposal = useCallback((id: string) => go(`/proposal/${encodeURIComponent(id)}`), [go]);
+
+  /**
+   * 方案采纳完的收尾。一次点击可能改了方向、人物、情节线和节拍，所以整站刷新；
+   * 部分执行要说清停在哪 —— 作者据此知道还剩什么没落。
+   */
+  const onProposalAdopted = useCallback(
+    (proposal: Proposal, messages: readonly string[]) => {
+      showToast(
+        proposal.status === "adopted"
+          ? `已采纳方案 ${proposal.id}，落下 ${messages.length} 项`
+          : `方案 ${proposal.id} 执行到第 ${(proposal.failure?.index ?? 0) + 1} 条停下；前面 ${messages.length} 项已落`,
+      );
+      refresh();
+    },
+    [refresh, showToast],
+  );
+
   /** 采用是正式进度的唯一入口（受控端点）。采用后直接落到正文页，让作者看到它成了正式章。 */
   const onAdopt = useCallback(
     async (chapter: number, draftId: string) => {
@@ -160,7 +179,7 @@ export function App(): React.ReactElement {
         </Link>
         {!noActiveWork && (
           <>
-            <Link route={route} to="/desk" go={go} aliases={["/draft/"]}>
+            <Link route={route} to="/desk" go={go} aliases={["/draft/", "/proposal/"]}>
               工作台
             </Link>
             <Link route={route} to="/home" go={go}>
@@ -207,6 +226,7 @@ export function App(): React.ReactElement {
                 onJump={onJump}
                 onOpenDraft={onOpenDraft}
                 onAdopt={onAdopt}
+                onProposalAdopted={onProposalAdopted}
                 refresh={refresh}
                 go={go}
               />
@@ -226,6 +246,7 @@ export function App(): React.ReactElement {
             onCollapse={() => toggleDock(false)}
             onJump={onJump}
             onOpenDraft={onOpenDraft}
+            onOpenProposal={onOpenProposal}
             onAdopt={onAdopt}
             refresh={refresh}
           />
@@ -253,11 +274,12 @@ interface RoutedProps {
   onJump: (chapter: number, quote: string) => void;
   onOpenDraft: (chapter: number, draftId: string) => void;
   onAdopt: (chapter: number, draftId: string) => void;
+  onProposalAdopted: (proposal: Proposal, messages: readonly string[]) => void;
   refresh: () => void;
   go: (to: string) => void;
 }
 
-function Routed({ route, overview, prep, prepError, refreshKey, onAction, onIgnore, onJump, onOpenDraft, onAdopt, refresh, go }: RoutedProps): React.ReactElement {
+function Routed({ route, overview, prep, prepError, refreshKey, onAction, onIgnore, onJump, onOpenDraft, onAdopt, onProposalAdopted, refresh, go }: RoutedProps): React.ReactElement {
   const [path, search] = route.split("?");
   const query = new URLSearchParams(search ?? "");
 
@@ -269,6 +291,11 @@ function Routed({ route, overview, prep, prepError, refreshKey, onAction, onIgno
     const chapter = Number(n);
     if (!Number.isInteger(chapter) || id === undefined || id === "") return <div className="empty">没有这份草稿</div>;
     return <DraftPage chapter={chapter} draftId={decodeURIComponent(id)} refreshKey={refreshKey} onAdopt={onAdopt} onJump={onJump} go={go} />;
+  }
+  if (path?.startsWith("/proposal/")) {
+    const id = decodeURIComponent(path.slice("/proposal/".length));
+    if (id === "") return <div className="empty">没有这份方案</div>;
+    return <ProposalPage id={id} refreshKey={refreshKey} onAdopted={onProposalAdopted} go={go} />;
   }
   if (path === "/home") {
     return <Home overview={overview} onAction={onAction} onIgnore={onIgnore} />;
