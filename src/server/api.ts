@@ -42,8 +42,8 @@ const CONTEXT_WINDOW = 60;
 
 /** HTTP 的统一入口：写章等待异步任务，其余端点沿用同步处理。 */
 export async function handleAsync(session: ProjectSession, req: ApiRequest): Promise<ApiResponse> {
-  if (req.method === "POST" && req.path === "/api/chapter/write") {
-    return chapterWrite(session, req.body);
+  if (req.method === "POST" && (req.path === "/api/chapter/write" || req.path === "/api/chapter/start")) {
+    return chapterWrite(session, req.body, req.path === "/api/chapter/start");
   }
   if (req.method === "POST" && req.path === "/api/conversation") {
     return conversationSend(session, req.body);
@@ -73,6 +73,8 @@ export function handle(session: ProjectSession, req: ApiRequest): ApiResponse {
     switch (path) {
       case "/api/overview":
         return ok(overview(session));
+      case "/api/tasks":
+        return ok(session.chapterTasks());
       case "/api/conversation":
         return ok({ turns: session.conversationTurns(), ideas: session.listIdeas() });
       case "/api/views":
@@ -110,6 +112,17 @@ export function handle(session: ProjectSession, req: ApiRequest): ApiResponse {
         return chapterAdopt(session, req.body);
       case "/api/chapter/discard":
         return chapterDiscard(session, req.body);
+      case "/api/chapter/control": {
+        const ref = draftRef(req.body);
+        if (typeof ref === "string") return bad(ref);
+        const action = isRecord(req.body) ? req.body["action"] : undefined;
+        if (action !== "pause" && action !== "end") return bad("action 必须是 pause 或 end");
+        try { return ok(session.controlChapter(ref.chapter, ref.draftId, action)); }
+        catch (error) {
+          if (error instanceof ChapterWriteError) return { status: error.status, body: { error: error.message } };
+          throw error;
+        }
+      }
       default:
         return missing(`未知端点 ${path}`);
     }
@@ -416,7 +429,7 @@ function toDraftView(d: ChapterDraft): unknown {
   return { ...view, words: countWords(d.body), preparationProposalId: d.writeContext?.proposalId ?? null };
 }
 
-async function chapterWrite(session: ProjectSession, body: unknown): Promise<ApiResponse> {
+async function chapterWrite(session: ProjectSession, body: unknown, start = false): Promise<ApiResponse> {
   if (!isRecord(body)) return bad("请求体必须是对象");
   const chapter = body["chapter"];
   if (typeof chapter !== "number") return bad("缺少有效的 chapter");
@@ -424,19 +437,22 @@ async function chapterWrite(session: ProjectSession, body: unknown): Promise<Api
   const newDraft = body["newDraft"];
   const maxOutputTokens = body["maxOutputTokens"];
   const proposalId = body["proposalId"];
+  const requestId = body["requestId"];
   if (draftId !== undefined && typeof draftId !== "string") return bad("draftId 必须是字符串");
   if (newDraft !== undefined && typeof newDraft !== "boolean") return bad("newDraft 必须是布尔值");
   if (maxOutputTokens !== undefined && typeof maxOutputTokens !== "number") return bad("maxOutputTokens 必须是正整数");
   if (proposalId !== undefined && typeof proposalId !== "string") return bad("proposalId 必须是方案编号");
+  if (requestId !== undefined && typeof requestId !== "string") return bad("requestId 必须是字符串");
   const options: ChapterWriteOptions = {
     chapter,
     ...(draftId === undefined ? {} : { draftId }),
     ...(newDraft === undefined ? {} : { newDraft }),
     ...(maxOutputTokens === undefined ? {} : { maxOutputTokens }),
     ...(proposalId === undefined ? {} : { proposalId }),
+    ...(requestId === undefined ? {} : { requestId }),
   };
   try {
-    return ok(toDraftView(await session.writeChapter(options)));
+    return ok(toDraftView(start ? session.startChapter(options) : await session.writeChapter(options)));
   } catch (error) {
     if (error instanceof ChapterWriteError) return { status: error.status, body: { error: error.message } };
     throw error;

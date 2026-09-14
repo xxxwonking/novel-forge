@@ -168,6 +168,9 @@ function EffectChip({
   onAdopt: (chapter: number, draftId: string) => void;
 }): React.ReactElement {
   switch (effect.kind) {
+    case "chapter_started":
+    case "task_updated":
+      return <div className="effect"><span className="tag">{effect.kind === "chapter_started" ? "章节任务" : "任务状态已更新"}</span><a href={`#/draft/${effect.chapter}/${effect.draftId}`}>第 {effect.chapter} 章 · 查看任务与结果</a></div>;
     case "preparation_proposed":
     case "preparation_confirmed":
       return <div className="effect"><span className="tag">{effect.kind === "preparation_confirmed" ? "资料已确认" : "待确认方案"}</span><span>{effect.summary}</span><a href={`#/preparation?proposal=${encodeURIComponent(effect.proposalId)}`}>查看方案</a></div>;

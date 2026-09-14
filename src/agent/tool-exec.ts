@@ -40,6 +40,8 @@ export interface AgentActionOutcome {
  * 刻意不直接依赖 ProjectSession —— 让工具执行可独立测试（假 ctx 即可）。
  */
 export interface MainAgentToolContext {
+  readonly listChapterTasks: () => string;
+  readonly controlChapterTask: (draftId: string, action: "pause" | "end" | "resume") => Promise<AgentActionOutcome>;
   readonly getPreparation: (proposalId: string | null) => string;
   readonly proposePreparation: (input: unknown, author: boolean) => Promise<AgentActionOutcome>;
   readonly confirmPreparation: (proposalId: string) => Promise<AgentActionOutcome>;
@@ -90,6 +92,14 @@ export async function executeMainTool(
   });
 
   switch (block.name) {
+    case "list_chapter_tasks":
+      return { result: ok(ctx.listChapterTasks()) };
+    case "control_chapter_task": {
+      const draftId = readStr("draftId");
+      const control = readStr("action");
+      if (draftId === "" || !["pause", "end", "resume"].includes(control)) return { result: err("先定位任务 draftId，action 必须是 pause/end/resume") };
+      return action(await ctx.controlChapterTask(draftId, control as "pause" | "end" | "resume"));
+    }
     case "get_preparation":
       try { return { result: ok(ctx.getPreparation(readStr("proposalId") || null)) }; }
       catch (error) { return { result: err(error instanceof Error ? error.message : String(error)) }; }

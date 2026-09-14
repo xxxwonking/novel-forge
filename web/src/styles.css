@@ -737,3 +737,13 @@ th.num {
   .prep-tabs { flex-wrap: wrap; gap: 10px; }
   .composer textarea { min-width: 0; }
 }
+.task-panel { margin-bottom: 24px; }
+.task-card { margin: 12px 0 22px; padding: 16px 18px; border: 1px solid var(--line, #333842); border-left: 3px solid #788b97; background: #191c24; overflow-wrap: anywhere; }
+.task-card[data-running="true"] { border-left-color: #d5b42d; }
+.task-heading, .task-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 18px; }
+.task-heading { justify-content: space-between; }
+.task-heading span { color: #c1cbd1; font-size: 13px; }
+.task-card p { margin: 10px 0; font-size: 13px; line-height: 1.65; }
+.task-card small { display: block; margin-top: 12px; }
+.task-actions { margin-top: 12px; font-size: 13px; }
+.task-card .task-usage { color: #93a0ab; font-size: 12px; }

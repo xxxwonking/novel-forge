@@ -1,10 +1,11 @@
-import { useRef, useState } from "react";
-import { api, type TextAnchor } from "../api.js";
+import { useEffect, useRef, useState } from "react";
+import { api, type TextAnchor, type ChapterTaskView } from "../api.js";
 import { useFetch } from "../hooks.js";
+import { TaskCard, taskRunning } from "../components/TaskPanel.js";
 
 const states: Record<string, string> = { writing: "正文未完成", declaring: "结构核对未完成", checking: "检查未完成", failed: "执行未完成", needs_revision: "需要修改", ready: "待采用", adopted: "已采用", stale: "依据已变化，需重新核对", discarded: "已丢弃" };
 
-export function Drafts({ chapter, draftId, refresh }: { chapter: number; draftId: string; refresh: () => void }): React.ReactElement {
+export function Drafts({ chapter, draftId, refresh, task, reloadTasks }: { chapter: number; draftId: string; refresh: () => void; task: ChapterTaskView | undefined; reloadTasks: () => void }): React.ReactElement {
   const query = useFetch(() => api.chapterDraft(chapter, draftId), [chapter, draftId]);
   const versions = useFetch(() => api.chapterDrafts(chapter), [chapter, draftId]);
   const preparation = useFetch(() => api.preparation(), [chapter, draftId]);
@@ -13,13 +14,14 @@ export function Drafts({ chapter, draftId, refresh }: { chapter: number; draftId
   const [busy, setBusy] = useState(false);
   const [anchor, setAnchor] = useState<TextAnchor | null>(null);
   const prose = useRef<HTMLElement | null>(null);
+  useEffect(() => { query.reload(); versions.reload(); }, [task?.updatedAt, task?.status, task?.draftStatus, query.reload, versions.reload]);
   if (query.data === null) return <div className="empty">{query.error ?? "读取章节结果…"}<button onClick={query.reload}>重试</button></div>;
   const draft = query.data;
   const declaration = draft.declaration;
   const dependency = preparation.data?.proposals.find((p) => p.id === draft.preparationProposalId);
   const names = dependency?.content.characters ?? preparation.data?.confirmed.characters ?? [];
   const name = (id: string): string => names.find((c) => c.id === id)?.name ?? id;
-  const reload = (): void => { query.reload(); versions.reload(); preparation.reload(); refresh(); };
+  const reload = (): void => { query.reload(); versions.reload(); preparation.reload(); reloadTasks(); refresh(); };
   const goDraft = (n: number, id: string): void => { window.location.hash = `/draft/${n}/${id}`; setAnchor(null); };
   const perform = async (action: "adopt" | "continue" | "resume" | "new" | "discard"): Promise<void> => {
     if (busy) return;
@@ -50,15 +52,15 @@ export function Drafts({ chapter, draftId, refresh }: { chapter: number; draftId
 
   return <>
     <div className="page-head"><h1>第 {chapter} 章 · 章节结果</h1><p>先看这一章发生了什么，再核对原文。待采用内容保留在当前稿中。</p></div>
+    {task && <TaskCard task={task} reload={reload} detailed />}
     <div className="draft-toolbar"><span className="tag" data-tone={draft.status === "needs_revision" ? "warn" : "calm"}>{states[draft.status] ?? draft.status}</span><span>{draft.words} 字</span><label>版本 <select aria-label="稿件版本" value={draftId} onChange={(e) => goDraft(chapter, e.target.value)}>{(versions.data ?? [draft]).map((d) => <option key={d.draftId} value={d.draftId}>{d.draftId} · {states[d.status] ?? d.status}</option>)}</select></label><a href="#/preparation">作品资料</a></div>
     {draft.preparationProposalId !== null && <div className="prep-readiness"><div><strong>依赖方案：{dependency?.summary ?? "正在读取"}</strong><p>{dependency?.status === "confirmed" ? "此方案已确认。" : "这份草稿使用了尚未确认的建议设定。采用章节时会一并确认该方案。"}</p></div><a href={`#/preparation?proposal=${encodeURIComponent(draft.preparationProposalId)}`}>查看依赖</a></div>}
     {(error ?? query.error) && <div className="finding" data-level="block" role="alert">{error ?? query.error}</div>}
     {notice && <p className="prep-notice" role="status">{notice}</p>}
     <div className="draft-actions row">
       {draft.status === "ready" && draft.acceptable && <><button data-primary="true" disabled={busy} onClick={() => void perform("continue")}>采用并继续下一章</button><button disabled={busy} onClick={() => void perform("adopt")}>采用这一版</button></>}
-      {["failed", "writing", "declaring", "checking"].includes(draft.status) && <button disabled={busy} onClick={() => void perform("resume")}>继续未完成步骤</button>}
-      {draft.status !== "discarded" && <button disabled={busy} onClick={() => void perform("new")}>另写一版</button>}
-      {draft.status !== "adopted" && draft.status !== "discarded" && <button data-quiet="true" disabled={busy} onClick={() => void perform("discard")}>丢弃这份草稿</button>}
+      {draft.status !== "discarded" && <button disabled={busy || taskRunning(task)} onClick={() => void perform("new")}>另写一版</button>}
+      {draft.status !== "adopted" && draft.status !== "discarded" && <button data-quiet="true" disabled={busy || taskRunning(task)} onClick={() => void perform("discard")}>丢弃这份草稿</button>}
       {draft.status === "adopted" && <a href={`#/chapter/${chapter}`}>查看正式正文 →</a>}
     </div>
     <section className="prep-section"><h2>本章摘要</h2>{declaration === null ? <p className="muted">结构核对尚未完成，已有正文保留在下方。</p> : declaration.events.length === 0 ? <p className="muted">本稿未提取独立剧情事件，可直接阅读正文。</p> : declaration.events.map((event, i) => <div className="draft-change" key={i}><p>{event.summary}</p>{evidence(event.anchor)}</div>)}</section>

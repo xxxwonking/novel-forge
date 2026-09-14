@@ -33,13 +33,13 @@ const ideaTool = (id: string, text = "支线备选") => ({
   tool_calls: [{ id, type: "function", function: { name: "record_alternative_idea", arguments: JSON.stringify({ text }) }, extra_content: { signature: `signature-${id}` } }],
 });
 
-async function setup(replies: Reply[], maxRounds = 8) {
+async function setup(replies: Reply[] | ((body: Body) => Reply), maxRounds = 8) {
   const requests: Body[] = [];
   const server = createServer(async (req, res) => {
     let input = "";
     for await (const chunk of req) input += chunk;
     requests.push(JSON.parse(input));
-    const reply: Reply = replies[requests.length - 1] ?? { message: assistant("完成") };
+    const reply: Reply = (typeof replies === "function" ? replies(requests.at(-1)!) : replies[requests.length - 1]) ?? { message: assistant("完成") };
     res.writeHead(reply.status ?? 200, { "content-type": "application/json" });
     res.end(JSON.stringify(reply.status === undefined ? { choices: [{ message: reply.message, finish_reason: reply.finish ?? (reply.message?.tool_calls ? "tool_calls" : "stop") }] } : { error: { message: "temporary model failure" } }));
   });
@@ -70,22 +70,26 @@ describe("Chat 主 Agent 跨回合", () => {
     const target = deriveBudget(WRITE_BEAT.plan, writingSnapshot().profile, loadRules()).words.sweet;
     while (countWords(prose) < target) prose += "\n他沿着石壁查看木匣，把封口与旧图对照，再记下匣底的编号。";
     const tool = (id: string, name: string, input: unknown) => ({ ...assistant("", `reason-${id}`), tool_calls: [{ id, type: "function", function: { name, arguments: JSON.stringify(input) } }] });
-    const state = await setup([
+    const isMain = (body: Body) => body.tools?.some((t: Body) => t.function?.name === "write_next_chapter");
+    const mainReplies = [
       { message: tool("write", "write_next_chapter", {}) },
-      { message: assistant(prose, "chapter-private-reasoning") },
-      { message: assistant(C5_JSON, "declaration-private-reasoning") },
-      { message: assistant("第三章草稿已就绪。") },
+      { message: assistant("第三章任务已启动。") },
       { message: tool("adopt", "adopt_chapter", { draftId: "ch3d1" }) },
       { message: assistant("已采用第三章。") },
       { message: tool("read", "get_chapter_text", { chapter: 3, excerpt: "full" }) },
       { message: assistant("已读取第三章正文。") },
-    ]);
-    const written = await send(state.session(), "按计划写下一章");
-    expect(written.body).toMatchObject({ effects: [{ kind: "chapter_written", draftId: "ch3d1", status: "ready" }] });
+    ];
+    let mainIndex = 0;
+    const state = await setup((body) => isMain(body) ? mainReplies[mainIndex++]! : { message: body.response_format ? assistant(C5_JSON, "declaration-private-reasoning") : assistant(prose, "chapter-private-reasoning") });
+    const session = state.session();
+    const written = await send(session, "按计划写下一章");
+    expect(written.body).toMatchObject({ effects: [{ kind: "chapter_started", draftId: "ch3d1", status: "writing" }] });
+    expect((await session.writeChapter({ chapter: 3, draftId: "ch3d1" })).status).toBe("ready");
     expect(new ProjectStore(state.root).load().chapters.has(3)).toBe(false);
-    expect(state.requests[2]?.response_format).toEqual({ type: "json_object" });
-    expect(state.requests[2]?.messages).toContainEqual(assistant(prose, "chapter-private-reasoning"));
-    expect(JSON.stringify(state.requests[3]?.messages)).not.toContain("chapter-private-reasoning");
+    const declarationRequest = state.requests.find((body) => body.response_format !== undefined);
+    expect(declarationRequest?.response_format).toEqual({ type: "json_object" });
+    expect(declarationRequest?.messages).toContainEqual(assistant(prose, "chapter-private-reasoning"));
+    expect(JSON.stringify(state.requests.filter(isMain)[1]?.messages)).not.toContain("chapter-private-reasoning");
     const adopted = await send(state.session(), "采用 ch3d1");
     expect(adopted.body).toMatchObject({ effects: [{ kind: "chapter_adopted", draftId: "ch3d1" }] });
     expect(new ProjectStore(state.root).load().chapters.get(3)).toBe(prose);

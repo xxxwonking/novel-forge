@@ -20,12 +20,13 @@ import type Anthropic from "@anthropic-ai/sdk";
 export type AgentEffect =
   | { readonly kind: "preparation_proposed" | "preparation_confirmed"; readonly proposalId: string; readonly summary: string }
   | {
-      readonly kind: "chapter_written";
+      readonly kind: "chapter_written" | "chapter_started";
       readonly chapter: ChapterNo;
       readonly draftId: DraftId;
       readonly status: ChapterDraftStatus;
       readonly acceptable: boolean;
     }
+  | { readonly kind: "task_updated"; readonly chapter: ChapterNo; readonly draftId: DraftId; readonly status: string }
   | {
       readonly kind: "chapter_adopted";
       readonly chapter: ChapterNo;

@@ -251,6 +251,14 @@ export class ProjectSession {
     return this.writer.write(options);
   }
 
+  startChapter(options: ChapterWriteOptions): ChapterDraft { return this.writer.start(options); }
+
+  chapterTasks(): ReturnType<ChapterWriter["tasks"]> { return this.writer.tasks(); }
+
+  controlChapter(chapter: ChapterNo, draftId: DraftId, action: "pause" | "end"): ReturnType<ChapterWriter["control"]> {
+    return this.writer.control(chapter, draftId, action);
+  }
+
   chapterSource(proposalId?: string): ChapterSource {
     if (proposalId === undefined) return this;
     const snapshot = this.snapshot();
@@ -387,6 +395,18 @@ export class ProjectSession {
       effect: { kind: "action_failed", tool, message },
     });
     return {
+      listChapterTasks: () => JSON.stringify(this.chapterTasks()),
+      controlChapterTask: async (draftId, action) => {
+        const match = /^ch([1-9]\d*)d[1-9]\d*$/u.exec(draftId);
+        if (match === null) return fail("control_chapter_task", "请先定位有效的任务编号");
+        const chapter = Number(match[1]);
+        try {
+          if (action === "resume") this.startChapter({ chapter, draftId });
+          const task = action === "resume" ? this.chapterTasks().find((item) => item.draftId === draftId)!
+            : this.controlChapter(chapter, draftId, action);
+          return { message: JSON.stringify(task), effect: { kind: "task_updated", chapter, draftId, status: task.status } };
+        } catch (error) { return fail("control_chapter_task", error instanceof Error ? error.message : String(error)); }
+      },
       getPreparation: (proposalId) => JSON.stringify(proposalId === null ? { ...this.preparation.view(), ideas: this.listIdeas() } : this.preparation.get(proposalId)),
       proposePreparation: async (input, author) => {
         try {
@@ -496,11 +516,13 @@ export class ProjectSession {
       },
       writeNextChapter: async (proposalId) => {
         try {
-          const draft = await this.writeChapter({ chapter: this.nextChapter, ...(proposalId === undefined ? {} : { proposalId }) });
+          const draft = this.startChapter({ chapter: this.nextChapter, ...(proposalId === undefined ? {} : { proposalId }) });
+          const running = draft.execution?.status === "running";
           return {
-            message: `已写第 ${draft.chapter} 章草稿 ${draft.draftId}，状态 ${draft.status}${draft.acceptable ? "（可采用）" : ""}`,
+            message: running ? `第 ${draft.chapter} 章任务 ${draft.draftId} 已启动，正在处理，尚未写完。离开页面后服务会继续，作者可查看、暂停或结束。`
+              : `第 ${draft.chapter} 章已有草稿 ${draft.draftId}，状态 ${draft.status}${draft.acceptable ? "（可采用）" : ""}`,
             effect: {
-              kind: "chapter_written",
+              kind: running ? "chapter_started" : "chapter_written",
               chapter: draft.chapter,
               draftId: draft.draftId,
               status: draft.status,

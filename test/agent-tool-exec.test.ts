@@ -19,6 +19,8 @@ function block(name: string, input: unknown): Anthropic.ToolUseBlock {
 function fakeCtx(over: Partial<MainAgentToolContext> = {}): MainAgentToolContext {
   return {
     getPreparation: () => "PREPARATION",
+    listChapterTasks: () => "[]",
+    controlChapterTask: async (draftId) => ({ message: "已暂停", effect: { kind: "task_updated", chapter: 3, draftId, status: "paused" } }),
     proposePreparation: async () => ({ message: "方案已保存", effect: { kind: "preparation_proposed", proposalId: "proposal-test", summary: "开篇" } }),
     confirmPreparation: async (proposalId) => ({ message: "已确认", effect: { kind: "preparation_confirmed", proposalId, summary: "开篇" } }),
     getOverview: () => "OVERVIEW",

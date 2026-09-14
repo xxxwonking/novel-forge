@@ -31,6 +31,9 @@ export interface ChapterGraphDeps {
   readonly maxToolRounds: number;
   /** 取本轮已收集的 propose_* 提议快照。 */
   readonly collectedProposals: () => readonly DraftProposal[];
+  readonly stopRequested?: () => "pause" | "end" | null;
+  /** 节点完成后同步保存，再允许下一节点执行；不能依赖流消费者的调度速度。 */
+  readonly onState?: (state: ChapterGraphState) => void;
 }
 
 const StateSpec = Annotation.Root({
@@ -67,15 +70,22 @@ export function initialGraphState(runInput: ChapterRunInput): ChapterGraphState 
 }
 
 export function buildChapterGraph(deps: ChapterGraphDeps) {
+  const stopped = (): Partial<ChapterGraphState> | null => {
+    const request = deps.stopRequested?.();
+    return request == null ? null : { outcome: request === "pause" ? "paused" : "ended" };
+  };
   const write = async (s: ChapterGraphState): Promise<Partial<ChapterGraphState>> => {
+    const stop = stopped(); if (stop !== null) return stop;
     if (s.write !== null) return {}; // resume：正文已在，跳过 C4，不重跑
     const r = await writeChapterBody(deps.client, s.runInput, deps.ctx, deps.maxToolRounds);
     if (r.kind === "refused") return { outcome: "refused", refusalMessage: r.userMessage };
     if (r.kind === "failed") return { outcome: "failed", error: { step: "C4", detail: r.detail } };
+    if (r.kind === "incomplete") return { body: r.body, outcome: "failed", error: { step: "C4", detail: r.detail } };
     return { write: r, body: r.body, proposals: deps.collectedProposals() };
   };
 
   const declare = async (s: ChapterGraphState): Promise<Partial<ChapterGraphState>> => {
+    const stop = stopped(); if (stop !== null) return stop;
     if (s.declaration !== null) return {}; // resume：声明已在，跳过 C5
     if (s.write === null) {
       return { outcome: "failed", error: { step: "C5", detail: "缺少 C4 会话，无法声明" } };
@@ -93,6 +103,7 @@ export function buildChapterGraph(deps: ChapterGraphDeps) {
   };
 
   const check = (s: ChapterGraphState): Partial<ChapterGraphState> => {
+    const stop = stopped(); if (stop !== null) return stop;
     if (s.declaration === null) {
       return { outcome: "failed", error: { step: "C6", detail: "缺少结构声明" } };
     }
@@ -111,10 +122,17 @@ export function buildChapterGraph(deps: ChapterGraphDeps) {
     (s: ChapterGraphState): "step_declare" | "step_check" | typeof END =>
       s.outcome === null ? next : END;
 
+  const persist = (node: (s: ChapterGraphState) => Partial<ChapterGraphState> | Promise<Partial<ChapterGraphState>>) =>
+    async (s: ChapterGraphState): Promise<Partial<ChapterGraphState>> => {
+      const update = await node(s);
+      deps.onState?.({ ...s, ...update });
+      return update;
+    };
+
   return new StateGraph(StateSpec)
-    .addNode("step_write", write)
-    .addNode("step_declare", declare)
-    .addNode("step_check", check)
+    .addNode("step_write", persist(write))
+    .addNode("step_declare", persist(declare))
+    .addNode("step_check", persist(check))
     .addEdge(START, "step_write")
     .addConditionalEdges("step_write", gate("step_declare"), ["step_declare", END])
     .addConditionalEdges("step_declare", gate("step_check"), ["step_check", END])

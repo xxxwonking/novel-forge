@@ -19,6 +19,7 @@ import {
   type WriteOk,
 } from "./graph.js";
 import type { ToolContext } from "./tool-exec.js";
+import { draftStage, emptyUsage, type TaskControl } from "./execution.js";
 import type {
   ChapterDraft,
   ChapterDraftStatus,
@@ -37,6 +38,7 @@ export interface ChapterTaskServiceDeps {
   /** rules.task.maxToolIterations。 */
   readonly maxToolRounds: number;
   readonly clock?: () => string;
+  readonly control?: TaskControl;
 }
 
 interface DraftIdentity {
@@ -46,6 +48,7 @@ interface DraftIdentity {
   readonly baseAdoptedThrough: ChapterNo;
   readonly createdAt: string;
   readonly writeContext?: DraftWriteContext;
+  readonly execution?: ChapterDraft["execution"];
 }
 
 export class ChapterTaskService {
@@ -93,6 +96,7 @@ export class ChapterTaskService {
       baseVersion: draft.baseVersion,
       baseAdoptedThrough: draft.baseAdoptedThrough,
       createdAt: draft.createdAt,
+      ...(draft.execution === undefined ? {} : { execution: draft.execution }),
       ...(context === undefined ? {} : { writeContext: context }),
     };
     return this.drive(stateFromDraft(draft, runInput), identity, draft.proposals);
@@ -112,25 +116,66 @@ export class ChapterTaskService {
     seedProposals: readonly DraftProposal[],
   ): Promise<ChapterDraft> {
     const { ctx, proposals } = this.makeCtx(seedProposals);
+    const usage = { ...emptyUsage(), ...identity.execution?.usage };
+    usage.unmeasuredCalls += usage.pendingCalls;
+    usage.pendingCalls = 0;
+    let last = this.draftFromState(identity, initial);
+    const save = (draft: ChapterDraft): ChapterDraft => {
+      const request = this.deps.control?.requested;
+      const status = draft.status === "ready" || draft.status === "needs_revision" ? "completed"
+        : draft.status === "failed" ? "failed" : request === "pause" ? "pausing" : request === "end" ? "ending" : "running";
+      last = { ...draft, execution: {
+        status, stage: draftStage(draft), startedAt: identity.execution?.startedAt ?? identity.createdAt,
+        updatedAt: this.now(), usage: { ...usage },
+      } };
+      this.deps.draftStore.saveDraft(last);
+      return last;
+    };
+    // 启动响应返回前先落初始任务，页面刷新可以立即找到相同 draftId。
+    save(last);
+    const client: ModelClient = {
+      official: this.deps.client.official,
+      ...(this.deps.client.conversationKey === undefined ? {} : { conversationKey: this.deps.client.conversationKey }),
+      call: async (options) => {
+        if (this.deps.control?.requested != null) throw new Error("任务已请求停止，不再发起新的模型请求");
+        usage.calls++;
+        usage.pendingCalls++;
+        save(last);
+        let result: Awaited<ReturnType<ModelClient["call"]>>;
+        try {
+          result = await this.deps.client.call(options);
+        } catch (error) { usage.pendingCalls--; usage.unmeasuredCalls++; throw error; }
+        usage.pendingCalls--;
+        if (result.kind === "error") usage.unmeasuredCalls++;
+        else {
+          const measured = result.message.usage;
+          usage.inputTokens += measured.input_tokens + (measured.cache_read_input_tokens ?? 0) + (measured.cache_creation_input_tokens ?? 0);
+          usage.outputTokens += measured.output_tokens;
+        }
+        save(last);
+        return result;
+      },
+    };
     const graph = buildChapterGraph({
-      client: this.deps.client,
+      client,
       ctx,
       maxToolRounds: this.deps.maxToolRounds,
       collectedProposals: () => [...proposals],
+      stopRequested: () => this.deps.control?.requested ?? null,
+      onState: (state) => { save(this.draftFromState(identity, state)); },
     });
 
-    let last: ChapterDraft | null = null;
-    const stream = await graph.stream(initial, {
-      configurable: { thread_id: identity.draftId },
-      streamMode: "values",
-    });
-    for await (const state of stream) {
-      last = this.draftFromState(identity, state as ChapterGraphState);
-      this.deps.draftStore.saveDraft(last);
+    try {
+      await graph.invoke(initial, { configurable: { thread_id: identity.draftId } });
+    } catch (error) {
+      if (this.deps.control?.requested == null) {
+        const step = draftStage(last) === "writing" ? "C4" : draftStage(last) === "declaring" ? "C5" : "C6";
+        save({ ...last, status: "failed", acceptable: false, error: { step, detail: error instanceof Error ? error.message : String(error) } });
+      }
     }
-    // stream 至少产出初始态；理论上 last 不会为 null，兜底一次。
-    if (last === null) {
-      last = this.draftFromState(identity, initial);
+    const request = this.deps.control?.requested;
+    if (request != null && last.execution?.status !== "completed") {
+      last = { ...last, execution: { ...last.execution!, status: request === "pause" ? "paused" : "ended", usage: { ...usage }, updatedAt: this.now() } };
       this.deps.draftStore.saveDraft(last);
     }
     return last;
@@ -168,10 +213,11 @@ function statusFromState(state: ChapterGraphState): ChapterDraftStatus {
     case "failed":
     case "refused":
       return "failed";
+    case "paused":
+    case "ended":
     case null:
       if (state.declaration !== null) return "checking";
-      if (state.body !== "") return "declaring";
-      return "writing";
+      return state.write === null ? "writing" : "declaring";
   }
 }
 

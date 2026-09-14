@@ -70,14 +70,21 @@ describe("/api/conversation", () => {
     expect(turns).toHaveLength(2);
   });
 
-  it("POST 经对话写下一章：跑真实章节任务，产 chapter_written 草稿落盘", async () => {
-    const model = fakeClient([toolUse("write_next_chapter", {}), modelText(PROSE), modelText(C5_JSON), modelText("第 3 章草稿写好了。")]);
+  it("POST 经对话启动下一章：返回任务编号，后台完成真实章节任务并落盘", async () => {
+    const model = fakeClient([]);
+    let judge = 0;
+    vi.mocked(model.client.call).mockImplementation(async (options) => {
+      model.calls.push(options);
+      if (options.role === "creative") return modelText(options.outputSchema === undefined ? PROSE : C5_JSON);
+      return ++judge === 1 ? toolUse("write_next_chapter", {}) : modelText("第 3 章任务已启动。");
+    });
     const { session, drafts } = seed(model.client);
     const res = await converse(session, "按计划写下一章");
     expect(res.status).toBe(200);
     const reply = res.body as ConversationReply;
-    const written = reply.effects.find((e) => e.kind === "chapter_written");
-    expect(written).toMatchObject({ kind: "chapter_written", chapter: 3 });
+    const written = reply.effects.find((e) => e.kind === "chapter_started");
+    expect(written).toMatchObject({ kind: "chapter_started", chapter: 3, draftId: "ch3d1" });
+    expect((await session.writeChapter({ chapter: 3, draftId: "ch3d1" })).body).toBe(PROSE);
     expect(drafts.listDrafts(3)).toHaveLength(1);
     expect(model.calls).toHaveLength(4); // 对话1 + C4 + C5 + 对话2
   });

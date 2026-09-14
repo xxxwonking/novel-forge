@@ -271,7 +271,8 @@ export interface ActionResult {
 /** 一次对话回合里发生的状态变化。与后端 AgentEffect 一一对应（报文层重新声明）。 */
 export type AgentEffect =
   | { kind: "preparation_proposed" | "preparation_confirmed"; proposalId: string; summary: string }
-  | { kind: "chapter_written"; chapter: number; draftId: string; status: string; acceptable: boolean }
+  | { kind: "chapter_written" | "chapter_started"; chapter: number; draftId: string; status: string; acceptable: boolean }
+  | { kind: "task_updated"; chapter: number; draftId: string; status: string }
   | { kind: "chapter_adopted"; chapter: number; draftId: string; superseded: number; staleMarked: number[] }
   | { kind: "plan_updated"; chapter: number; promotedToPayoff: boolean }
   | { kind: "foreshadow_rescheduled"; foreshadowId: string; expectedBy: number }
@@ -305,6 +306,7 @@ export interface ConversationHistory {
 
 /** 草稿的对外视图（后端剔除了内部会话快照）。只声明 UI 用到的字段。 */
 export interface DraftView {
+  execution?: TaskExecution;
   preparationProposalId: string | null;
   declaration: {
     events: { summary: string; anchor: TextAnchor }[];
@@ -325,6 +327,22 @@ export interface DraftView {
   error: { step: string; detail: string } | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface TaskExecution {
+  status: "running" | "pausing" | "ending" | "paused" | "ended" | "completed" | "failed" | "interrupted";
+  stage: "writing" | "declaring" | "checking";
+  startedAt: string;
+  updatedAt: string;
+  usage: { calls: number; inputTokens: number; outputTokens: number; unmeasuredCalls: number };
+}
+export interface ChapterTaskView extends TaskExecution {
+  usageRecorded: boolean;
+  chapter: number;
+  draftId: string;
+  draftStatus: string;
+  words: number;
+  detail: string | null;
 }
 
 export interface AdoptResponse {
@@ -382,7 +400,9 @@ export const api = {
   confirmPreparation: (proposalId: string) => post<{ changed: boolean; proposal: PreparationProposal }>("/api/preparation/confirm", { proposalId }),
   rejectPreparation: (proposalId: string) => post<PreparationProposal>("/api/preparation/reject", { proposalId }),
   recordAuthorDetails: (input: { summary: string; baseFingerprint: string; changes: unknown }) => post<PreparationProposal>("/api/preparation/author", input),
-  writeChapter: (input: { chapter: number; proposalId?: string; draftId?: string; newDraft?: boolean }) => post<DraftView>("/api/chapter/write", input),
+  writeChapter: (input: { chapter: number; proposalId?: string; draftId?: string; newDraft?: boolean; requestId?: string }) => post<DraftView>("/api/chapter/start", { ...input, requestId: input.requestId ?? crypto.randomUUID() }),
+  chapterTasks: () => request<ChapterTaskView[]>("/api/tasks"),
+  controlTask: (chapter: number, draftId: string, action: "pause" | "end") => post<ChapterTaskView>("/api/chapter/control", { chapter, draftId, action }),
   workspace: () => request<WorkspacePayload>("/api/workspace"),
   createWork: (input: CreateWorkInput) => post<WorkSummary>("/api/works", input),
   overview: () => request<Overview>("/api/overview"),

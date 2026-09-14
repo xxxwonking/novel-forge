@@ -8,7 +8,9 @@
 
 import { useCallback, useState } from "react";
 import { api, selectedProjectId, type Alert, type AlertAction } from "./api.js";
-import { useFetch, useRoute, useToast } from "./hooks.js";
+import { useFetch, usePolling, useRoute, useToast } from "./hooks.js";
+import { TaskPanel } from "./components/TaskPanel.js";
+import type { ChapterTaskView } from "./api.js";
 import { actionLabel } from "./components/AlertCard.js";
 import { Home } from "./pages/Home.js";
 import { AlertList } from "./pages/AlertList.js";
@@ -45,6 +47,7 @@ function ProjectApp(): React.ReactElement {
   const [navOpen, setNavOpen] = useState(false);
 
   const overview = useFetch(() => api.overview(), [nonce]);
+  const tasks = usePolling(api.chapterTasks);
 
   /** 全局重取。一键动作会同时改节拍表、事件流与告警，所以整体刷新。 */
   const refresh = useCallback(() => setNonce((n) => n + 1), []);
@@ -140,6 +143,7 @@ function ProjectApp(): React.ReactElement {
       </nav>
 
       <main className="main">
+        <TaskPanel tasks={tasks.data ?? []} error={tasks.error} route={route} reload={tasks.reload} />
         {overview.error !== null && <div className="empty">读取失败：{overview.error}</div>}
         {overview.data !== null && (
           <Routed
@@ -149,6 +153,8 @@ function ProjectApp(): React.ReactElement {
             onIgnore={onIgnore}
             onJump={onJump}
             refresh={refresh}
+            tasks={tasks.data ?? []}
+            reloadTasks={tasks.reload}
           />
         )}
       </main>
@@ -165,9 +171,11 @@ interface RoutedProps {
   onIgnore: (alert: Alert) => void;
   onJump: (chapter: number, quote: string) => void;
   refresh: () => void;
+  tasks: readonly ChapterTaskView[];
+  reloadTasks: () => void;
 }
 
-function Routed({ route, overview, onAction, onIgnore, onJump, refresh }: RoutedProps): React.ReactElement {
+function Routed({ route, overview, onAction, onIgnore, onJump, refresh, tasks, reloadTasks }: RoutedProps): React.ReactElement {
   const [path, search] = route.split("?");
   const query = new URLSearchParams(search ?? "");
 
@@ -179,7 +187,7 @@ function Routed({ route, overview, onAction, onIgnore, onJump, refresh }: Routed
   }
   if (path?.startsWith("/draft/")) {
     const [, , chapter, draftId] = path.split("/");
-    return <Drafts key={`${chapter}/${draftId}`} chapter={Number(chapter)} draftId={draftId ?? ""} refresh={refresh} />;
+    return <Drafts key={`${chapter}/${draftId}`} chapter={Number(chapter)} draftId={draftId ?? ""} refresh={refresh} task={tasks.find((t) => t.draftId === draftId)} reloadTasks={reloadTasks} />;
   }
   if (path === "/" || path === "") {
     return <Home overview={overview} onAction={onAction} onIgnore={onIgnore} />;

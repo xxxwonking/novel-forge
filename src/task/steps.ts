@@ -43,6 +43,7 @@ export type WriteResult =
       readonly hitToolCap: boolean;
     }
   | { readonly kind: "refused"; readonly userMessage: string }
+  | { readonly kind: "incomplete"; readonly body: string; readonly detail: string }
   | { readonly kind: "failed"; readonly detail: string };
 
 export async function writeChapterBody(
@@ -68,6 +69,7 @@ export async function writeChapterBody(
   if (r.kind === "refusal") return { kind: "refused", userMessage: r.userMessage };
 
   const body = textOf(r.message);
+  if (r.kind === "max_tokens") return { kind: "incomplete", body, detail: "正文达到模型输出上限，片段已保留；请继续完成或重新生成后再检查。" };
   if (body.trim() === "") {
     return {
       kind: "failed",

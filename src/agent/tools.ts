@@ -17,6 +17,16 @@ import { PREPARATION_INPUT_SCHEMA } from "../preparation/schema.js";
 
 export const MAIN_AGENT_TOOLS: readonly Anthropic.Tool[] = [
   {
+    name: "list_chapter_tasks",
+    description: "读取本作品的真实任务状态、稿件状态、步骤、字数和已报告用量。查看或返回页面不启动任何任务；没有活动执行的旧运行记录会显示 interrupted。",
+    input_schema: { type: "object", properties: {}, required: [] },
+  },
+  {
+    name: "control_chapter_task",
+    description: "按确切 draftId 暂停、结束或恢复任务。pause/end 会阻止后续模型请求，当前请求返回后保留内容再生效，pausing/ending 不能说已经暂停/结束。resume 仅在作者明确要求继续时执行，已完成步骤不重跑，已结束任务不能静默恢复。",
+    input_schema: { type: "object", properties: { draftId: { type: "string" }, action: { type: "string", enum: ["pause", "end", "resume"] } }, required: ["draftId", "action"] },
+  },
+  {
     name: "get_preparation",
     description: "读取作者已经指定/确认的作品设定、人物完整档案、地点组织、写作规则、情节线、章节计划、开写缺项与候选方案。准备作品或修改资料前先读，baseFingerprint 必须沿用本次读到的值。传 proposalId 则只读取那一份方案详情。",
     input_schema: { type: "object", properties: { proposalId: { type: "string" } }, required: [] },
@@ -141,7 +151,7 @@ export const MAIN_AGENT_TOOLS: readonly Anthropic.Tool[] = [
   {
     name: "write_next_chapter",
     description:
-      "按已确认的下一章节拍表写章，产出待采用稿（正文+结构声明+检查）。仅当用户明确要求写章时调用；查询、讨论、规划不调用。作者只授权“先试写”时传具体 proposalId，基于该候选方案试写，采用章节时一并确认依赖；不要先确认方案。相同请求复用原任务或草稿。",
+      "启动下一章后台任务并立即返回任务编号；写完后交付待采用稿。启动不等于写完，需如实转述状态，不自行等待或重复启动。仅当用户明确要求写章时调用。作者只授权先试写时传具体 proposalId，基于该候选方案试写，采用章节时一并确认依赖。相同请求复用原任务或草稿。",
     input_schema: { type: "object", properties: { proposalId: { type: "string", description: "仅明确要求基于候选方案先试写时传入" } }, required: [] },
   },
   {
@@ -158,6 +168,8 @@ export const MAIN_AGENT_TOOLS: readonly Anthropic.Tool[] = [
 
 /** 回归测试的期望顺序。改动工具集必须同步改这里，让测试逼你确认一次（§13.8 同款纪律）。 */
 export const EXPECTED_MAIN_AGENT_TOOL_ORDER: readonly string[] = [
+  "list_chapter_tasks",
+  "control_chapter_task",
   "get_preparation",
   "propose_preparation",
   "confirm_preparation",

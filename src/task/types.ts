@@ -77,6 +77,8 @@ export interface DraftSession {
 /** 可序列化的写章来源校验；不保存带函数和 Set 的 runInput。旧草稿可缺。 */
 export interface DraftWriteContext {
   readonly fingerprint: string;
+  /** 创建请求的幂等编号，恢复时保留，不被新一轮检查覆盖。 */
+  readonly requestId?: string;
   readonly maxOutputTokens?: number;
   /** 试写依赖的具体资料方案；采用章节时一并确认，恢复时重建相同资料视图。 */
   readonly proposalId?: string;
@@ -100,6 +102,8 @@ export interface ChapterDraft {
   /** C4 会话快照，供 resume 到声明步重建同会话第二轮。ready/adopted 后可为 null。 */
   readonly session: DraftSession | null;
   readonly writeContext?: DraftWriteContext;
+  /** 执行状态独立于内容状态；旧草稿缺省时按内容及活动句柄推断。 */
+  readonly execution?: DraftExecution;
   /**
    * 生成时的作品版本号（每次采用 +1，见 DraftStore.workVersion）。
    * 采用更早章后，`baseVersion` 落后的后续章草稿被标 `stale`。
@@ -113,7 +117,33 @@ export interface ChapterDraft {
 }
 
 /** 任务结束的形态。ready 才可采用；needs_revision/refused/failed 停在结果页。 */
-export type ChapterTaskOutcome = "ready" | "needs_revision" | "refused" | "failed";
+export type ChapterTaskOutcome = "ready" | "needs_revision" | "refused" | "failed" | "paused" | "ended";
+
+export type TaskStage = "writing" | "declaring" | "checking";
+export type TaskStatus = "running" | "pausing" | "ending" | "paused" | "ended" | "completed" | "failed" | "interrupted";
+export interface TaskUsage {
+  readonly calls: number;
+  readonly inputTokens: number;
+  readonly outputTokens: number;
+  readonly unmeasuredCalls: number;
+  /** 进程退出时用于识别尚未返回用量的请求；兼容旧记录缺省。 */
+  readonly pendingCalls?: number;
+}
+export interface DraftExecution {
+  readonly status: TaskStatus;
+  readonly stage: TaskStage;
+  readonly startedAt: string;
+  readonly updatedAt: string;
+  readonly usage: TaskUsage;
+}
+export interface ChapterTaskView extends DraftExecution {
+  readonly usageRecorded: boolean;
+  readonly chapter: ChapterNo;
+  readonly draftId: DraftId;
+  readonly draftStatus: ChapterDraftStatus;
+  readonly words: number;
+  readonly detail: string | null;
+}
 
 /**
  * LangGraph 章节任务的状态通道（graph.ts 据此建 Annotation）。

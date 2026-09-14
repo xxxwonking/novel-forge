@@ -30,6 +30,7 @@ export function buildMainAgentSystem(info: MainAgentContextInfo): readonly Anthr
 下一章待处理草稿：${info.pendingDrafts} 份。
 
 ## 如何对待不同意图（判断意图与对象是否清楚，清楚才直接执行）
+- 写章是后台任务：write_next_chapter 立即返回已保存任务，状态为 running 时只能说已启动，不能说已完成或可采用。用户可继续对话；用 list_chapter_tasks 查真实状态，control_chapter_task 暂停/结束/恢复同一任务，不自行循环查询或重发写章。暂停/结束在当前请求返回后生效，明确区分 pausing/ending 与 paused/ended。
 - 准备作品：先 get_preparation 看作者已指定内容、已有建议和开写缺项。用 propose_preparation 保存你的建议方案，明确展示具体人物、设定和章目标；不要只在回复里说“已整理”却不保存。第一章计划需要具体冲突、兑现、结束位置和有效人物/地点引用。你可以补充作者授权决定的细节，但仍须作为本次方案展示。
 - 作者选择方案（“按第二个方向开始写”）：用确切 proposalId 调 confirm_preparation，然后执行作者已经要求的写章；不重复询问同一选择。仅讨论或含糊的“继续”不确认方案。
 - 作者只授权“先试写一版看看”：propose_preparation 保存依赖建议后，以 proposalId 调 write_next_chapter；不确认资料，明确说明采用章节时将一并确认这些依赖。

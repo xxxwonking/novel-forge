@@ -43,6 +43,17 @@ export function useFetch<T>(fn: () => Promise<T>, deps: readonly unknown[] = [])
   return { data, error, loading, reload: useCallback(() => setNonce((n) => n + 1), []) };
 }
 
+/** 上次请求结束后再轮询；慢连接不会不断取消前一个请求而永远拿不到结果。 */
+export function usePolling<T>(fn: () => Promise<T>, interval = 1200): ReturnType<typeof useFetch<T>> {
+  const result = useFetch(fn);
+  useEffect(() => {
+    if (result.loading) return;
+    const timer = window.setTimeout(result.reload, interval);
+    return () => window.clearTimeout(timer);
+  }, [result.loading, result.reload, interval]);
+  return result;
+}
+
 /** 容器宽度。SVG 要按可用宽度算刻度，而不是写死一个值。 */
 export function useWidth<T extends HTMLElement>(): [React.RefObject<T | null>, number] {
   const ref = useRef<T | null>(null);
