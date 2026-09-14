@@ -28,7 +28,7 @@ import type { C5Declaration } from "../types/events.js";
  * API 调用的输出规模 —— 是**管线常量**（等同 client.ts 的 STREAMING_THRESHOLD /
  * pipeline.ts 的 16_000/4_000），不是 §10.1 的派生阈值，故不进 rules.yaml。
  */
-const C4_MAX_TOKENS = 16_000;
+export const C4_MAX_TOKENS = 16_000;
 const C5_MAX_TOKENS = 4_000;
 
 // ── C4：写正文（带工具循环）─────────────────────────────────────────────
@@ -42,9 +42,12 @@ export type WriteResult =
       /** 传给最终 C4 调用的消息（含工具往返），C5 同会话第二轮据此续接。 */
       readonly sessionMessages: readonly Anthropic.MessageParam[];
       readonly hitToolCap: boolean;
+      readonly declarationBody?: boolean;
+      readonly summary?: string;
     }
   | { readonly kind: "refused"; readonly userMessage: string }
   | { readonly kind: "incomplete"; readonly body: string; readonly detail: string }
+  | { readonly kind: "scope_change"; readonly summary: string; readonly advice: string }
   | { readonly kind: "failed"; readonly detail: string };
 
 export async function writeChapterBody(
@@ -98,14 +101,16 @@ export async function declareStructure(
   input: ChapterRunInput,
   write: Extract<WriteResult, { kind: "ok" }>,
 ): Promise<DeclareResult> {
-  // 同会话第二轮：追加**整个 C4 响应**（含 thinking/工具块），再问结构声明。
+  // 真实响应完整保留；局部生成还须声明代码合成后的全文，不能只分析替换片段。
+  const task = write.c4Response === null || write.declarationBody === true
+    ? `以下是本次版本的完整正文，是本次结构核对的唯一正文依据。此前的源稿或替换片段不代表本次完整结果。\n\n${write.body}\n\n${C5_TASK}` : C5_TASK;
   const c5Messages: Anthropic.MessageParam[] = write.c4Response === null ? [
     ...write.sessionMessages,
-    { role: "user", content: [{ type: "text", text: `以下完整正文由作者提供，是本次结构核对的唯一正文依据。\n\n${write.body}\n\n${C5_TASK}` }] },
+    { role: "user", content: [{ type: "text", text: task }] },
   ] : [
     ...write.sessionMessages,
     { role: "assistant", content: write.c4Response.content },
-    { role: "user", content: [{ type: "text", text: C5_TASK }] },
+    { role: "user", content: [{ type: "text", text: task }] },
   ];
 
   const c5 = await client.call({

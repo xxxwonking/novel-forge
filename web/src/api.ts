@@ -308,7 +308,8 @@ export interface ConversationHistory {
 export interface DraftView {
   revisionToken: string;
   isCurrentAdopted: boolean;
-  revision?: { kind: string; sourceDraftId: string; summary: string; rebased: boolean };
+  canContinueBody: boolean;
+  revision?: { kind: string; sourceDraftId: string; summary: string; rebased: boolean; resultSummary?: string; scopeAdvice?: string; scope?: { quote: string; occurrence: number; start: number; end: number } | null };
   review?: { adoptOnSuccess: boolean; adoptionError?: string };
   execution?: TaskExecution;
   preparationProposalId: string | null;
@@ -334,7 +335,7 @@ export interface DraftView {
 }
 
 export interface TaskExecution {
-  status: "waiting" | "running" | "pausing" | "ending" | "paused" | "ended" | "completed" | "failed" | "interrupted";
+  status: "waiting" | "awaiting_input" | "running" | "pausing" | "ending" | "paused" | "ended" | "completed" | "failed" | "interrupted";
   stage: "writing" | "declaring" | "checking";
   startedAt: string;
   updatedAt: string;
@@ -433,6 +434,7 @@ export const api = {
   chapterDrafts: (n: number) => request<DraftView[]>(`/api/chapter/drafts?n=${n}`),
   chapterDraft: (n: number, id: string) => request<DraftView>(`/api/chapter/draft?n=${n}&id=${encodeURIComponent(id)}`),
   editDraft: (input: { chapter: number; draftId: string; revisionToken: string; body: string; summary: string; requestId: string }) => post<DraftView>("/api/chapter/edit", input),
+  reviseDraft: (input: { chapter: number; draftId: string; revisionToken: string; mode: "rewrite" | "continue"; instruction: string; scope: { quote: string; occurrence?: number } | null; requestId: string }) => post<DraftView>("/api/chapter/revise", input),
   correctDraft: (input: { chapter: number; draftId: string; revisionToken: string; summary: string; requestId: string; changes: { section: string; index: number; value: unknown; occurrence?: number }[] }) => post<DraftView>("/api/chapter/correct", input),
   checkDraft: (input: { chapter: number; draftId: string; revisionToken: string; adoptOnSuccess: boolean }) => post<DraftView>("/api/chapter/check", input),
   adopt: (chapter: number, draftId: string) => post<AdoptResponse>("/api/chapter/adopt", { chapter, draftId }),

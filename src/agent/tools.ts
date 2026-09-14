@@ -18,6 +18,15 @@ import { CORRECTION_VALUE_SCHEMAS } from "../chapter/c5-correction.js";
 
 export const MAIN_AGENT_TOOLS: readonly Anthropic.Tool[] = [
   {
+    name: "revise_chapter_draft",
+    description: "按作者要求启动正文局部改写或未完成片段续写，保存新版本，随后核对与检查，不自动采用。先 get_chapter_draft 取得正文和 revisionToken。rewrite 必须以 scope.quote 指定精确原文，重复出现时 occurrence 从 0 开始；scope=null 仅用于作者明确允许修改整章。continue 仅追加并保留已有片段，scope=null。需要扩大范围时只返回建议。requestId 为本次操作稳定且唯一的字符串，重试沿用。返回 running 仅表示已启动，不等于已完成。",
+    input_schema: { type: "object", additionalProperties: false, properties: {
+      draftId: { type: "string" }, revisionToken: { type: "string" }, instruction: { type: "string" },
+      requestId: { type: "string", pattern: "^[A-Za-z0-9_-]{1,128}$" }, mode: { type: "string", enum: ["rewrite", "continue"] },
+      scope: { anyOf: [{ type: "null" }, { type: "object", additionalProperties: false, properties: { quote: { type: "string" }, occurrence: { type: "integer", minimum: 0 } }, required: ["quote"] }] },
+    }, required: ["draftId", "revisionToken", "instruction", "requestId", "mode", "scope"] },
+  },
+  {
     name: "get_chapter_draft",
     description: "读取确切稿件的完整正文、结构声明、检查、来源版本和 revisionToken。修改或纠错前必须读取；候选内容不能当成已采用事实。返回的原文和 token 是后续操作依据。",
     input_schema: { type: "object", properties: { draftId: { type: "string" } }, required: ["draftId"] },
@@ -190,6 +199,7 @@ export const MAIN_AGENT_TOOLS: readonly Anthropic.Tool[] = [
 
 /** 回归测试的期望顺序。改动工具集必须同步改这里，让测试逼你确认一次（§13.8 同款纪律）。 */
 export const EXPECTED_MAIN_AGENT_TOOL_ORDER: readonly string[] = [
+  "revise_chapter_draft",
   "get_chapter_draft",
   "correct_draft_structure",
   "check_chapter_draft",

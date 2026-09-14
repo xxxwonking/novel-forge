@@ -44,6 +44,7 @@ import { PreparationService } from "../preparation/service.js";
 import type { PreparationContent } from "../preparation/types.js";
 import { DraftRevisions, type DraftEditOptions, type DraftCheckOptions, type DraftCorrectionOptions } from "./draft-revisions.js";
 import { toDraftView } from "./draft-view.js";
+import type { DraftRewriteOptions } from "./draft-rewrite.js";
 
 export interface SessionDerived {
   readonly projections: Projections;
@@ -261,6 +262,8 @@ export class ProjectSession {
 
   correctDraft(options: DraftCorrectionOptions): ChapterDraft { return this.revisions.correct(options); }
 
+  reviseDraft(options: DraftRewriteOptions): ChapterDraft { return this.revisions.rewrite(options); }
+
   checkDraft(options: DraftCheckOptions): ChapterDraft { return this.writer.check(options); }
 
   /** 新数据按采用事务记录的版本读取；旧数据仅在正文能唯一对应采用稿时识别。 */
@@ -418,6 +421,12 @@ export class ProjectSession {
       effect: { kind: "action_failed", tool, message },
     });
     return {
+      reviseDraft: async (options) => {
+        try {
+          const draft = this.reviseDraft({ ...options, chapter: chapterFromDraftId(options.draftId) });
+          return { message: JSON.stringify(toDraftView(draft, this)), effect: { kind: "chapter_revised", chapter: draft.chapter, draftId: draft.draftId, status: draft.status, acceptable: draft.acceptable } };
+        } catch (error) { return fail("revise_chapter_draft", error instanceof Error ? error.message : String(error)); }
+      },
       getChapterDraft: (draftId) => {
         const chapter = chapterFromDraftId(draftId);
         const draft = this.getDraft(chapter, draftId);

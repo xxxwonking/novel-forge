@@ -200,7 +200,8 @@ export class ChapterTaskService {
       proposals: state.proposals,
       session: sessionFromWrite(state.write),
       ...(identity.writeContext === undefined ? {} : { writeContext: identity.writeContext }),
-      ...(identity.revision === undefined ? {} : { revision: identity.revision }),
+      ...(state.revision === null ? {} : { revision: state.revision }),
+      ...(state.generation === null ? {} : { generation: state.generation }),
       ...(identity.review === undefined ? {} : { review: identity.review }),
       baseVersion: identity.baseVersion,
       baseAdoptedThrough: identity.baseAdoptedThrough,
@@ -245,6 +246,7 @@ function sessionFromWrite(write: WriteOk | null): ChapterDraft["session"] {
     tools: write.req.tools,
     messages: write.sessionMessages,
     c4Response: write.c4Response,
+    ...(write.declarationBody === undefined ? {} : { declarationBody: write.declarationBody }),
   };
 }
 
@@ -269,6 +271,7 @@ function stateFromDraft(draft: ChapterDraft, runInput: ChapterRunInput): Chapter
           c4Response: draft.session.c4Response,
           sessionMessages: draft.session.messages,
           hitToolCap: false,
+          ...(draft.session.declarationBody === undefined ? {} : { declarationBody: draft.session.declarationBody }),
         };
   return {
     runInput,
@@ -282,6 +285,8 @@ function stateFromDraft(draft: ChapterDraft, runInput: ChapterRunInput): Chapter
     findings: draft.findings,
     acceptable: draft.acceptable,
     proposals: draft.proposals,
+    generation: draft.generation ?? null,
+    revision: draft.revision ?? null,
     outcome: null,
     error: null,
     refusalMessage: null,

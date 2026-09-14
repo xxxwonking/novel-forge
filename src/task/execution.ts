@@ -17,6 +17,7 @@ export function taskView(draft: ChapterDraft, active: boolean, isHistory = false
   };
   let status = execution.status;
   if (draft.status === "pending_check") status = "waiting";
+  else if (draft.status === "needs_revision" && draft.revision?.scopeAdvice) status = execution.status === "ended" ? "ended" : "awaiting_input";
   else if (["adopted", "ready", "needs_revision"].includes(draft.status)) status = "completed";
   else if (draft.status === "discarded") status = "ended";
   else if (status === "paused" || status === "ended") { /* 用户决定与步骤错误分别保留。 */ }

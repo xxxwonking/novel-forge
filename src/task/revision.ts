@@ -5,8 +5,13 @@ import type { ChapterDraft, DraftSession } from "./types.js";
 
 /** 精确标识作者正在编辑的源结果；正文、结构、检查或状态改变都使旧凭据失效。 */
 export function draftRevisionToken(draft: ChapterDraft): string {
+  return stableFingerprint(draft);
+}
+
+/** JSON 对象字段顺序不属于内容，重试和版本凭据使用同一稳定口径。 */
+export function stableFingerprint(content: unknown): string {
   // 正文和元数据分文件保存，重读后字段顺序会变；只让内容变化影响凭据。
-  const serialized = JSON.stringify(draft, (_key, value: unknown) => {
+  const serialized = JSON.stringify(content, (_key, value: unknown) => {
     if (value === null || typeof value !== "object" || Array.isArray(value)) return value;
     const record = value as Record<string, unknown>;
     return Object.fromEntries(Object.keys(record).sort().map(key => [key, record[key]]));

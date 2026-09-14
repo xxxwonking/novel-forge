@@ -74,6 +74,23 @@ export interface DraftSession {
   readonly messages: readonly Anthropic.MessageParam[];
   /** 作者提交的正文没有模型响应；不能为它伪造 assistant/thinking 内容。 */
   readonly c4Response: Anthropic.Message | null;
+  /** C4 仅返回局部替换/续文时，C5 同时读取代码合成后的完整正文。 */
+  readonly declarationBody?: boolean;
+}
+
+export interface DraftTextRange {
+  readonly quote: string;
+  readonly occurrence: number;
+  readonly start: number;
+  readonly end: number;
+}
+
+/** 冻结正文与范围，失败恢复不得重新猜测或扩大作者的选择。内部执行数据不放进 API。 */
+export interface DraftGeneration {
+  readonly mode: "rewrite" | "continue";
+  readonly instruction: string;
+  readonly originalBody: string;
+  readonly range: DraftTextRange | null;
 }
 
 export interface DraftRevision {
@@ -84,6 +101,9 @@ export interface DraftRevision {
   readonly rebased: boolean;
   readonly requestId?: string;
   readonly requestFingerprint?: string;
+  readonly scope?: DraftTextRange | null;
+  readonly resultSummary?: string;
+  readonly scopeAdvice?: string;
 }
 
 export interface DraftReview {
@@ -124,6 +144,7 @@ export interface ChapterDraft {
   /** 执行状态独立于内容状态；旧草稿缺省时按内容及活动句柄推断。 */
   readonly execution?: DraftExecution;
   readonly revision?: DraftRevision;
+  readonly generation?: DraftGeneration;
   readonly review?: DraftReview;
   /**
    * 生成时的作品版本号（每次采用 +1，见 DraftStore.workVersion）。
@@ -141,7 +162,7 @@ export interface ChapterDraft {
 export type ChapterTaskOutcome = "ready" | "needs_revision" | "refused" | "failed" | "paused" | "ended";
 
 export type TaskStage = "writing" | "declaring" | "checking";
-export type TaskStatus = "waiting" | "running" | "pausing" | "ending" | "paused" | "ended" | "completed" | "failed" | "interrupted";
+export type TaskStatus = "waiting" | "awaiting_input" | "running" | "pausing" | "ending" | "paused" | "ended" | "completed" | "failed" | "interrupted";
 export interface TaskUsage {
   readonly calls: number;
   readonly inputTokens: number;

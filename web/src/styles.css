@@ -152,6 +152,7 @@ a.book-card:hover { border-color: var(--calm); background: #1e222c; }
 .revision-note summary { cursor: pointer; padding: 8px 0; }
 .revision-comparison article, .revision-comparison p { max-height: 360px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: 13px/1.9 var(--sans); }
 .revision-comparison h3 { font-size: 14px; font-weight: 500; }
+.rewrite-excerpt { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 220px; overflow: auto; font: 13px/1.9 var(--sans); color: var(--ink-dim); }
 @media (max-width: 720px) { .revision-fields, .revision-comparison { grid-template-columns: 1fr; } .draft-actions button { max-width: 100%; } }
 @media (max-width: 1100px) { .prep-layout { grid-template-columns: minmax(0, 1fr); } .prep-sidebar { order: -1; display: flex; flex-wrap: wrap; gap: 10px; } .prep-sidebar h2 { width: 100%; margin: 0; } .prep-proposal-item { width: min(100%, 230px); margin: 0; } }
 @media (max-width: 720px) { .prep-readiness { align-items: flex-start; flex-direction: column; padding: 16px; gap: 12px; } .prep-card-grid { grid-template-columns: 1fr; } .prep-facts > div { grid-template-columns: 70px minmax(0, 1fr); gap: 8px; } .prep-main > .section-head { flex-wrap: wrap; gap: 12px; } .draft-change { align-items: flex-start; flex-direction: column; gap: 6px; } .draft-prose { font-size: 15px; } }

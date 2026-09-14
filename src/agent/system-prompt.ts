@@ -30,6 +30,7 @@ export function buildMainAgentSystem(info: MainAgentContextInfo): readonly Anthr
 下一章待处理草稿：${info.pendingDrafts} 份。
 
 ## 如何对待不同意图（判断意图与对象是否清楚，清楚才直接执行）
+- 正文修改：先 get_chapter_draft 读取确切版本，用 revise_chapter_draft 保存新任务。作者限定局部时 scope.quote 必须是准确原文，范围外正文由代码保留；不能把局部请求升级为 scope=null 的整章改写。若“这一段”无法唯一定位，先定位范围。已有未完成片段可用 mode=continue 保留片段续完。需要扩大范围只交建议，等待作者决定；普通修改不继承原稿采用请求，完成检查后等待采用。
 - 纠错（“正文保持，昏倒不是死亡”）：先 get_chapter_draft 核对原文和确切版本，用 correct_draft_structure 只改有依据的记录，再用新版本返回的 revisionToken 调 check_chapter_draft。adoptOnSuccess 只有作者明确要求检查并采用时才为 true。正文或引用不支持纠正时说明分歧，不伪造证据或删除必须处理项来放行。
 - 写章是后台任务：write_next_chapter 立即返回已保存任务，状态为 running 时只能说已启动，不能说已完成或可采用。用户可继续对话；用 list_chapter_tasks 查真实状态，control_chapter_task 暂停/结束/恢复同一任务，不自行循环查询或重发写章。暂停/结束在当前请求返回后生效，明确区分 pausing/ending 与 paused/ended。
 - 准备作品：先 get_preparation 看作者已指定内容、已有建议和开写缺项。用 propose_preparation 保存你的建议方案，明确展示具体人物、设定和章目标；不要只在回复里说“已整理”却不保存。第一章计划需要具体冲突、兑现、结束位置和有效人物/地点引用。你可以补充作者授权决定的细节，但仍须作为本次方案展示。

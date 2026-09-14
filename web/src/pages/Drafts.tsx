@@ -4,6 +4,7 @@ import { useFetch } from "../hooks.js";
 import { TaskCard, taskRunning } from "../components/TaskPanel.js";
 import { DraftEditor, RevisionComparison } from "../components/DraftEditing.js";
 import { StructureEditor } from "../components/StructureEditor.js";
+import { DraftRewriteEditor } from "../components/DraftRewriteEditor.js";
 
 const states: Record<string, string> = { writing: "正文未完成", pending_check: "待检查", declaring: "结构核对未完成", checking: "检查未完成", failed: "执行未完成", needs_revision: "需要修改", ready: "待采用", adopted: "已采用", stale: "依据已变化，需重新核对", discarded: "已丢弃" };
 
@@ -14,7 +15,7 @@ export function Drafts({ chapter, draftId, refresh, task, reloadTasks }: { chapt
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [editor, setEditor] = useState<"body" | "structure" | null>(null);
+  const [editor, setEditor] = useState<"body" | "structure" | "rewrite" | "continue" | null>(null);
   const [anchor, setAnchor] = useState<TextAnchor | null>(null);
   const prose = useRef<HTMLElement | null>(null);
   useEffect(() => { query.reload(); versions.reload(); }, [task?.updatedAt, task?.status, task?.draftStatus, query.reload, versions.reload]);
@@ -72,6 +73,8 @@ export function Drafts({ chapter, draftId, refresh, task, reloadTasks }: { chapt
       {draft.status === "pending_check" && <><button data-primary="true" disabled={busy || taskRunning(task) || editor !== null} onClick={() => void perform("checkAdopt")}>检查并采用</button><button disabled={busy || taskRunning(task) || editor !== null} onClick={() => void perform("check")}>检查</button></>}
       {draft.status === "ready" && draft.acceptable && <><button data-primary="true" disabled={busy} onClick={() => void perform("continue")}>采用并继续下一章</button><button disabled={busy} onClick={() => void perform("adopt")}>采用这一版</button></>}
       {editable && <button disabled={busy || editor !== null} onClick={() => setEditor("body")}>修改正文</button>}
+      {editable && draft.body.trim() && <button disabled={busy || editor !== null} onClick={() => setEditor("rewrite")}>按要求改写</button>}
+      {editable && draft.canContinueBody && <button data-primary="true" disabled={busy || editor !== null} onClick={() => setEditor("continue")}>保留片段继续完成</button>}
       {editable && declaration !== null && <button disabled={busy || editor !== null} onClick={() => setEditor("structure")}>正文保持，纠正记录</button>}
       {draft.status !== "discarded" && <button disabled={busy || taskRunning(task)} onClick={() => void perform("new")}>另写一版</button>}
       {draft.status !== "adopted" && draft.status !== "discarded" && <button data-quiet="true" disabled={busy || taskRunning(task)} onClick={() => void perform("discard")}>丢弃这份草稿</button>}
@@ -79,6 +82,7 @@ export function Drafts({ chapter, draftId, refresh, task, reloadTasks }: { chapt
     </div>
     {editor === "body" && <DraftEditor key={draftId} draft={draft} onSaved={saved} onClose={() => setEditor(null)} />}
     {editor === "structure" && <StructureEditor key={draftId} draft={draft} characters={names} onSaved={saved} onClose={() => setEditor(null)} />}
+    {(editor === "rewrite" || editor === "continue") && <DraftRewriteEditor key={`${draftId}-${editor}`} draft={draft} mode={editor} onSaved={saved} onClose={() => setEditor(null)} />}
     {draft.revision && <RevisionComparison draft={draft} characters={names} />}
     <section className="prep-section"><h2>本章摘要</h2>{declaration === null ? <p className="muted">结构核对尚未完成，已有正文保留在下方。</p> : declaration.events.length === 0 ? <p className="muted">本稿未提取独立剧情事件，可直接阅读正文。</p> : declaration.events.map((event, i) => <div className="draft-change" key={i}><p>{event.summary}</p>{evidence(event.anchor)}</div>)}</section>
     {declaration !== null && <section className="prep-section"><h2>人物、关系与伏笔变化 <span className="tag">{draft.status === "adopted" ? "本版本的结构记录" : "待采用变化"}</span></h2>

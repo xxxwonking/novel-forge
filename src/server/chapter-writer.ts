@@ -66,6 +66,18 @@ export class ChapterWriter {
     });
   }
 
+  /** 新的模型修订与写章共用活动任务及客户端，失败时不先创建另一份稿。 */
+  prepareModelTask(): void {
+    if (this.active !== null) throw new ChapterWriteError(409, "已有稿件正在执行，请先等待或暂停当前任务");
+    this.ensureClient();
+  }
+
+  private ensureClient(): void {
+    if (this.client !== undefined) return;
+    try { this.client = createModelClient(); }
+    catch (error) { throw new ChapterWriteError(503, `写章模型尚未配置：${error instanceof Error ? error.message : String(error)}`); }
+  }
+
   /** 显式检查才启动执行；保存正文不会顺带调用模型。 */
   check(options: DraftCheckOptions): ChapterDraft {
     validateDraftReference(options);
@@ -75,6 +87,7 @@ export class ChapterWriter {
     }
     const draft = this.drafts.loadDraft(options.chapter, options.draftId);
     if (draft === undefined) throw new ChapterWriteError(404, "草稿不存在");
+    if (draft.revision?.scopeAdvice) throw new ChapterWriteError(409, "这份结果仅包含修改范围建议，正文尚未修改；请先明确范围并生成新修订");
     if (draft.review?.requestToken === options.revisionToken && draft.review.adoptOnSuccess === options.adoptOnSuccess) {
       return this.start({ chapter: options.chapter, draftId: options.draftId });
     }
@@ -164,12 +177,7 @@ export class ChapterWriter {
     const fingerprint = chapterInputFingerprint(source, options.chapter);
     const readSource = buildChapterReadSource(source, options.chapter);
     const needsModel = draft === undefined || draft.session === null || draft.declaration === null;
-    if (this.client === undefined && needsModel) {
-      try { this.client = createModelClient(); }
-      catch (error) {
-        throw new ChapterWriteError(503, `写章模型尚未配置：${error instanceof Error ? error.message : String(error)}`);
-      }
-    }
+    if (needsModel) this.ensureClient();
     const control: TaskControl = { requested: null };
     const service = new ChapterTaskService({ ...(this.client === undefined ? {} : { client: this.client }), draftStore: this.drafts, readSource, control, maxToolRounds: this.session.rules.task.maxToolIterations });
     const requestId = draft?.writeContext?.requestId ?? options.requestId;

@@ -21,6 +21,7 @@ import type { ChapterWriteOptions } from "./chapter-writer.js";
 import { countWords } from "../text/measure.js";
 import { toDraftView } from "./draft-view.js";
 import type { StructureCorrection } from "../chapter/c5-correction.js";
+import type { DraftRewriteOptions } from "./draft-rewrite.js";
 
 export interface ApiRequest {
   readonly method: string;
@@ -115,12 +116,17 @@ export function handle(session: ProjectSession, req: ApiRequest): ApiResponse {
         return chapterDiscard(session, req.body);
       case "/api/chapter/edit":
       case "/api/chapter/correct":
+      case "/api/chapter/revise":
       case "/api/chapter/check": {
         const ref = draftRef(req.body);
         if (typeof ref === "string") return bad(ref);
         if (!isRecord(req.body) || typeof req.body["revisionToken"] !== "string") return bad("缺少源稿版本凭据 revisionToken");
         const reference = { ...ref, revisionToken: req.body["revisionToken"] };
         try {
+          if (path === "/api/chapter/revise") {
+            const options = { ...reference, mode: req.body["mode"], instruction: req.body["instruction"], scope: req.body["scope"], requestId: req.body["requestId"] } as DraftRewriteOptions;
+            return ok(toDraftView(session.reviseDraft(options), session));
+          }
           if (path === "/api/chapter/correct") {
             if (!Array.isArray(req.body["changes"]) || typeof req.body["summary"] !== "string") return bad("缺少纠错记录 changes 或说明 summary");
             const requestId = req.body["requestId"];

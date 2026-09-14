@@ -34,12 +34,17 @@ export function RevisionComparison({ draft, characters }: { draft: DraftView; ch
   const sourceId = draft.revision?.sourceDraftId;
   const source = useFetch(() => sourceId === undefined ? Promise.resolve(null) : api.chapterDraft(draft.chapter, sourceId), [draft.chapter, sourceId]);
   if (draft.revision === undefined) return null;
+  const scope = draft.revision.scope;
+  const before = scope?.quote ?? source.data?.body;
+  const after = scope && source.data ? draft.body.slice(scope.start, draft.body.length - (source.data.body.length - scope.end)) : draft.body;
   return <section className="revision-note">
-    <strong>{draft.revision.summary}</strong><p>基于 <a href={`#/draft/${draft.chapter}/${sourceId}`}>{sourceId}</a> 保存为 {draft.draftId}。{draft.revision.rebased && "本稿已同步最新作品依据，需重新检查。"}</p>
+    <strong>{draft.revision.resultSummary ?? draft.revision.summary}</strong><p>基于 <a href={`#/draft/${draft.chapter}/${sourceId}`}>{sourceId}</a> 保存为 {draft.draftId}。{draft.revision.rebased && "本稿已同步最新作品依据。"}</p>
+    {draft.revision.scopeAdvice && <p className="finding" data-level="warn">本次正文未修改，等待你决定范围：{draft.revision.scopeAdvice}</p>}
+    {scope && <p className="muted">本次选择第 {scope.occurrence + 1} 处原文，范围外正文保持不变。</p>}
     {source.error && <p className="muted">修改前的结果暂时无法读取：{source.error}</p>}
     {source.data && <details><summary>查看修改前后</summary>
-      {source.data.body === draft.body ? <p>正文保持不变；本次调整结构记录。</p> : <div className="revision-comparison"><section><h3>修改前</h3><article>{source.data.body}</article></section><section><h3>修改后</h3><article>{draft.body}</article></section></div>}
-      {source.data.body === draft.body && <div className="revision-comparison"><section><h3>修改前的记录</h3><p>{recordSummary(source.data, characters)}</p></section><section><h3>修改后的记录</h3><p>{recordSummary(draft, characters)}</p></section></div>}
+      {source.data.body === draft.body ? <p>{draft.revision.kind === "structure" ? "正文保持不变；本次调整结构记录。" : "正文保持不变。"}</p> : <div className="revision-comparison"><section><h3>修改前{scope ? "的选中范围" : ""}</h3><article>{before}</article></section><section><h3>修改后{scope ? "的选中范围" : ""}</h3><article>{after}</article></section></div>}
+      {draft.revision.kind === "structure" && source.data.body === draft.body && <div className="revision-comparison"><section><h3>修改前的记录</h3><p>{recordSummary(source.data, characters)}</p></section><section><h3>修改后的记录</h3><p>{recordSummary(draft, characters)}</p></section></div>}
     </details>}
   </section>;
 }

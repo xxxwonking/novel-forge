@@ -19,6 +19,7 @@ import type { ModelClient } from "../client/model.js";
 import type { ChapterExcerpt, ForeshadowFilter } from "../task/tool-exec.js";
 import type { AgentEffect } from "./types.js";
 import type { StructureCorrection } from "../chapter/c5-correction.js";
+import type { DraftRewriteOptions } from "../server/draft-rewrite.js";
 
 /** 计划类工具的入参（三种 what 对应三类 AlertAction，具体构造在 ctx 里）。 */
 export interface PlanAddInput {
@@ -41,6 +42,7 @@ export interface AgentActionOutcome {
  * 刻意不直接依赖 ProjectSession —— 让工具执行可独立测试（假 ctx 即可）。
  */
 export interface MainAgentToolContext {
+  readonly reviseDraft: (options: Omit<DraftRewriteOptions, "chapter">) => Promise<AgentActionOutcome>;
   readonly getChapterDraft: (draftId: string) => string;
   readonly correctDraft: (draftId: string, revisionToken: string, changes: readonly StructureCorrection[], summary: string) => Promise<AgentActionOutcome>;
   readonly checkDraft: (draftId: string, revisionToken: string, adoptOnSuccess: boolean) => Promise<AgentActionOutcome>;
@@ -96,6 +98,10 @@ export async function executeMainTool(
   });
 
   switch (block.name) {
+    case "revise_chapter_draft": {
+      if (["draftId", "revisionToken", "instruction", "requestId"].some(key => !readStr(key)) || !Object.hasOwn(input, "scope")) return { result: err("先读取确切稿件，提供修改要求、scope、revisionToken 和稳定 requestId；只有明确整章修改时 scope 才能为 null") };
+      return action(await ctx.reviseDraft({ draftId: readStr("draftId"), revisionToken: readStr("revisionToken"), instruction: readStr("instruction"), requestId: readStr("requestId"), mode: input["mode"] as DraftRewriteOptions["mode"], scope: input["scope"] as DraftRewriteOptions["scope"] }));
+    }
     case "get_chapter_draft":
       try { return { result: ok(ctx.getChapterDraft(readStr("draftId"))) }; }
       catch (error) { return { result: err(error instanceof Error ? error.message : String(error)) }; }

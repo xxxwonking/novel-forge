@@ -1,13 +1,13 @@
 /** 修订只交付新候选；采用和后台检查继续复用既有业务入口。 */
-import { createHash } from "node:crypto";
 import type { DraftStore } from "../task/draft-store.js";
-import type { ChapterDraft } from "../task/types.js";
-import { authoredSession, draftRevisionToken } from "../task/revision.js";
+import type { ChapterDraft, DraftGeneration, DraftRevision } from "../task/types.js";
+import { authoredSession, draftRevisionToken, stableFingerprint } from "../task/revision.js";
 import { buildChapterRunInput, chapterInputFingerprint, ChapterWriteError, validateChapterNumber } from "./chapter-input.js";
 import type { ProjectSession } from "./state.js";
 import type { ChapterWriter } from "./chapter-writer.js";
 import { correctDeclaration, type StructureCorrection } from "../chapter/c5-correction.js";
 import type { C5Declaration } from "../types/events.js";
+import { prepareGeneration, validateRewriteOptions, type DraftRewriteOptions } from "./draft-rewrite.js";
 
 export interface DraftReference {
   readonly chapter: number;
@@ -42,7 +42,7 @@ export class DraftRevisions {
     if (typeof options.body !== "string" || options.body.trim() === "") throw new ChapterWriteError(400, "正文不能为空");
     if (options.summary !== undefined && typeof options.summary !== "string") throw new ChapterWriteError(400, "修改说明必须是文字");
     const summary = options.summary?.trim() || "作者手动编辑正文";
-    const requestFingerprint = createHash("sha256").update(JSON.stringify([options.chapter, options.draftId, options.revisionToken, options.body, summary])).digest("hex");
+    const requestFingerprint = stableFingerprint([options.chapter, options.draftId, options.revisionToken, options.body, summary]);
     const previous = this.receipt(options.requestId, requestFingerprint);
     if (previous !== undefined) return previous;
     const source = this.source(options);
@@ -52,7 +52,7 @@ export class DraftRevisions {
   correct(options: DraftCorrectionOptions): ChapterDraft {
     validateDraftReference(options);
     if (typeof options.summary !== "string" || !options.summary.trim()) throw new ChapterWriteError(400, "请说明纠正哪处记录及原因");
-    const requestFingerprint = createHash("sha256").update(JSON.stringify(["structure", options.chapter, options.draftId, options.revisionToken, options.changes, options.summary.trim()])).digest("hex");
+    const requestFingerprint = stableFingerprint(["structure", options.chapter, options.draftId, options.revisionToken, options.changes, options.summary.trim()]);
     const previous = this.receipt(options.requestId, requestFingerprint);
     if (previous !== undefined) return previous;
     const source = this.source(options);
@@ -60,6 +60,19 @@ export class DraftRevisions {
     const input = buildChapterRunInput(this.session.chapterSource(source.status === "adopted" ? undefined : source.writeContext?.proposalId), source.chapter);
     const declaration = correctDeclaration(source.declaration, options.changes, { ...input.parseContextBase, chapterText: source.body });
     return this.create({ ...options, body: source.body }, source, options.summary.trim(), "structure", declaration, requestFingerprint);
+  }
+
+  rewrite(options: DraftRewriteOptions): ChapterDraft {
+    validateDraftReference(options);
+    validateRewriteOptions(options);
+    const fingerprint = stableFingerprint([options.mode, options.chapter, options.draftId, options.revisionToken, options.instruction.trim(), options.scope]);
+    const previous = this.receipt(options.requestId, fingerprint);
+    if (previous !== undefined) return previous;
+    const source = this.source(options);
+    const generation = prepareGeneration(options, source);
+    this.writer.prepareModelTask();
+    const draft = this.create({ ...options, body: source.body }, source, generation.instruction, options.mode === "continue" ? "continuation" : "model", null, fingerprint, generation);
+    return this.writer.start({ chapter: draft.chapter, draftId: draft.draftId });
   }
 
   private receipt(requestId: string | undefined, fingerprint: string): ChapterDraft | undefined {
@@ -70,20 +83,23 @@ export class DraftRevisions {
     return previous;
   }
 
-  private create(options: DraftEditOptions, source: ChapterDraft, summary: string, kind: "manual" | "structure", declaration: C5Declaration | null, requestFingerprint?: string): ChapterDraft {
+  private create(options: DraftEditOptions, source: ChapterDraft, summary: string, kind: DraftRevision["kind"], declaration: C5Declaration | null, requestFingerprint?: string, generation?: DraftGeneration): ChapterDraft {
     const proposalId = source.status === "adopted" ? undefined : source.writeContext?.proposalId;
     const basis = this.session.chapterSource(proposalId);
     const maxOutputTokens = source.writeContext?.maxOutputTokens;
     const input = buildChapterRunInput(basis, source.chapter, maxOutputTokens === undefined ? {} : { maxOutputTokens });
+    const fingerprint = chapterInputFingerprint(basis, source.chapter);
     const now = new Date().toISOString();
     const draft: ChapterDraft = {
-      chapter: source.chapter, draftId: this.store.nextDraftId(source.chapter), status: "pending_check",
+      chapter: source.chapter, draftId: this.store.nextDraftId(source.chapter), status: generation === undefined ? "pending_check" : "writing",
       body: options.body, declaration, findings: [], acceptable: false, error: null,
-      proposals: source.proposals, session: authoredSession(input),
-      writeContext: { fingerprint: chapterInputFingerprint(basis, source.chapter),
+      proposals: source.proposals, session: generation === undefined ? authoredSession(input) : null,
+      ...(generation === undefined ? {} : { generation }),
+      writeContext: { fingerprint,
         ...(proposalId === undefined ? {} : { proposalId }), ...(maxOutputTokens === undefined ? {} : { maxOutputTokens }) },
       revision: { kind, sourceDraftId: source.draftId, sourceToken: options.revisionToken, summary,
-        rebased: source.status === "stale" || (source.status !== "adopted" && source.baseVersion !== this.store.workVersion()),
+        rebased: source.status === "stale" || (source.status !== "adopted" && (source.baseVersion !== this.store.workVersion() || (source.writeContext !== undefined && source.writeContext.fingerprint !== fingerprint))),
+        ...(generation === undefined ? {} : { scope: generation.range }),
         ...(options.requestId === undefined ? {} : { requestId: options.requestId }),
         ...(requestFingerprint === undefined ? {} : { requestFingerprint }) },
       baseVersion: this.store.workVersion(), baseAdoptedThrough: this.session.currentChapter,

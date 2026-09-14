@@ -17,10 +17,11 @@ import { Annotation, END, MemorySaver, START, StateGraph } from "@langchain/lang
 import type { ModelClient } from "../client/model.js";
 import type { ChapterRunInput } from "../chapter/pipeline.js";
 import { checkChapter, declareStructure, writeChapterBody, type WriteResult } from "./steps.js";
+import { rewriteChapterBody } from "./rewrite.js";
 import type { ToolContext } from "./tool-exec.js";
 import type { C5Declaration } from "../types/events.js";
 import type { GateFinding } from "../types/beat.js";
-import type { ChapterTaskOutcome, DraftError, DraftProposal } from "./types.js";
+import type { ChapterTaskOutcome, DraftError, DraftProposal, DraftGeneration, DraftRevision } from "./types.js";
 
 export type WriteOk = Extract<WriteResult, { kind: "ok" }>;
 
@@ -45,6 +46,8 @@ const StateSpec = Annotation.Root({
   findings: Annotation<readonly GateFinding[]>,
   acceptable: Annotation<boolean>,
   proposals: Annotation<readonly DraftProposal[]>,
+  generation: Annotation<DraftGeneration | null>,
+  revision: Annotation<DraftRevision | null>,
   outcome: Annotation<ChapterTaskOutcome | null>,
   error: Annotation<DraftError | null>,
   refusalMessage: Annotation<string | null>,
@@ -63,6 +66,8 @@ export function initialGraphState(runInput: ChapterRunInput): ChapterGraphState 
     findings: [],
     acceptable: false,
     proposals: [],
+    generation: null,
+    revision: null,
     outcome: null,
     error: null,
     refusalMessage: null,
@@ -77,11 +82,16 @@ export function buildChapterGraph(deps: ChapterGraphDeps) {
   const write = async (s: ChapterGraphState): Promise<Partial<ChapterGraphState>> => {
     const stop = stopped(); if (stop !== null) return stop;
     if (s.write !== null) return {}; // resume：正文已在，跳过 C4，不重跑
-    const r = await writeChapterBody(deps.client, s.runInput, deps.ctx, deps.maxToolRounds);
+    const r = s.generation === null ? await writeChapterBody(deps.client, s.runInput, deps.ctx, deps.maxToolRounds)
+      : await rewriteChapterBody(deps.client, s.runInput, deps.ctx, deps.maxToolRounds, s.generation);
     if (r.kind === "refused") return { outcome: "refused", refusalMessage: r.userMessage };
     if (r.kind === "failed") return { outcome: "failed", error: { step: "C4", detail: r.detail } };
     if (r.kind === "incomplete") return { body: r.body, outcome: "failed", error: { step: "C4", detail: r.detail } };
-    return { write: r, body: r.body, proposals: deps.collectedProposals() };
+    if (r.kind === "scope_change") return { outcome: "needs_revision", acceptable: false,
+      revision: s.revision === null ? null : { ...s.revision, resultSummary: r.summary, scopeAdvice: r.advice },
+      findings: [{ rule: "revision_scope", level: "warn", message: r.advice }], proposals: deps.collectedProposals() };
+    return { write: r, body: r.body, proposals: deps.collectedProposals(),
+      revision: s.revision === null || r.summary === undefined ? s.revision : { ...s.revision, resultSummary: r.summary } };
   };
 
   const declare = async (s: ChapterGraphState): Promise<Partial<ChapterGraphState>> => {
