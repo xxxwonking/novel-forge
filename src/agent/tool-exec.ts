@@ -13,12 +13,16 @@
  *     （成功或 action_failed）。Agent 永不直接写正式事实（§12.0）。
  *   - executeMainTool 层的输入校验错误（枚举非法/缺必填）回 is_error 但不产 effect
  *     —— 那是模型用错工具，会自我纠正，不该变成给用户的动作 chip。
+ *   - 谋篇模式（mode="planning"）只放行读类与 propose_plan。工具集本就裁过一遍，
+ *     这里是第二道 —— 只读锁要由代码保证，不能只靠提示词。
  */
 
 import type Anthropic from "@anthropic-ai/sdk";
 import { appendTurn, type CallOptions } from "../client/claude.js";
 import type { ModelClient } from "../client/model.js";
 import type { ChapterExcerpt, ForeshadowFilter } from "../task/tool-exec.js";
+import { PLANNING_ALLOWED_TOOLS } from "./tools.js";
+import type { ConversationMode } from "./proposal-types.js";
 import {
   parseCharacter,
   parseDirection,
@@ -73,7 +77,10 @@ export interface MainAgentToolContext {
   readonly abandonForeshadow: (foreshadowId: string, reason: string) => Promise<AgentActionOutcome>;
   readonly recordIdea: (text: string) => Promise<AgentActionOutcome>;
   readonly writeNextChapter: () => Promise<AgentActionOutcome>;
+  readonly rewriteChapterDraft: (chapter: number | null) => Promise<AgentActionOutcome>;
   readonly adoptChapter: (draftId: string) => Promise<AgentActionOutcome>;
+  /** 谋篇模式的唯一出口。返回字符串表示入参不合法 —— 回 is_error 让模型自纠，不产 effect。 */
+  readonly proposePlan: (input: Readonly<Record<string, unknown>>) => Promise<AgentActionOutcome | string>;
 }
 
 const FORESHADOW_FILTERS: readonly ForeshadowFilter[] = ["main", "sub", "detail", "all"];
@@ -86,6 +93,7 @@ function asRecord(input: unknown): Record<string, unknown> {
 export async function executeMainTool(
   block: Anthropic.ToolUseBlock,
   ctx: MainAgentToolContext,
+  mode: ConversationMode = "normal",
 ): Promise<{ readonly result: Anthropic.ToolResultBlockParam; readonly effect?: AgentEffect }> {
   const input = asRecord(block.input);
   const readStr = (k: string): string => (typeof input[k] === "string" ? (input[k] as string) : "");
@@ -107,6 +115,12 @@ export async function executeMainTool(
     result: o.effect.kind === "action_failed" ? err(o.message) : ok(o.message),
     effect: o.effect,
   });
+
+  // 谋篇模式的兜底。工具集已裁成只读（PLANNING_MODE_TOOLS），模型本来就看不到写类工具；
+  // 这是第二道 —— 将来有人改错工具集，写入也不会从这里漏过去。
+  if (mode === "planning" && !PLANNING_ALLOWED_TOOLS.has(block.name)) {
+    return { result: err(`谋篇模式下不能直接改动作品。把这一步写成 propose_plan 的一条 item（tool: ${block.name}），由作者采纳后统一执行。`) };
+  }
 
   switch (block.name) {
     // ── 读类：零副作用 ──────────────────────────────────────────────────
@@ -203,9 +217,21 @@ export async function executeMainTool(
       return action(await ctx.recordIdea(text));
     }
 
+    // ── 谋篇模式：出方案（不落盘，等作者采纳）──────────────────────────
+    case "propose_plan": {
+      if (mode !== "planning") return { result: err("propose_plan 只在谋篇模式下可用；现在可以直接执行，不必先出方案") };
+      const outcome = await ctx.proposePlan(input);
+      return typeof outcome === "string" ? { result: err(outcome) } : action(outcome);
+    }
+
     // ── 任务类：走受控入口 ──────────────────────────────────────────────
     case "write_next_chapter":
       return action(await ctx.writeNextChapter());
+    case "rewrite_chapter_draft": {
+      const chapter = input["chapter"];
+      if (chapter !== undefined && !Number.isInteger(chapter)) return { result: err("chapter 必须是章号") };
+      return action(await ctx.rewriteChapterDraft(typeof chapter === "number" ? chapter : null));
+    }
     case "adopt_chapter": {
       const draftId = readStr("draftId");
       if (draftId === "") return { result: err("缺少 draftId；先用 list_chapter_drafts 确认要采用哪一版") };
@@ -243,6 +269,7 @@ export async function runAgentLoop(
   callOpts: CallOptions,
   ctx: MainAgentToolContext,
   maxRounds: number,
+  mode: ConversationMode = "normal",
 ): Promise<AgentLoopResult> {
   let messages: readonly Anthropic.MessageParam[] = callOpts.messages;
   let toolRounds = 0;
@@ -275,7 +302,7 @@ export async function runAgentLoop(
     const toolResults: Anthropic.ToolResultBlockParam[] = [];
     for (const b of result.message.content) {
       if (b.type !== "tool_use") continue;
-      const { result: tr, effect } = await executeMainTool(b, ctx);
+      const { result: tr, effect } = await executeMainTool(b, ctx, mode);
       toolResults.push(tr);
       if (effect !== undefined) effects.push(effect);
     }

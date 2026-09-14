@@ -15,7 +15,7 @@ import { DraftStore } from "../src/task/draft-store.js";
 import { loadRules } from "../src/rules/load.js";
 import type { ClaudeClient } from "../src/client/claude.js";
 import type { ConversationReply } from "../src/agent/types.js";
-import { C5_JSON, PROSE, fakeClient, modelMessage, modelText, savedDraft, writingSnapshot } from "./writing-fixtures.js";
+import { C5_JSON, PROSE, fakeClient, modelMessage, modelText, padToBudget, savedDraft, writingSnapshot } from "./writing-fixtures.js";
 
 const roots: string[] = [];
 afterEach(() => {
@@ -56,7 +56,7 @@ function toolUse(name: string, input: unknown) {
 describe("/api/conversation", () => {
   it("GET 空历史返回 turns/ideas 空数组", () => {
     const { session } = seed();
-    expect(history(session).body).toEqual({ turns: [], ideas: [] });
+    expect(history(session).body).toEqual({ turns: [], ideas: [], mode: "normal" });
   });
 
   it("POST 纯查询：返回文本，历史落盘两条", async () => {
@@ -71,15 +71,34 @@ describe("/api/conversation", () => {
   });
 
   it("POST 经对话写下一章：跑真实章节任务，产 chapter_written 草稿落盘", async () => {
-    const model = fakeClient([toolUse("write_next_chapter", {}), modelText(PROSE), modelText(C5_JSON), modelText("第 3 章草稿写好了。")]);
+    const model = fakeClient([toolUse("write_next_chapter", {}), modelText(padToBudget()), modelText(C5_JSON), modelText("第 3 章草稿写好了。")]);
     const { session, drafts } = seed(model.client);
     const res = await converse(session, "按计划写下一章");
     expect(res.status).toBe(200);
     const reply = res.body as ConversationReply;
     const written = reply.effects.find((e) => e.kind === "chapter_written");
-    expect(written).toMatchObject({ kind: "chapter_written", chapter: 3 });
+    expect(written).toMatchObject({ kind: "chapter_written", chapter: 3, revisions: 0 });
     expect(drafts.listDrafts(3)).toHaveLength(1);
     expect(model.calls).toHaveLength(4); // 对话1 + C4 + C5 + 对话2
+  });
+
+  it("POST 经对话重写：rewrite_chapter_draft 另起 draftId，旧稿保留，回传文案说明修订额度", async () => {
+    const model = fakeClient([
+      toolUse("rewrite_chapter_draft", {}),
+      modelText(PROSE), modelText(C5_JSON), modelText(`${PROSE}\n补一句。`), modelText(C5_JSON),
+      modelText("另写了一版。"),
+    ]);
+    const { session, drafts } = seed(model.client);
+    drafts.saveDraft(savedDraft({ status: "needs_revision", acceptable: false }));
+    const res = await converse(session, "重写一版");
+    expect(res.status).toBe(200);
+    const written = (res.body as ConversationReply).effects.find((e) => e.kind === "chapter_written");
+    expect(written).toMatchObject({ kind: "chapter_written", chapter: 3, draftId: "ch3d2", status: "needs_revision", revisions: 1 });
+    expect(drafts.listDrafts(3).map((d) => d.draftId)).toEqual(["ch3d1", "ch3d2"]);
+    // 回传给模型的工具结果要把「额度用完、只能重写或自改」说出来。
+    const toolResult = JSON.stringify(model.calls[5]?.messages.at(-1));
+    expect(toolResult).toContain("自动修订 1 次");
+    expect(toolResult).toContain("额度已用完");
   });
 
   it("POST 经对话采用一份 ready 草稿：产 chapter_adopted，当前章推进到 3", async () => {

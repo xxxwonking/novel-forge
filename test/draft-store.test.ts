@@ -3,7 +3,7 @@
  */
 
 import { afterEach, describe, expect, it } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type Anthropic from "@anthropic-ai/sdk";
@@ -15,10 +15,14 @@ afterEach(() => {
   for (const r of roots.splice(0)) rmSync(r, { recursive: true, force: true });
 });
 
-function newStore(): DraftStore {
+function newStoreAt(): { store: DraftStore; root: string } {
   const root = mkdtempSync(join(tmpdir(), "nf-draftstore-"));
   roots.push(root);
-  return new DraftStore(root);
+  return { store: new DraftStore(root), root };
+}
+
+function newStore(): DraftStore {
+  return newStoreAt().store;
 }
 
 function fakeSession(): DraftSession {
@@ -50,6 +54,7 @@ function draft(chapter: number, draftId: DraftId, over: Partial<ChapterDraft> = 
     findings: [],
     acceptable: false,
     proposals: [{ kind: "foreshadow", label: "钥匙", intent: "后收", weight: "sub", expectedBy: 20 }],
+    revisions: [],
     session: fakeSession(),
     baseVersion: 0,
     baseAdoptedThrough: chapter - 1,
@@ -119,5 +124,31 @@ describe("DraftStore", () => {
     store.saveDraft(draft(9, "ch9d1"));
     store.saveDraft(draft(7, "ch7d1"));
     expect(store.chaptersWithDrafts()).toEqual([7, 9]);
+  });
+
+  it("修订快照的正文另存 .r{k}.txt，JSON 里不含任何正文", () => {
+    const { store, root } = newStoreAt();
+    const d = draft(7, "ch7d1", {
+      revisions: [
+        { body: "第一版正文", findings: [{ rule: "route_patch", level: "block", message: "还差 500 字" }], reason: "字数不足，按优先级补写", at: "2026-09-12T00:00:00.000Z" },
+      ],
+    });
+    store.saveDraft(d);
+    expect(store.loadDraft(7, "ch7d1")).toEqual(d);
+
+    const dir = join(root, "drafts", "ch7");
+    expect(readFileSync(join(dir, "ch7d1.r1.txt"), "utf8")).toBe("第一版正文");
+    const meta = readFileSync(join(dir, "ch7d1.json"), "utf8");
+    expect(meta).not.toContain("第一版正文");
+    expect(meta).toContain("route_patch");
+  });
+
+  it("旧草稿没有 revisions 字段也能读出（补空数组）", () => {
+    const { store, root } = newStoreAt();
+    store.saveDraft(draft(7, "ch7d1"));
+    const path = join(root, "drafts", "ch7", "ch7d1.json");
+    const { revisions: _dropped, ...legacy } = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
+    writeFileSync(path, JSON.stringify(legacy), "utf8");
+    expect(store.loadDraft(7, "ch7d1")?.revisions).toEqual([]);
   });
 });

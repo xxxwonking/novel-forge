@@ -36,6 +36,8 @@ export interface ChapterTaskServiceDeps {
   readonly readSource: ToolReadSource;
   /** rules.task.maxToolIterations。 */
   readonly maxToolRounds: number;
+  /** rules.task.maxAutoRevisions。 */
+  readonly maxRevisions: number;
   readonly clock?: () => string;
 }
 
@@ -116,7 +118,9 @@ export class ChapterTaskService {
       client: this.deps.client,
       ctx,
       maxToolRounds: this.deps.maxToolRounds,
+      maxRevisions: this.deps.maxRevisions,
       collectedProposals: () => [...proposals],
+      clock: () => this.now(),
     });
 
     let last: ChapterDraft | null = null;
@@ -146,6 +150,7 @@ export class ChapterTaskService {
       findings: state.findings,
       acceptable: state.acceptable,
       proposals: state.proposals,
+      revisions: state.revisions,
       session: sessionFromWrite(state.write),
       ...(identity.writeContext === undefined ? {} : { writeContext: identity.writeContext }),
       baseVersion: identity.baseVersion,
@@ -196,7 +201,8 @@ function sessionFromWrite(write: WriteOk | null): ChapterDraft["session"] {
 /**
  * 从草稿重建图初始态。`write` 由 `draft.session` 还原（req.messages/segmentTokens
  * 对声明步无用，填占位）；`c5Findings` 复用草稿当前 findings（声明后即 c5Findings）。
- * outcome 归零让节点从缺步继续。
+ * outcome 归零让节点从缺步继续；`revisions` 原样带回 —— 修订额度按已用快照数计，
+ * resume 不重置它，否则一份稿子可以靠反复恢复把修订次数刷到无限。
  */
 function stateFromDraft(draft: ChapterDraft, runInput: ChapterRunInput): ChapterGraphState {
   const write: WriteOk | null =
@@ -224,6 +230,8 @@ function stateFromDraft(draft: ChapterDraft, runInput: ChapterRunInput): Chapter
     findings: draft.findings,
     acceptable: draft.acceptable,
     proposals: draft.proposals,
+    routeAction: null,
+    revisions: draft.revisions,
     outcome: null,
     error: null,
     refusalMessage: null,

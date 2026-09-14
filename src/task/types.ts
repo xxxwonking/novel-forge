@@ -58,8 +58,23 @@ export type DraftProposal =
 
 /** 步骤失败的可展示信息。正文已生成时 body 仍在草稿里。 */
 export interface DraftError {
-  readonly step: "C4" | "C5" | "C6";
+  readonly step: "C4" | "C5" | "C6" | "C7";
   readonly detail: string;
+}
+
+/**
+ * 一次自动修订之前的快照 —— 存的是**被替换掉的那一版**。
+ *
+ * 放在草稿内而不是另起一份草稿：一次写章请求 = 一份草稿（现有语义），
+ * 修订是这份草稿内部的迭代。这样「按版本采用」不变，草稿列表也不会被
+ * 一次任务的多轮修订刷爆，而新旧对比就地可得。
+ */
+export interface DraftRevision {
+  readonly body: string;
+  readonly findings: readonly GateFinding[];
+  /** 触发这次修订的处理动作（C7 分流的 action），用于向作者解释「为什么改」。 */
+  readonly reason: string;
+  readonly at: IsoTimestamp;
 }
 
 /**
@@ -95,6 +110,8 @@ export interface ChapterDraft {
   readonly findings: readonly GateFinding[];
   readonly acceptable: boolean;
   readonly proposals: readonly DraftProposal[];
+  /** 自动修订的历史快照（升序，每条是被替换掉的那一版）。未修订过为空。 */
+  readonly revisions: readonly DraftRevision[];
   /** C4 会话快照，供 resume 到声明步重建同会话第二轮。ready/adopted 后可为 null。 */
   readonly session: DraftSession | null;
   readonly writeContext?: DraftWriteContext;

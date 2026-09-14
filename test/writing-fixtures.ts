@@ -1,7 +1,10 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { vi } from "vitest";
 import type { ClaudeClient, CallOptions, CallResult } from "../src/client/claude.js";
+import { deriveBudget } from "../src/beat/derive.js";
+import { loadRules } from "../src/rules/load.js";
 import { EventStream } from "../src/store/event-stream.js";
+import { countWords } from "../src/text/measure.js";
 import type { ProjectSnapshot } from "../src/store/persist.js";
 import type { ChapterBeat } from "../src/types/beat.js";
 import type { C5Declaration } from "../src/types/events.js";
@@ -59,6 +62,21 @@ export function writingSnapshot(): ProjectSnapshot {
   };
 }
 
+/**
+ * 把正文补到本章预算的甜点值。
+ *
+ * 只为喂饱 C6 的字数检查 —— 短样例正文会被 C7 判 route_patch(block)，进而触发
+ * 自动修订，让不关心闸门的测试多跑两次模型调用。需要验证闸门本身的测试用短正文。
+ */
+export function padToBudget(seed: string = PROSE): string {
+  const target = deriveBudget(WRITE_BEAT.plan, workProfile, loadRules()).words.sweet;
+  let text = seed;
+  while (countWords(text) < target) {
+    text += "\n他沿着石壁逐一查看架上的木匣，把封口和旧图上的记号对照，随后记下匣底的编号。";
+  }
+  return text;
+}
+
 export function declaration(): C5Declaration {
   return {
     events: [], foreshadowPlanted: [], foreshadowResolved: [],
@@ -69,7 +87,7 @@ export function declaration(): C5Declaration {
 export function savedDraft(overrides: Partial<ChapterDraft> = {}): ChapterDraft {
   return {
     chapter: 3, draftId: "ch3d1", status: "ready", body: PROSE,
-    declaration: declaration(), findings: [], acceptable: true, proposals: [], session: null,
+    declaration: declaration(), findings: [], acceptable: true, proposals: [], revisions: [], session: null,
     baseVersion: 0, baseAdoptedThrough: 2, error: null, createdAt: NOW, updatedAt: NOW,
     ...overrides,
   };

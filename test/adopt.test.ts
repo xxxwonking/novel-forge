@@ -51,6 +51,7 @@ function readyDraft(
     findings: [],
     acceptable: true,
     proposals: [],
+    revisions: [],
     session: null,
     baseVersion,
     baseAdoptedThrough: chapter - 1,

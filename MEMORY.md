@@ -1,6 +1,6 @@
 # novel-forge 工作记忆
 
-更新时间：2026-09-12（Asia/Shanghai；切片 2「作品准备」已在分支 `stage2-work-preparation` 完成并通过真机 live 验收，PR #3 待合；下一轮范围与配色/粒度决策已由用户拍定；**最新交接见第 17 节**）
+更新时间：2026-09-12（Asia/Shanghai；切片 2 已交付、PR #3 待合；**§17 拍定的三项决策已全部实现并 live 验收通过，最新交接见第 18 节**）
 
 记录范围：本文件汇总项目调研、用户流程设计、能力映射和开发进展。早前发布与复核记录在第 10、11 节；Mac 会话锁定 v1 决策并实现 Stage 1，见第 12 节；写章输入和 API 交付见第 13 节；Gemini chat 接入与真实单章验证见第 14 节；Stage 2 切片 1（对话式主 Agent）见第 15 节；切片 2（多作品 + 对话式筹备，含 live 验收全过程）见第 16 节。**接手先读第 17 节：切片 2 已交付（PR #3 待合），并已用真实 Gemini 跑通「空工作区 → 对话筹备到筹备已齐 → 真实生成第 1 章 2562 字草稿 → 未就绪的采用请求按设计被拒」。第 17 节同时记了用户新提的两个问题的核实结论（默认进对话只做了一半；红绿新旧对比没有，且自动修订根本未接线、模型还承诺了不存在的修订能力=真缺陷）、用户已拍的三项决策（全做／diff 破例用红绿／段落级+段内字级）、Phase 1 已查明的实现要点与 7 项待办。旧章节的历史待办以最新记录为准，不重新讨论已确认的框架与采用节奏。**
 
@@ -638,3 +638,212 @@ GIT_SSH_COMMAND="ssh -o HostKeyAlias=github.com" git push ssh://git@140.82.116.4
 ```
 
 `140.82.116.4` / `140.82.112.4` / `140.82.113.4` 均验过可用；`fetch` 也要带同样的 `GIT_SSH_COMMAND`，否则主机键验证失败。**注意：这些 IP 是硬编码的，GitHub 换 IP 即失效** —— 失效时用未被劫持的 DNS 或 `https://api.github.com/meta` 的 `git` 段重新取。`gh` 不支持指定 IP，走的是同一条坏链路**无法绕过**，所以链路坏时只能做 git 操作，PR/issue 等 API 操作得等恢复；届时合并 PR 的备用路是本地 `git merge --no-ff` 后推 master，GitHub 会自动把 PR 标成 Merged。
+
+## 18. 2026-09-12 自动修订 / 红绿新旧对比 / 默认进对话（Mac 会话）
+
+同样由当前代理独立实现并自审，未调用 Codex/Gemini、未 spawn 子代理。基线：`stage2-work-preparation` 的 `6294ff2`（PR #3 之上）；本轮提交在分支 **`stage2-auto-revision`**（本地，未推送，见文末）。
+
+### 做了什么（§17 的 7 项待办全部完成）
+- **草稿修订快照**：`ChapterDraft.revisions: DraftRevision[]`（每条 = 被替换掉的那版 body + 当时 findings + reason + at）。`DraftStore` 把快照正文另存 `drafts/ch{n}/{id}.r{k}.txt`，JSON 里不含任何正文；旧草稿缺字段回读补 `[]`。`DraftError.step` 加 `C7`。
+- **C7 修订步骤**：`pipeline.ts` 加 `C7_TASK`（只改被指出处、其余一字不动、只输出完整正文）；`steps.ts` 加 `reviseChapterBody`——**续接在 C4 之后而非 C5 之后**（正文一改声明必重做，旧声明进上下文只会误导），C4/C7 共用 `runWriteTurn`。问题清单只带 block/warn；字数越界时附**净增/净减硬指标**（`wordCountDirective`：数字来自 `route_patch/route_trim` 的 measured/threshold，要求"只增不减/只删不增"）——这条是 live 实测后加的：模型按含标点字符估篇幅、系统按内容字数计，只说"补 113 字"它会改写而不增写，净增≈0；加硬指标后一次修订即从 2275→2441 字过线。
+- **图接线** `graph.ts`：`step_check →(needs_revision 且 revisions.length < rules.task.maxAutoRevisions)→ step_revise → step_declare`，修订后清空 declaration/findings 逼重算；`revisions`/`routeAction` 通道；**修订调用失败不降级为 failed**（停回 needs_revision，error.step=C7，作者手里的稿子不作废）；resume 带回 `revisions` 所以额度不会被反复恢复刷掉。`ChapterTaskServiceDeps` 加 `maxRevisions`（chapter-writer 从 rules 传）。
+- **修掉"模型承诺不存在的能力"**：新工具 `rewrite_chapter_draft`（走 `writeChapter({newDraft:true})`，新 draftId、旧稿保留）；`write_next_chapter` 描述与系统提示写明"修订在任务内自动进行、有上限；作者侧只有重写一版/自己改，没有'再优化一下'"；工具结果文案带修订次数与剩余 block 数。`AgentEffect.chapter_written` 加 `revisions`。live 验证：问"你能不能自己优化到 ready"，模型如实答"无法局部修改，只能重写或你手改"。
+- **默认进对话**：`useRoute(fallback)`，空 hash / `#/` 都落 `/chat`；首页移到 `/home`；`Link` active 改精确/子路径匹配。
+- **新旧对比**：`src/task/diff.ts` 纯函数——段落 LCS 配对 → 相邻删/增按位配成 replace → 段内字级 LCS（先剪公共前后缀，>1e6 格退化整段替换）+ **孤岛清理**（夹在两处改动之间、不长于两侧的相同片段并入改动，避免"还在鞘里→已经出鞘"碎成四块）；字数口径同 `countWords`。`GET /api/chapter/diff?n&id[&rev]`。前端 `DraftPanel` 加"对比上一版"切换，`DiffView` 段落级去留 + 改写段内字级高亮 + 连续 >3 段未改动折叠；红绿破例已记在 `styles.css` 文件头注释与 `--diff-*` 变量。
+
+### 验证
+- typecheck（根+web）干净；`npm test` **660 通过**（636 基线 + 24：draft-diff 11 / draft-store 2 / chapter-task 5 / server-drafts 3 / agent-tool-exec 1 / agent-system-prompt 1 / server-conversation 1）；`web:build` 通过。
+- **live 全流程通过（gemini-3-flash，工作区 `~/.claude/jobs/a6d62123/tmp/ws-live2`，接着 §16 的《青州旧事》跑）**：问"能否自己优化"→如实拒绝；`rewrite` → ch1d2 自动修订 1 次仍差 273 字（暴露上面的字数口径问题）→ 加硬指标 → ch1d4 修订 1 次后 **ready**（2275→2441 字，+186/−20，改 6 段）；浏览器点"查看草稿与改动→对比上一版"红绿渲染正确、折叠可展开；"采用 ch1d4" → workVersion 1、events 4 条、下一章 2；一句话排第 2 章 + 写 → ch2d1 ready（无需修订）。
+- 测试 fixture 新增 `padToBudget()`（writing-fixtures）：不关心闸门的用例喂达标正文，否则短样例会触发自动修订多吃两次模型调用。
+
+### 已知观察（非本轮缺陷）
+- `density_over` 在 setup 章几乎必报（模型给布局章塞 2-3 个事件，密度 0.9+ vs 上限 0.4），它是 warn 不挡采用；修订清单会把它带给模型但模型改不动"密度"。是否在排章期提醒"布局章少塞事件"，或把密度上限的派生再校准，留给内容层观察期。
+- `c5_anchor_unresolvable` 常见（模型声明的 quote 不在正文里）——第 2 章 3 条。锚点无法跳读但不挡采用。
+- 采用后 `adopt` 原样保留 `revisions`（`{...draft, status:"adopted"}`），已采用章仍可看对比。
+
+### 下一步
+见文末「待办」。本节的提交已被 §19、§20 接在其上（`stage2-chat-dock` 包含本分支），推一条即可。
+
+---
+
+## 19. 2026-09-12 对话流改左右布局（Mac 会话）
+
+仍由当前代理独立实现并自审，未调用 Codex/Gemini、未 spawn 子代理。基线 `dcb4b27`（§18 之上），本轮提交在分支 **`stage2-chat-dock`** 的 `bdd300f`（本地，未推送）。**纯前端改动**，`src/` 与测试一行未动。
+
+### 起因
+用户提的一点要求：对话框固定在页面底部太突兀，改左右布局，克隆 `https://github.com/syrizelink/OpenFic` **参考它的样式**做优化。当时那条消息看着像被截断，事后用户确认没有别的要求——就是参考开源项目优化样式，无遗漏需求。
+
+### 从 OpenFic 借鉴了什么（克隆在 `~/.claude/jobs/a6d62123/tmp/OpenFic`）
+它的写作页是 `react-resizable-panels` 三栏（左章节列表 300px / 中编辑器 / 右助手 500px），助手栏是竖向 flex：头部 + 自带滚动的消息区 + 钉在**该列**底部的输入框；diff 卡片留在消息流里，正文只在中间编辑器看；分隔线 1px、热区 8px、布局落 localStorage。借鉴的是**"对话只驱动、产物在编辑区看"这个分工**，不是它的依赖——本项目没加任何新依赖，三栏用 CSS grid，拖宽用一个 ~25 行的 pointer 钩子。
+
+### 做了什么
+- **`useDockWidth(storageKey, min, max, initial)`**（`web/src/hooks.ts`）：按住左缘热区、向左拖变宽，钳 `[min,max]`，pointerup 落 localStorage。**落盘取闭包里的 `latest` 而不是 state**——pointerup 时 React 未必已提交最后一次 move。
+- **`components/ChatDock.tsx`**：右侧常驻栏。`.dock-list` 自带滚动（首次载入 `auto` 跳底、后续 `smooth`），`.composer` 从 `position:sticky`+渐变改成静态 + `border-top`，钉在这一列底部而不是视口底部。头部放筹备摘要片（`还缺 N 项` / `可写第 n 章`，点进 `#/desk`）和"收起"。回复后 `refresh()` 再 `findLast(kind==="chapter_written")` 自动把中间区切到新草稿。
+- **`pages/Desk.tsx`（`/desk`，默认落点）**：筹备缺项 + 下一章草稿表（草稿/状态/字数/修订/问题 + 查看/采用）。`PrepPanel` 从原 Chat.tsx 原样搬来。
+- **`pages/DraftPage.tsx`（`/draft/:n/:id`）**：草稿正文与红绿对比随主区滚动、**不限高**（原先嵌在消息流里要给 `maxHeight`，一嵌套滚动就难读）；本章各版做成 tag 互链；`在正文页打开该章` 只在 `adopted` 时给。
+- **`components/DiffView.tsx`**：`foldUnchanged` + `DiffView` 从 Chat.tsx 抽出，去掉内层 `maxHeight`。
+- **`labels.ts`**：`draftStatusLabel` / `draftStatusTone` / `chapterTypeLabel` 三张表集中一处（原先散在 Chat.tsx 里）。
+- **`App.tsx`**：`.shell` 改 `190px minmax(0,1fr) auto` 三栏；**dock 挂在 App 层**，换路由不卸载（这是"常驻"的全部实现）；`prep` 提到 App 层由 dock 与 Desk 共用；`Link` 加 `aliases` 让工作台在 `/draft/` 下仍高亮；`nf.dock.width` / `nf.dock.open` 两个 localStorage 键。
+- **`api.ts` 加 `adoptable(d)`**：`status === "ready" && acceptable`。修一个真 bug——`acceptable` 采用后仍为 true，只看它会给已采用的 ch1d4 也画"采用这一版"，点了后端必拒。
+- **`styles.css` 加 `color-scheme: dark`**：两个并排滚动区（主区 + 对话栏）在暗色底上原来拉出两条浅色原生滚动条，比内容还显眼。
+- `pages/Chat.tsx` 删除；`Works.tsx` 的 `go("/chat")` 改 `/desk`。
+
+### 验证
+- typecheck（根+web）干净；`web:build` 干净；`npm test` **660 通过 / 37 文件**（未新增测试：本轮无后端与纯函数改动，行为验证走浏览器）。
+- **live（同一个 ws-live2《青州旧事》，`http://127.0.0.1:5174`）**：拖宽 400→520（左拖 120px，主区 850→730），`data-resizing` true→false，`nf.dock.width` 落 "520"；过拖钳到 640；收起→竖带 34px / 主区 1216 / `nf.dock.open` "0"；展开回 640 且消息与滚动位置不变。跨路由常驻：把 `.dock-list` scrollTop 设 1234 → 切 `#/foreshadow` → 读回 1234，24 条消息与 composer 里的草稿都在。ch1d4 对比渲染正确（`第 1/1 次修订字数不足，按优先级补写 · 2275 → 2441 字 +186 −20 改动 6 段`，6 段 replace / 16 处段内高亮 / 5 个折叠按钮，body `overflow: visible`）。控制台无错误。
+- **改 CSS 后一定要硬刷**（`ignoreCache`）：只改 hash 不重载文档，`color-scheme` 和新样式表都不会生效，曾据此误判"CSS 没应用"。
+
+### 已知观察
+- ws-live2 的 ch2d1 现在是 `adopted`（`2026-09-12T12:31:02.268Z`），§18 记的是 `ready` 未采用。这一刻我这边正在改文件、浏览器刚重启且页面 id 全失效，本会话没有任何 adopt 点击或 POST。**结论是它不是本会话验证造成的，具体谁触发的没查出来**，只当作 live 工作区的状态漂移记下。`chapters/ch2.txt` 与 `workVersion 2` 已落，数据本身自洽。
+
+### 下一步
+见文末「待办」。注意 `stage2-chat-dock` 是接在 `stage2-auto-revision` 之上的，两者是一条栈不是两条并行线（这一节原先写反了）。
+
+---
+
+## 20. 2026-09-13 整体样式：稿本与仪器（Mac 会话）
+
+**当前接续入口。** 同一分支 `stage2-chat-dock` 的 `4240c1c`（本地，未推送）。仍是独立实现自审。**纯前端**，`src/` 与测试一行未动，660 测试仍过。
+
+### 当前状态速览（接手先读这一节）
+
+**分支是一条栈，不是几条并行的线** —— §18/§19 写成"两个本地分支都没推"是不准确的，实际后者包含前者：
+
+```
+master (aeff8b3)
+  └─ stage2-work-preparation  +4   PR #3 open（base master）；本地还多 6294ff2 未推
+       └─ stage2-auto-revision  +6   §18 的自动修订/红绿对比/默认对话
+            └─ stage2-chat-dock  +10  §19 三栏对话 + §20 样式改版　← 当前分支
+```
+
+推 `stage2-chat-dock` 一条即带走全部 10 个提交。远端只有 master / stage1-chapter-task / stage2-conversation-agent / stage2-work-preparation 四条。
+
+| 项 | 值 |
+|---|---|
+| 测试 | 660 通过 / 37 文件；typecheck 与 `web:build` 干净 |
+| live 工作区 | `~/.claude/jobs/a6d62123/tmp/ws-live2/青州旧事`（写到第 2 章，ch1d4、ch2d1 均已采用） |
+| 本机复现 | `npm run web:build && npm run serve -- ~/.claude/jobs/a6d62123/tmp/ws-live2`，开 `http://127.0.0.1:5174/`（落 `/desk`） |
+| 真机写章 | Mac 无 `.env.local`，`converse` 会 503；配置在 Windows 机。mock 测试不受影响 |
+
+### 起因
+用户用 `/frontend-design` 技能要求"继续优化整体样式"，并借鉴 OpenFic。OpenFic 的可借之处是它用 Noto Serif SC 当全局字体 —— 写小说的工具不该通篇黑体。但它把宋体用在**整个应用**，小字号会糊；这里只给稿本用。
+
+### 设计取向：两种材质
+产品前提是"结构视图是主界面，正文是附属"（§12.3），但界面上原先只有一种材质 —— 处处 PingFang、处处同一种 1px 卡片。这一版按前提把两者分开：
+
+- **稿本**（属于这本书的字）：正文、草稿、书名、页题 → 宋体 `Songti SC`，暖一档的纸色版面 `--paper`，行宽 `--measure: 660px`≈40 字。
+- **仪器**（其余全部）：导航、表、标签、按钮、体检 → 黑体与等宽，冷、密、安静。章号字数一律 `tabular-nums`（这个产品所有东西都挂在章号轴上，数字要能上下对齐着比）。
+
+底色由蓝黑 `#12131a` 改暖黑 `#141210`（蓝黑是代码编辑器的底，暖黑是灯下纸的底）。语义色改取颜料名：雄黄 `--main` / 花青 `--sub` / 朱砂 `--alarm` / 赭石 `--warn` / 石青 `--calm`。角色与变量名不变，所以组件里的 `var(--…)` 一个没改。
+
+### 朱批栏（这一版的签名）
+左缘 3px 竖条**只表示"这条要你处理"**。留着的只有告警卡与 block/warn 体检项；筹备面板、对话气泡、toast、新旧对比一律让出左缘 —— 新旧对比原先用 `inset 3px 0` 正好占着这个位置，改成只用底色外扩 4px。破例仍只有 diff 的红绿底。判据：左缘一旦被装饰占用，它就不再是信号。
+
+### 顺带修掉的真问题
+- **正文一行只有 19 个字**。`.reader` 是 `1fr 260px`，中间区被对话栏挤到 720px，`max-width: 68ch` 根本没机会生效。改用 **容器查询**（`.main { container: main / inline-size }`）：分栏与否按中间区宽度决定，不按视口 —— 对话栏宽度是作者拖出来的，视口说明不了问题。阈值 820px＝250 侧栏＋26 间距＋约 540 正文。现在 35 字/行。
+- **对话栏把 `###` 与 `**` 原样显示**。新增 `components/RichText.tsx`：只认标题/有序无序列表/分隔线/加粗/行内码，其余按段落。不引 markdown 库、不碰 `dangerouslySetInnerHTML`（回复里带着用户自己的文本）。作者自己的消息不渲染，原样保留。
+- **题材/平台把枚举值 `mystery / fanqie` 显示给作者**。`genreLabel`/`platformLabel` 收进 `labels.ts`，`Works` 与 `Home` 共用；`Home` 里重复的 `TYPE_LABEL` 也删了走 `chapterTypeLabel`。
+- **同屏两个"字数"**：草稿页头显示 `body.length`（2886），正下方 diff 显示体检口径的 `countWords`（2441）。前者改称**字符**，Desk 表头同改。
+- 题材/平台格子用 19px 等宽数字排，中文撑成两行 → `.stat[data-kind="text"]` 按正文排。
+
+### 质量线（原先一条都没有）
+`:focus-visible` 全局 2px 石青环；`prefers-reduced-motion` 关掉全部过渡；≤1100px 收窄导航、≤820px 三栏改竖排（对话栏用 `min-width: 100%` 压住 React 写在行内的 `width`，行内 width 赢不了 min-width）；四个滚动区走 `scrollbar-width: thin`。全局零阴影（toast 那一处也去掉了）。
+
+### 验证
+typecheck 干净、`web:build` 干净、`npm test` **660 通过**。浏览器逐页看过工作台/伏笔时间线/正文/草稿对比/作品/首页 + 760px 窄屏，无 console 报错。朱批栏用注入探针逐类确认：告警待处理=3px 朱砂、已迁移=1px 同底色、finding block=朱砂、warn=赭石、info 与 prep 无。
+
+### 已知取舍
+- 默认对话栏 400px 时中间区只有 782px，正文页恒为单栏（体检落到正文下方）。正文优先是刻意的：收起对话栏即恢复双栏。
+- 宋体在暗底小字号会糊，所以只给 ≥16.5px 的正文和 ≥19px 的标题用，表格与标签一律不用。
+
+---
+
+## 21. 2026-09-14 谋篇模式：对话里先出方案，确认才落盘（Mac 会话）
+
+**当前接续入口。** 同分支 `stage2-chat-dock`，基线 `dc0d2f2`，独立实现自审（沿项目锁定规则）。**714 测试过**（660 + 54）、typecheck / `web:build` 干净；live（gemini-3-flash，工作区 `~/.claude/jobs/a6d62123/tmp/ws-plan/灯下人`）跑通两条入口。实施计划 `docs/superpowers/plans/2026-09-14-planning-mode.md`。提交 `897c788`（feat）+ 紧随其后的 docs 提交，未推送。
+
+### 起因
+用户提出借鉴开源编码工具的 plan 模式：新手不知道写什么，要先和 AI 规划再定方案；熟手写到中途冒出灵感，也要先讨论再定。现有对话是"说一句就落盘"，两类作者都走不通。
+
+### 借鉴什么
+取的是四条机制，不是界面：模式显式可见；模式内工具集**在代码层**裁成只读；讨论收敛成一份可读方案；单点确认才执行。第二、四条本项目已有同构物 —— 草稿在事件流之外、采用时才展开；谋篇是它的平移：**方案在资料之外，采纳时才展开**。命名避开 `plan_chapter` / `get_next_plan`：对外「谋篇模式」「方案」，内部 `planning` / `Proposal`。
+
+### 做了什么
+- `src/agent/proposal-types.ts`：`ConversationMode`、`PROPOSAL_TOOLS` 白名单（筹备 6 + 计划 3；**写章与采用刻意不进**，它们是作者当下的决定）、`ProposalItem`（ref / tool / input / note）、`Proposal`（id / version / scope / summary / impact / items / status）、`PROPOSAL_TOOL_FIELDS`（谋篇提示里的条目字段表 —— 写类工具不在工具集里，模型看不到 schema，这张表是它唯一的字段来源，测试守覆盖面）。
+- `proposal-store.ts`：`proposals.json`，同一时刻只一份 open；重提是同 id 版本 +1，采纳后才新建 p2。
+- `proposal.ts`：`parseProposalDraft` —— 提案期就校验形状：把条目丢给「执行打桩」的 `executeMainTool` 空转一遍拿真实校验结果，占位名换成前缀正确的哨兵 `C00` 让编号格式检查照常生效。`applyProposal` —— 条目还原成 tool_use 丢回 `executeMainTool`，占位名从 `character_upserted.id` 等 effect 回读真编号；**失败即停、不回滚**。
+- `tools.ts`：`propose_plan` + `PLANNING_MODE_TOOLS`（读类 7 + `record_alternative_idea` + `propose_plan`）+ `PLANNING_ALLOWED_TOOLS` + `EXPECTED_PLANNING_MODE_TOOL_ORDER`。`tool-exec.ts`：`executeMainTool(block, ctx, mode)`，planning 下命中写类工具回 is_error（第二道锁）。`conversation-store` 存 `mode`。`service.ts`：`MODE_PROFILE` 表 —— planning 用 creative / 8192 tokens / `maxPlanningRounds`。
+- `system-prompt.ts`：按模式分支；scope 由 `prepGaps` 判定（非空 → preparation 从零带，否则 → revision 先读再提），**不让模型选**。常规提示加一条：作者想不清楚就建议切谋篇，Agent 自己切不了。
+- 服务端：`conversationMode / setConversationMode / listProposals / getProposal / adoptProposal`；`POST /api/conversation/mode`、`GET /api/proposals`、`GET /api/proposal?id=`、`POST /api/proposal/adopt`（handleAsync）。`rules.agent` 加 `maxPlanningRounds: 12`、`maxProposalItems: 24`。
+- Web：`ChatDock` 栏头模式切换（先落库成功再改本地态）、`proposal_ready` chip 自动切中间区；`pages/ProposalPage.tsx`（摘要走稿本、条目按对象分组走仪器、影响单列、采纳整案）；`/proposal/:id` 路由；`labels.ts` 加 `itemGroupLabel`。
+
+### 关键决策
+- **用户拍板**：整案采纳 + 打回重提，不做勾选式部分采纳（条目间有依赖，勾掉一条就断）；谋篇用 **creative（opus）**（出点子不是判定型任务）。
+- 我定的：执行器复用 `executeMainTool`，没有第二套写入路径；失败即停、已落保留（筹备类幂等 upsert，资料层无事务）；`adoptProposal` 不检查当前模式（采纳是作者的动作）；模式存后端（它与工具集必须是同一份真相，刷新不能把锁打开）；不做深度一致性检查，`impact` 由模型声明、代码只校验编号存在（真正的诊断是 M4）。
+- 界面：**石青＝未定** —— 谋篇模式的两根线（栏头下缘、输入区上缘）、方案标签、「待拍板」都用它；「查看方案」用静默按钮（决定在方案页做）；方案页不给朱批（左缘仍只属于告警与体检），唯一例外是执行停在半路的 finding block —— 那是真的要你处理。
+
+### live 验证
+1. 空作品《灯下人》进谋篇，说"没想好写什么" → 模型给 3 个具体切入点，不追问前提；选 C 后一回合出 p1（6 条：方向 / 两人物 / 地点 / 情节线 / 首章，占位名 `@protagonist` `@main_plot` 引用正确）。采纳前 `/api/prep` 的 gaps 全在、人物为空；采纳后 C01 / C02 / S01 / P01 由代码分配，`beats.json` 里占位名已换真编号，gaps 归空。
+2. 中途灵感 + "别出方案、直接改人物卡" → 模型第一轮试了写类工具被兜底拦下，第二轮出 p2（revision，5 条带 id 的更新 + 重排首章），impact 写清牵动 C01 / P01 / 第 1 章；采纳前作品未动，采纳后 background 含旧账、P01 改名。
+
+### 两条教训
+- `:first-of-type` 按元素类型算，组标题也是 div，`.item:first-of-type` 永远不命中 —— 用相邻选择器 `.item-group-title + .item`。
+- 一个状态别说三遍。首版栏头标题 + 退出按钮 + 输入区上一行等宽小字，用户一眼看出不对：等宽小字在这套设计里留给短标识，整句中文用它像控制台输出。改成两根石青线 + placeholder（打字即消失）。
+
+### 对话栏去气泡（2026-09-14 追改）
+用户要求优化右侧对话区。原先每条消息都是带边框的盒子、作者靠右但因消息长根本看不出靠右，400px 宽里像一摞卡片，chip 也混在气泡下。
+- **材质区分说话人**：作者的话落在纸块上（`--paper`，无边框，向两侧出血 12px 像荧光笔划过），助手的回复是桌面上的墨，不装盒；所有文字对齐在一条竖线上。
+- **账目区取代 chip 行**：回复下方一条细线，动词｜对象｜动作三列等宽网格（`display: contents`），动词淡、对象实；查看类按钮一律静默，「采用」保持唯一主按钮。
+- **日期线**：按 `at` 换天插一条（"今天"、"昨天"、"9 月 12 日"），对话跨会话持久，翻旧记录要知道哪天说的。
+- **输入框**：随内容自动长高（上限 160px），去掉拖拽手柄；「发送」空着时静默、有字才亮黄色。
+- **空态**：两条起手句虚线块，点击填入输入框（不直接发，改改再发），新手那条顺带切进谋篇。
+- **等待态**：一行淡字「在想…」，呼吸动画，reduced-motion 下已关。
+
+### 已知取舍
+- chat provider（Gemini）只有一个模型名，creative / judge 落到同一模型；角色区分只在 Claude provider 生效。
+- 一次讨论只留一份 open 方案，没有"放弃"动作：不想要就重提覆盖，或切回常规模式不理它。
+- 谋篇模式里 `record_alternative_idea` 仍可用 —— 它写对话域，不碰作品。
+
+---
+
+## 关键决策汇总（用户拍板，勿再讨论）
+
+跨切片累积，接手先看这一节再动手。出处见对应小节。
+
+**协作与流程**
+- 本项目**不用 Codex/Gemini，不 spawn 子代理**（2026-09-10 定，反复重申）。全部独立实现并自审。要恢复多模型协作必须先问用户。这与"用 Gemini 作产品的写章模型"是两码事（§14 ⚠）。
+- 措辞：谈外部开源项目用**"借鉴"不用"抄"**（2026-09-13）。
+
+**架构（§13 v1 决策锁定）**
+- 编排层用 **LangGraph JS**；用户明确推翻了设计文档 §8.3"原生 + Tool Runner"的倾向，**勿擅自改回**。模型调用仍走原生 `@anthropic-ai/sdk`，不引 LangChain。
+- 事件流是小说事实的唯一真源；LangGraph checkpoint 只管任务编排/恢复，职责分离。
+- **草稿在事件流之外**，采用时才展开 —— 天然"只生效选中稿"。
+- **方案在资料之外，采纳时才展开**（§21，与草稿同构）。谋篇模式的只读锁由工具集 + 执行器兜底两道代码保证，不靠提示词；**整案采纳**，不做部分采纳。
+- 创作节奏 = **逐章采用**（＋"采用并继续"）。关键变化采用时打包确认，普通事件不逐条点。
+- **所有数值约束都是派生的，代码里没有数字**，靠 `test/rules.test.ts` 的源码扫描守住。
+
+**口径（别重新定义）**
+- 中文字数只计**汉字与西文词**，剔除标点空白。界面上凡是 `body.length` 一律叫**字符**，不叫字数。
+- 元层穿帮检测只查引号内与心理标记句，叙述不查（宁漏不误报）。
+
+**界面**
+- 默认落 `/desk` 工作台；写入一律经右栏对话，页面上没有可编辑控件（正式事实边界在后端）。
+- 对话只驱动，产物（草稿正文、新旧对比、筹备资料）在中间区看。
+- **红绿是唯一破例**（删＝红底、增＝绿底），只出现在草稿新旧对比，且只用底色。
+- **朱批栏**：左缘 3px 只表示"这条要你处理"，其余组件一律让出左缘（§20）。
+- **石青＝未定**：谋篇模式的两根线、方案标签、「待拍板」（§21）。一个状态不说三遍。
+- 稿本用宋体、仪器用黑体等宽（§20）。
+
+---
+
+## 待办（按序）
+
+1. **已推送，PR #4 已开**：https://github.com/xxxwonking/novel-forge/pull/4（base `stage2-work-preparation`，包含自动修订、三栏对话、稿本仪器样式、谋篇模式与对话栏去气泡）。等 PR #3 合入后再合它。
+2. **切片 3**：结果页富 UI（摘要／关键变化／伏笔情节四象限 + 跳原文）、手动编辑后重检、"已安排/已解决"语义衔接。
+3. **对外暴露前加登录**。服务端现无鉴权，只绑 127.0.0.1。
+4. **M1 缓存命中率实测**仍卡在官方直连 key（中转站对 SDK 直连返回 401）。拿到 key 后跑 `npm run acceptance:m1`。
+
+### 观察期，不急着改
+- `density_over` 在布局章几乎必报（模型给布局章塞 2–3 个事件，密度 0.9+ vs 上限 0.4）。是 warn 不挡采用，但修订清单带给模型它也改不动"密度"。是否在排章期提醒"布局章少塞事件"，或把密度上限的派生再校准，留给内容层观察。
+- `c5_anchor_unresolvable` 常见（模型声明的 quote 不在正文里）。锚点无法跳读但不挡采用。
+- ws-live2 的 ch2d1 在 2026-09-12T12:31:02Z 变成 `adopted`，非本会话操作，来源未查明（§19）。数据本身自洽，只当状态漂移。

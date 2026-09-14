@@ -69,15 +69,23 @@ export function useWidth<T extends HTMLElement>(): [React.RefObject<T | null>, n
   return [ref, width];
 }
 
-/** 极简哈希路由。深链接（#/views/foreshadow）要能直接打开与后退。 */
-export function useRoute(): [string, (to: string) => void] {
-  const [hash, setHash] = useState(() => window.location.hash.slice(1) || "/");
+/**
+ * 极简哈希路由。深链接（#/views/foreshadow）要能直接打开与后退。
+ * 空 hash 与裸 `#/` 都落到 `fallback` —— 应用的默认入口由 App 决定，不在这里写死。
+ */
+export function useRoute(fallback: string): [string, (to: string) => void] {
+  const read = (): string => {
+    const hash = window.location.hash.slice(1);
+    return hash === "" || hash === "/" ? fallback : hash;
+  };
+  const [hash, setHash] = useState(read);
 
   useEffect(() => {
-    const onChange = (): void => setHash(window.location.hash.slice(1) || "/");
+    const onChange = (): void => setHash(read());
     window.addEventListener("hashchange", onChange);
     return () => window.removeEventListener("hashchange", onChange);
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fallback]);
 
   return [
     hash,
@@ -85,6 +93,53 @@ export function useRoute(): [string, (to: string) => void] {
       window.location.hash = to;
     }, []),
   ];
+}
+
+/**
+ * 右侧停靠栏的宽度：拖左缘改宽（向左拖变宽），钳在 [min, max]，松手时写进 localStorage。
+ * 落盘取闭包里的最新值而不是 state —— pointerup 时 React 未必已提交最后一次 move。
+ */
+export function useDockWidth(
+  storageKey: string,
+  min: number,
+  max: number,
+  initial: number,
+): { width: number; dragging: boolean; onPointerDown: (e: React.PointerEvent<HTMLElement>) => void } {
+  const clamp = useCallback((w: number) => Math.min(max, Math.max(min, w)), [min, max]);
+  const [width, setWidth] = useState(() => {
+    const saved = Number(window.localStorage.getItem(storageKey));
+    return Number.isFinite(saved) && saved > 0 ? clamp(saved) : initial;
+  });
+  const [dragging, setDragging] = useState(false);
+  const widthRef = useRef(width);
+  widthRef.current = width;
+
+  const onPointerDown = useCallback(
+    (e: React.PointerEvent<HTMLElement>) => {
+      e.preventDefault();
+      const startX = e.clientX;
+      const startWidth = widthRef.current;
+      let latest = startWidth;
+      const move = (ev: PointerEvent): void => {
+        latest = clamp(startWidth - (ev.clientX - startX));
+        setWidth(latest);
+      };
+      const up = (): void => {
+        window.removeEventListener("pointermove", move);
+        window.removeEventListener("pointerup", up);
+        window.removeEventListener("pointercancel", up);
+        window.localStorage.setItem(storageKey, String(latest));
+        setDragging(false);
+      };
+      window.addEventListener("pointermove", move);
+      window.addEventListener("pointerup", up);
+      window.addEventListener("pointercancel", up);
+      setDragging(true);
+    },
+    [clamp, storageKey],
+  );
+
+  return { width, dragging, onPointerDown };
 }
 
 /** 短暂提示。一键动作之后要让用户看到"改到哪去了"。 */

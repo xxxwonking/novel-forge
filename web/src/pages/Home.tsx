@@ -8,6 +8,7 @@
 
 import type { Alert, AlertAction, Overview } from "../api.js";
 import { AlertCard } from "../components/AlertCard.js";
+import { chapterTypeLabel, genreLabel, platformLabel } from "../labels.js";
 
 export interface HomeProps {
   overview: Overview;
@@ -51,7 +52,7 @@ export function Home({ overview, onAction, onIgnore }: HomeProps): React.ReactEl
         <Stat label="未收伏笔" value={counts.openForeshadows} />
         <Stat label="其中逾期" value={counts.overdueForeshadows} tone={counts.overdueForeshadows > 0 ? "warn" : undefined} />
         <Stat label="断线情节" value={counts.brokenPlotLines} tone={counts.brokenPlotLines > 0 ? "alarm" : undefined} />
-        <Stat label="题材／平台" value={`${overview.genre} / ${overview.platform}`} />
+        <Stat label="题材／平台" value={`${genreLabel(overview.genre)}／${platformLabel(overview.platform)}`} kind="text" />
       </div>
 
       <section className="section">
@@ -70,26 +71,21 @@ function Stat({
   label,
   value,
   tone,
+  kind,
 }: {
   label: string;
   value: string | number;
   tone?: "warn" | "alarm" | undefined;
+  /** 文字型的格子（如题材／平台）不能按数字的字号排，会撑成两行。 */
+  kind?: "text" | undefined;
 }): React.ReactElement {
   return (
-    <div className="stat" data-tone={tone}>
+    <div className="stat" data-tone={tone} data-kind={kind}>
       <div className="stat-label">{label}</div>
       <div className="stat-value">{value}</div>
     </div>
   );
 }
-
-const TYPE_LABEL: Record<string, string> = {
-  transition: "过渡章",
-  setup: "布局章",
-  event: "事件章",
-  payoff: "回收章",
-  climax: "高潮章",
-};
 
 function NextBeat({ beat }: { beat: NonNullable<Overview["nextBeat"]> }): React.ReactElement {
   const { plan, budget } = beat;
@@ -97,7 +93,7 @@ function NextBeat({ beat }: { beat: NonNullable<Overview["nextBeat"]> }): React.
   return (
     <div className="chart" style={{ padding: "16px 18px" }}>
       <div className="row" style={{ marginBottom: 10 }}>
-        <span className="tag">{TYPE_LABEL[plan.chapterType] ?? plan.chapterType}</span>
+        <span className="tag">{chapterTypeLabel(plan.chapterType)}</span>
         {budget !== null && (
           <>
             {/* 字数预算是派生的（§10.2 必须在写作前算出来），所以这里显示的是

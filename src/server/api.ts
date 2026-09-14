@@ -18,6 +18,8 @@ import type { AlertAction, AlertState } from "../types/projections.js";
 import type { AlertId, ChapterNo, TextAnchor } from "../types/primitives.js";
 import type { EventWeight } from "../types/events.js";
 import type { ChapterDraft } from "../task/types.js";
+import { diffDraft } from "../task/diff.js";
+import { countWords } from "../text/measure.js";
 import { ChapterWriteError } from "./chapter-input.js";
 import type { ChapterWriteOptions } from "./chapter-writer.js";
 import { prepGaps } from "../agent/system-prompt.js";
@@ -63,6 +65,9 @@ export async function handleAsync(session: ProjectSession, req: ApiRequest): Pro
   if (req.method === "POST" && req.path === "/api/conversation") {
     return conversationSend(session, req.body);
   }
+  if (req.method === "POST" && req.path === "/api/proposal/adopt") {
+    return proposalAdopt(session, req.body);
+  }
   return handle(session, req);
 }
 
@@ -76,7 +81,11 @@ export function handle(session: ProjectSession, req: ApiRequest): ApiResponse {
       case "/api/prep":
         return ok(prep(session));
       case "/api/conversation":
-        return ok({ turns: session.conversationTurns(), ideas: session.listIdeas() });
+        return ok({ turns: session.conversationTurns(), ideas: session.listIdeas(), mode: session.conversationMode() });
+      case "/api/proposals":
+        return ok(session.listProposals());
+      case "/api/proposal":
+        return proposal(session, req.query);
       case "/api/views":
         return ok(session.derived.views);
       case "/api/alerts":
@@ -93,6 +102,8 @@ export function handle(session: ProjectSession, req: ApiRequest): ApiResponse {
         return chapterDrafts(session, req.query);
       case "/api/chapter/draft":
         return chapterDraft(session, req.query);
+      case "/api/chapter/diff":
+        return chapterDiff(session, req.query);
       default:
         return missing(`未知端点 ${path}`);
     }
@@ -112,6 +123,8 @@ export function handle(session: ProjectSession, req: ApiRequest): ApiResponse {
         return chapterAdopt(session, req.body);
       case "/api/chapter/discard":
         return chapterDiscard(session, req.body);
+      case "/api/conversation/mode":
+        return conversationMode(session, req.body);
       default:
         return missing(`未知端点 ${path}`);
     }
@@ -474,6 +487,37 @@ async function conversationSend(session: ProjectSession, body: unknown): Promise
   }
 }
 
+/** 切换对话模式。纯状态切换，不调模型，所以留在同步 handle 里。 */
+function conversationMode(session: ProjectSession, body: unknown): ApiResponse {
+  if (!isRecord(body)) return bad("请求体必须是对象");
+  const mode = body["mode"];
+  if (mode !== "normal" && mode !== "planning") return bad("mode 必须是 normal 或 planning");
+  return ok({ mode: session.setConversationMode(mode) });
+}
+
+function proposal(session: ProjectSession, query: URLSearchParams): ApiResponse {
+  const id = query.get("id");
+  if (id === null) return bad("缺少参数 id");
+  const p = session.getProposal(id);
+  return p === undefined ? missing(`方案不存在：${id}`) : ok(p);
+}
+
+/**
+ * 采纳一份方案：按条目顺序执行既有的受控入口。放在 handleAsync —— 条目里可能有
+ * 排章这类要走校验的动作，入口本身是异步的。部分成功回 200，由前端按 status 展示。
+ */
+async function proposalAdopt(session: ProjectSession, body: unknown): Promise<ApiResponse> {
+  if (!isRecord(body)) return bad("请求体必须是对象");
+  const id = body["id"];
+  if (typeof id !== "string" || id === "") return bad("缺少 id");
+  try {
+    return ok(await session.adoptProposal(id));
+  } catch (error) {
+    if (error instanceof ChapterWriteError) return { status: error.status, body: { error: error.message } };
+    throw error;
+  }
+}
+
 function chapterDrafts(session: ProjectSession, query: URLSearchParams): ApiResponse {
   const n = intParam(query, "n");
   if (n === null) return bad("缺少参数 n");
@@ -486,6 +530,35 @@ function chapterDraft(session: ProjectSession, query: URLSearchParams): ApiRespo
   if (n === null || id === null) return bad("缺少参数 n / id");
   const d = session.getDraft(n, id);
   return d === undefined ? missing(`草稿不存在：ch${n}/${id}`) : ok(toDraftView(d));
+}
+
+/**
+ * 一份草稿第 rev 次自动修订的前后对比（rev 从 1 起，缺省取最后一次）。
+ * "后"是下一次修订前的快照，最后一次的"后"就是草稿当前正文。
+ */
+function chapterDiff(session: ProjectSession, query: URLSearchParams): ApiResponse {
+  const n = intParam(query, "n");
+  const id = query.get("id");
+  if (n === null || id === null) return bad("缺少参数 n / id");
+  const d = session.getDraft(n, id);
+  if (d === undefined) return missing(`草稿不存在：ch${n}/${id}`);
+  const total = d.revisions.length;
+  if (total === 0) return missing(`草稿 ${id} 未经修订，没有可对比的版本`);
+  const rev = query.has("rev") ? intParam(query, "rev") : total;
+  const before = rev === null ? undefined : d.revisions[rev - 1];
+  if (before === undefined) return bad(`rev 必须在 1 到 ${total} 之间`);
+  const after = d.revisions[rev as number]?.body ?? d.body;
+  return ok({
+    draftId: d.draftId,
+    chapter: d.chapter,
+    revision: rev,
+    total,
+    reason: before.reason,
+    at: before.at,
+    beforeWords: countWords(before.body),
+    afterWords: countWords(after),
+    ...diffDraft(before.body, after),
+  });
 }
 
 /** 采用一份草稿。未就绪会抛，归 400（附可读原因）。成功后带上刷新的首页。 */

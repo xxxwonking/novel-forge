@@ -82,7 +82,13 @@ export class ChapterWriter {
         throw new ChapterWriteError(503, `写章模型尚未配置：${error instanceof Error ? error.message : String(error)}`);
       }
     }
-    const service = new ChapterTaskService({ client: this.client, draftStore: this.drafts, readSource, maxToolRounds: this.session.rules.task.maxToolIterations });
+    const service = new ChapterTaskService({
+      client: this.client,
+      draftStore: this.drafts,
+      readSource,
+      maxToolRounds: this.session.rules.task.maxToolIterations,
+      maxRevisions: this.session.rules.task.maxAutoRevisions,
+    });
     const context = { fingerprint, ...(maxOutputTokens === undefined ? {} : { maxOutputTokens }) };
     const draftId = draft?.draftId ?? this.drafts.nextDraftId(options.chapter);
     const operation = draft === undefined ? service.run(input, context) : service.resume(input, draftId, context);

@@ -8,25 +8,23 @@
 
 import { useState } from "react";
 import { api, type Genre, type Platform, type WorksPayload } from "../api.js";
+import { genreLabel, platformLabel } from "../labels.js";
 
 const GENRES: readonly { value: Genre; label: string }[] = [
-  { value: "xuanhuan", label: "玄幻" },
-  { value: "xianxia", label: "仙侠" },
-  { value: "urban", label: "都市" },
-  { value: "scifi", label: "科幻" },
-  { value: "mystery", label: "悬疑" },
-  { value: "rulehorror", label: "规则怪谈" },
-];
+  "xuanhuan",
+  "xianxia",
+  "urban",
+  "scifi",
+  "mystery",
+  "rulehorror",
+].map((value) => ({ value: value as Genre, label: genreLabel(value) }));
 
 const PLATFORMS: readonly { value: Platform; label: string }[] = [
-  { value: "fanqie", label: "番茄" },
-  { value: "feilu", label: "飞卢" },
-  { value: "qidian", label: "起点" },
-  { value: "unpublished", label: "未定 / 不发布" },
-];
-
-const label = (list: readonly { value: string; label: string }[], v: string): string =>
-  list.find((x) => x.value === v)?.label ?? v;
+  "fanqie",
+  "feilu",
+  "qidian",
+  "unpublished",
+].map((value) => ({ value: value as Platform, label: platformLabel(value) }));
 
 export interface WorksProps {
   works: WorksPayload;
@@ -50,7 +48,7 @@ export function Works({ works, forced, onChanged, go }: WorksProps): React.React
     try {
       await fn();
       onChanged();
-      go("/chat");
+      go("/desk");
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -101,11 +99,11 @@ export function Works({ works, forced, onChanged, go }: WorksProps): React.React
                     {w.title}
                     {active && <span className="tag" data-tone="done" style={{ marginLeft: 8 }}>当前</span>}
                   </td>
-                  <td className="muted">{label(GENRES, w.genre)} / {label(PLATFORMS, w.platform)}</td>
-                  <td className="num">{w.chapterCount === 0 ? "未开始" : `第 ${w.currentChapter} 章 · ${w.chapterCount} 章`}</td>
+                  <td className="muted">{genreLabel(w.genre)} / {platformLabel(w.platform)}</td>
+                  <td className="num">{w.chapterCount === 0 ? "未开始" : `第 ${w.currentChapter} 章 · 共 ${w.chapterCount} 章`}</td>
                   <td>
                     <button disabled={busy} data-primary={!active} onClick={() => void run(() => api.selectWork(w.id))}>
-                      {active ? "进入对话" : "打开"}
+                      {active ? "进入工作台" : "打开"}
                     </button>
                   </td>
                 </tr>
@@ -149,7 +147,7 @@ export function Works({ works, forced, onChanged, go }: WorksProps): React.React
             <input type="number" min={1} step={10000} value={targetWords} disabled={busy} onChange={(e) => setTargetWords(e.target.value)} />
           </label>
           <button type="submit" data-primary="true" disabled={busy || title.trim() === ""}>
-            新建并进入对话
+            新建并开始
           </button>
         </form>
       </section>

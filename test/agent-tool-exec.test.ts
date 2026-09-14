@@ -35,8 +35,10 @@ function fakeCtx(over: Partial<MainAgentToolContext> = {}): MainAgentToolContext
     rescheduleForeshadow: async (foreshadowId, expectedBy) => ({ message: "已改期", effect: { kind: "foreshadow_rescheduled", foreshadowId, expectedBy } }),
     abandonForeshadow: async (foreshadowId) => ({ message: "已废弃", effect: { kind: "foreshadow_abandoned", foreshadowId } }),
     recordIdea: async (text) => ({ message: "已记录", effect: { kind: "idea_recorded", id: "idea1", text } }),
-    writeNextChapter: async () => ({ message: "已写草稿", effect: { kind: "chapter_written", chapter: 3, draftId: "ch3d1", status: "ready", acceptable: true } }),
+    writeNextChapter: async () => ({ message: "已写草稿", effect: { kind: "chapter_written", chapter: 3, draftId: "ch3d1", status: "ready", acceptable: true, revisions: 0 } }),
+    rewriteChapterDraft: async (chapter) => ({ message: "已另写一版", effect: { kind: "chapter_written", chapter: chapter ?? 3, draftId: "ch3d2", status: "ready", acceptable: true, revisions: 0 } }),
     adoptChapter: async (draftId) => ({ message: "已采用", effect: { kind: "chapter_adopted", chapter: 3, draftId, superseded: 0, staleMarked: [] } }),
+    proposePlan: async () => ({ message: "已出方案", effect: { kind: "proposal_ready", id: "p1", version: 1, scope: "revision", items: 1, summary: "S" } }),
     ...over,
   };
 }
@@ -83,6 +85,18 @@ describe("executeMainTool", () => {
   it("write_next_chapter → chapter_written effect", async () => {
     const r = await executeMainTool(block("write_next_chapter", {}), fakeCtx());
     expect(r.effect).toMatchObject({ kind: "chapter_written", chapter: 3, draftId: "ch3d1" });
+  });
+
+  it("rewrite_chapter_draft：缺省章号传 null，非法章号 is_error 且不调 ctx", async () => {
+    const rewriteChapterDraft = vi.fn(fakeCtx().rewriteChapterDraft);
+    const ok = await executeMainTool(block("rewrite_chapter_draft", {}), fakeCtx({ rewriteChapterDraft }));
+    expect(rewriteChapterDraft).toHaveBeenCalledWith(null);
+    expect(ok.effect).toMatchObject({ kind: "chapter_written", draftId: "ch3d2" });
+
+    const bad = await executeMainTool(block("rewrite_chapter_draft", { chapter: 1.5 }), fakeCtx({ rewriteChapterDraft }));
+    expect(bad.result.is_error).toBe(true);
+    expect(bad.effect).toBeUndefined();
+    expect(rewriteChapterDraft).toHaveBeenCalledOnce();
   });
 
   it("adopt_chapter 缺 draftId → is_error、无 effect", async () => {
@@ -132,7 +146,7 @@ describe("runAgentLoop", () => {
   it("写章工具 → chapter_written effect 汇集到结果", async () => {
     const { client } = fakeClient([toolUse("write_next_chapter", {}), modelText("已经写好第 3 章草稿，你可以看看。")]);
     const r = await runAgentLoop(client, CALL_OPTS, fakeCtx(), 8);
-    expect(r.effects).toEqual([{ kind: "chapter_written", chapter: 3, draftId: "ch3d1", status: "ready", acceptable: true }]);
+    expect(r.effects).toEqual([{ kind: "chapter_written", chapter: 3, draftId: "ch3d1", status: "ready", acceptable: true, revisions: 0 }]);
     expect(r.text).toContain("第 3 章");
   });
 
