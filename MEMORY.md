@@ -670,7 +670,7 @@ GIT_SSH_COMMAND="ssh -o HostKeyAlias=github.com" git push ssh://git@140.82.116.4
 
 ## 19. 2026-09-12 对话流改左右布局（Mac 会话）
 
-**当前接续入口。** 仍由当前代理独立实现并自审，未调用 Codex/Gemini、未 spawn 子代理。基线 `dcb4b27`（§18 之上），本轮提交在分支 **`stage2-chat-dock`** 的 `bdd300f`（本地，未推送）。**纯前端改动**，`src/` 与测试一行未动。
+仍由当前代理独立实现并自审，未调用 Codex/Gemini、未 spawn 子代理。基线 `dcb4b27`（§18 之上），本轮提交在分支 **`stage2-chat-dock`** 的 `bdd300f`（本地，未推送）。**纯前端改动**，`src/` 与测试一行未动。
 
 ### 起因
 用户提的一点要求：对话框固定在页面底部太突兀，改左右布局，克隆 `https://github.com/syrizelink/OpenFic` **参考它的样式**做优化。当时那条消息看着像被截断，事后用户确认没有别的要求——就是参考开源项目优化样式，无遗漏需求。
@@ -699,5 +699,42 @@ GIT_SSH_COMMAND="ssh -o HostKeyAlias=github.com" git push ssh://git@140.82.116.4
 - ws-live2 的 ch2d1 现在是 `adopted`（`2026-09-12T12:31:02.268Z`），§18 记的是 `ready` 未采用。这一刻我这边正在改文件、浏览器刚重启且页面 id 全失效，本会话没有任何 adopt 点击或 POST。**结论是它不是本会话验证造成的，具体谁触发的没查出来**，只当作 live 工作区的状态漂移记下。`chapters/ch2.txt` 与 `workVersion 2` 已落，数据本身自洽。
 
 ### 下一步
-1. 两个本地分支都没推：`stage2-auto-revision`（`fc98d70`+`dcb4b27`）与 `stage2-chat-dock`（`bdd300f`）。推送与开 PR 见 §17 末与 `github-gh-proxy-env` 记忆。
+1. 两个本地分支都没推：`stage2-auto-revision`（`fc98d70`+`dcb4b27`）与 `stage2-chat-dock`（`bdd300f`+`cbaa916`+`4240c1c`）。推送与开 PR 见 §17 末与 `github-gh-proxy-env` 记忆。
 2. 切片 3（结果页富 UI：摘要/关键变化/伏笔情节四象限 + 跳原文、手动编辑后重检、"已安排/已解决"语义衔接）。
+
+---
+
+## 20. 2026-09-13 整体样式：稿本与仪器（Mac 会话）
+
+**当前接续入口。** 同一分支 `stage2-chat-dock` 的 `4240c1c`（本地，未推送）。仍是独立实现自审。**纯前端**，`src/` 与测试一行未动，660 测试仍过。
+
+### 起因
+用户用 `/frontend-design` 技能要求"继续优化整体样式"，并借鉴 OpenFic。OpenFic 的可借之处是它用 Noto Serif SC 当全局字体 —— 写小说的工具不该通篇黑体。但它把宋体用在**整个应用**，小字号会糊；这里只给稿本用。
+
+### 设计取向：两种材质
+产品前提是"结构视图是主界面，正文是附属"（§12.3），但界面上原先只有一种材质 —— 处处 PingFang、处处同一种 1px 卡片。这一版按前提把两者分开：
+
+- **稿本**（属于这本书的字）：正文、草稿、书名、页题 → 宋体 `Songti SC`，暖一档的纸色版面 `--paper`，行宽 `--measure: 660px`≈40 字。
+- **仪器**（其余全部）：导航、表、标签、按钮、体检 → 黑体与等宽，冷、密、安静。章号字数一律 `tabular-nums`（这个产品所有东西都挂在章号轴上，数字要能上下对齐着比）。
+
+底色由蓝黑 `#12131a` 改暖黑 `#141210`（蓝黑是代码编辑器的底，暖黑是灯下纸的底）。语义色改取颜料名：雄黄 `--main` / 花青 `--sub` / 朱砂 `--alarm` / 赭石 `--warn` / 石青 `--calm`。角色与变量名不变，所以组件里的 `var(--…)` 一个没改。
+
+### 朱批栏（这一版的签名）
+左缘 3px 竖条**只表示"这条要你处理"**。留着的只有告警卡与 block/warn 体检项；筹备面板、对话气泡、toast、新旧对比一律让出左缘 —— 新旧对比原先用 `inset 3px 0` 正好占着这个位置，改成只用底色外扩 4px。破例仍只有 diff 的红绿底。判据：左缘一旦被装饰占用，它就不再是信号。
+
+### 顺带修掉的真问题
+- **正文一行只有 19 个字**。`.reader` 是 `1fr 260px`，中间区被对话栏挤到 720px，`max-width: 68ch` 根本没机会生效。改用 **容器查询**（`.main { container: main / inline-size }`）：分栏与否按中间区宽度决定，不按视口 —— 对话栏宽度是作者拖出来的，视口说明不了问题。阈值 820px＝250 侧栏＋26 间距＋约 540 正文。现在 35 字/行。
+- **对话栏把 `###` 与 `**` 原样显示**。新增 `components/RichText.tsx`：只认标题/有序无序列表/分隔线/加粗/行内码，其余按段落。不引 markdown 库、不碰 `dangerouslySetInnerHTML`（回复里带着用户自己的文本）。作者自己的消息不渲染，原样保留。
+- **题材/平台把枚举值 `mystery / fanqie` 显示给作者**。`genreLabel`/`platformLabel` 收进 `labels.ts`，`Works` 与 `Home` 共用；`Home` 里重复的 `TYPE_LABEL` 也删了走 `chapterTypeLabel`。
+- **同屏两个"字数"**：草稿页头显示 `body.length`（2886），正下方 diff 显示体检口径的 `countWords`（2441）。前者改称**字符**，Desk 表头同改。
+- 题材/平台格子用 19px 等宽数字排，中文撑成两行 → `.stat[data-kind="text"]` 按正文排。
+
+### 质量线（原先一条都没有）
+`:focus-visible` 全局 2px 石青环；`prefers-reduced-motion` 关掉全部过渡；≤1100px 收窄导航、≤820px 三栏改竖排（对话栏用 `min-width: 100%` 压住 React 写在行内的 `width`，行内 width 赢不了 min-width）；四个滚动区走 `scrollbar-width: thin`。全局零阴影（toast 那一处也去掉了）。
+
+### 验证
+typecheck 干净、`web:build` 干净、`npm test` **660 通过**。浏览器逐页看过工作台/伏笔时间线/正文/草稿对比/作品/首页 + 760px 窄屏，无 console 报错。朱批栏用注入探针逐类确认：告警待处理=3px 朱砂、已迁移=1px 同底色、finding block=朱砂、warn=赭石、info 与 prep 无。
+
+### 已知取舍
+- 默认对话栏 400px 时中间区只有 782px，正文页恒为单栏（体检落到正文下方）。正文优先是刻意的：收起对话栏即恢复双栏。
+- 宋体在暗底小字号会糊，所以只给 ≥16.5px 的正文和 ≥19px 的标题用，表格与标签一律不用。
