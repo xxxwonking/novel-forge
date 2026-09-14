@@ -758,6 +758,45 @@ typecheck 干净、`web:build` 干净、`npm test` **660 通过**。浏览器逐
 
 ---
 
+## 21. 2026-09-14 谋篇模式：对话里先出方案，确认才落盘（Mac 会话）
+
+**当前接续入口。** 同分支 `stage2-chat-dock`，基线 `dc0d2f2`，独立实现自审（沿项目锁定规则）。**714 测试过**（660 + 54）、typecheck / `web:build` 干净；live（gemini-3-flash，工作区 `~/.claude/jobs/a6d62123/tmp/ws-plan/灯下人`）跑通两条入口。实施计划 `docs/superpowers/plans/2026-09-14-planning-mode.md`。提交 `897c788`（feat）+ 紧随其后的 docs 提交，未推送。
+
+### 起因
+用户提出借鉴开源编码工具的 plan 模式：新手不知道写什么，要先和 AI 规划再定方案；熟手写到中途冒出灵感，也要先讨论再定。现有对话是"说一句就落盘"，两类作者都走不通。
+
+### 借鉴什么
+取的是四条机制，不是界面：模式显式可见；模式内工具集**在代码层**裁成只读；讨论收敛成一份可读方案；单点确认才执行。第二、四条本项目已有同构物 —— 草稿在事件流之外、采用时才展开；谋篇是它的平移：**方案在资料之外，采纳时才展开**。命名避开 `plan_chapter` / `get_next_plan`：对外「谋篇模式」「方案」，内部 `planning` / `Proposal`。
+
+### 做了什么
+- `src/agent/proposal-types.ts`：`ConversationMode`、`PROPOSAL_TOOLS` 白名单（筹备 6 + 计划 3；**写章与采用刻意不进**，它们是作者当下的决定）、`ProposalItem`（ref / tool / input / note）、`Proposal`（id / version / scope / summary / impact / items / status）、`PROPOSAL_TOOL_FIELDS`（谋篇提示里的条目字段表 —— 写类工具不在工具集里，模型看不到 schema，这张表是它唯一的字段来源，测试守覆盖面）。
+- `proposal-store.ts`：`proposals.json`，同一时刻只一份 open；重提是同 id 版本 +1，采纳后才新建 p2。
+- `proposal.ts`：`parseProposalDraft` —— 提案期就校验形状：把条目丢给「执行打桩」的 `executeMainTool` 空转一遍拿真实校验结果，占位名换成前缀正确的哨兵 `C00` 让编号格式检查照常生效。`applyProposal` —— 条目还原成 tool_use 丢回 `executeMainTool`，占位名从 `character_upserted.id` 等 effect 回读真编号；**失败即停、不回滚**。
+- `tools.ts`：`propose_plan` + `PLANNING_MODE_TOOLS`（读类 7 + `record_alternative_idea` + `propose_plan`）+ `PLANNING_ALLOWED_TOOLS` + `EXPECTED_PLANNING_MODE_TOOL_ORDER`。`tool-exec.ts`：`executeMainTool(block, ctx, mode)`，planning 下命中写类工具回 is_error（第二道锁）。`conversation-store` 存 `mode`。`service.ts`：`MODE_PROFILE` 表 —— planning 用 creative / 8192 tokens / `maxPlanningRounds`。
+- `system-prompt.ts`：按模式分支；scope 由 `prepGaps` 判定（非空 → preparation 从零带，否则 → revision 先读再提），**不让模型选**。常规提示加一条：作者想不清楚就建议切谋篇，Agent 自己切不了。
+- 服务端：`conversationMode / setConversationMode / listProposals / getProposal / adoptProposal`；`POST /api/conversation/mode`、`GET /api/proposals`、`GET /api/proposal?id=`、`POST /api/proposal/adopt`（handleAsync）。`rules.agent` 加 `maxPlanningRounds: 12`、`maxProposalItems: 24`。
+- Web：`ChatDock` 栏头模式切换（先落库成功再改本地态）、`proposal_ready` chip 自动切中间区；`pages/ProposalPage.tsx`（摘要走稿本、条目按对象分组走仪器、影响单列、采纳整案）；`/proposal/:id` 路由；`labels.ts` 加 `itemGroupLabel`。
+
+### 关键决策
+- **用户拍板**：整案采纳 + 打回重提，不做勾选式部分采纳（条目间有依赖，勾掉一条就断）；谋篇用 **creative（opus）**（出点子不是判定型任务）。
+- 我定的：执行器复用 `executeMainTool`，没有第二套写入路径；失败即停、已落保留（筹备类幂等 upsert，资料层无事务）；`adoptProposal` 不检查当前模式（采纳是作者的动作）；模式存后端（它与工具集必须是同一份真相，刷新不能把锁打开）；不做深度一致性检查，`impact` 由模型声明、代码只校验编号存在（真正的诊断是 M4）。
+- 界面：**石青＝未定** —— 谋篇模式的两根线（栏头下缘、输入区上缘）、方案标签、「待拍板」都用它；「查看方案」用静默按钮（决定在方案页做）；方案页不给朱批（左缘仍只属于告警与体检），唯一例外是执行停在半路的 finding block —— 那是真的要你处理。
+
+### live 验证
+1. 空作品《灯下人》进谋篇，说"没想好写什么" → 模型给 3 个具体切入点，不追问前提；选 C 后一回合出 p1（6 条：方向 / 两人物 / 地点 / 情节线 / 首章，占位名 `@protagonist` `@main_plot` 引用正确）。采纳前 `/api/prep` 的 gaps 全在、人物为空；采纳后 C01 / C02 / S01 / P01 由代码分配，`beats.json` 里占位名已换真编号，gaps 归空。
+2. 中途灵感 + "别出方案、直接改人物卡" → 模型第一轮试了写类工具被兜底拦下，第二轮出 p2（revision，5 条带 id 的更新 + 重排首章），impact 写清牵动 C01 / P01 / 第 1 章；采纳前作品未动，采纳后 background 含旧账、P01 改名。
+
+### 两条教训
+- `:first-of-type` 按元素类型算，组标题也是 div，`.item:first-of-type` 永远不命中 —— 用相邻选择器 `.item-group-title + .item`。
+- 一个状态别说三遍。首版栏头标题 + 退出按钮 + 输入区上一行等宽小字，用户一眼看出不对：等宽小字在这套设计里留给短标识，整句中文用它像控制台输出。改成两根石青线 + placeholder（打字即消失）。
+
+### 已知取舍
+- chat provider（Gemini）只有一个模型名，creative / judge 落到同一模型；角色区分只在 Claude provider 生效。
+- 一次讨论只留一份 open 方案，没有"放弃"动作：不想要就重提覆盖，或切回常规模式不理它。
+- 谋篇模式里 `record_alternative_idea` 仍可用 —— 它写对话域，不碰作品。
+
+---
+
 ## 关键决策汇总（用户拍板，勿再讨论）
 
 跨切片累积，接手先看这一节再动手。出处见对应小节。
@@ -770,6 +809,7 @@ typecheck 干净、`web:build` 干净、`npm test` **660 通过**。浏览器逐
 - 编排层用 **LangGraph JS**；用户明确推翻了设计文档 §8.3"原生 + Tool Runner"的倾向，**勿擅自改回**。模型调用仍走原生 `@anthropic-ai/sdk`，不引 LangChain。
 - 事件流是小说事实的唯一真源；LangGraph checkpoint 只管任务编排/恢复，职责分离。
 - **草稿在事件流之外**，采用时才展开 —— 天然"只生效选中稿"。
+- **方案在资料之外，采纳时才展开**（§21，与草稿同构）。谋篇模式的只读锁由工具集 + 执行器兜底两道代码保证，不靠提示词；**整案采纳**，不做部分采纳。
 - 创作节奏 = **逐章采用**（＋"采用并继续"）。关键变化采用时打包确认，普通事件不逐条点。
 - **所有数值约束都是派生的，代码里没有数字**，靠 `test/rules.test.ts` 的源码扫描守住。
 
@@ -782,13 +822,14 @@ typecheck 干净、`web:build` 干净、`npm test` **660 通过**。浏览器逐
 - 对话只驱动，产物（草稿正文、新旧对比、筹备资料）在中间区看。
 - **红绿是唯一破例**（删＝红底、增＝绿底），只出现在草稿新旧对比，且只用底色。
 - **朱批栏**：左缘 3px 只表示"这条要你处理"，其余组件一律让出左缘（§20）。
+- **石青＝未定**：谋篇模式的两根线、方案标签、「待拍板」（§21）。一个状态不说三遍。
 - 稿本用宋体、仪器用黑体等宽（§20）。
 
 ---
 
 ## 待办（按序）
 
-1. **推送**。`stage2-chat-dock` 一条带走全部 10 个提交；`stage2-work-preparation` 另有 `6294ff2` 未推。GitHub 直连被掐时按 `github-gh-proxy-env` 记忆走：git 用 SSH 直连 IP（`GIT_SSH_COMMAND="ssh -o HostKeyAlias=github.com" git push ssh://git@140.82.116.4/<owner>/<repo>.git HEAD:<branch>`），gh 要带 `HTTPS_PROXY=http://127.0.0.1:7897`。
+1. **推送**。`stage2-chat-dock` 一条带走全部 12 个提交（§21 已提交：`897c788` feat + 紧随其后的 docs 提交）；`stage2-work-preparation` 另有 `6294ff2` 未推。GitHub 直连被掐时按 `github-gh-proxy-env` 记忆走：git 用 SSH 直连 IP（`GIT_SSH_COMMAND="ssh -o HostKeyAlias=github.com" git push ssh://git@140.82.116.4/<owner>/<repo>.git HEAD:<branch>`），gh 要带 `HTTPS_PROXY=http://127.0.0.1:7897`。
 2. **开 PR #4**。base 建议 `stage2-work-preparation`（PR #3 仍 open，base master）；或等 #3 合入后 rebase 到 master 再开。
 3. **切片 3**：结果页富 UI（摘要／关键变化／伏笔情节四象限 + 跳原文）、手动编辑后重检、"已安排/已解决"语义衔接。
 4. **对外暴露前加登录**。服务端现无鉴权，只绑 127.0.0.1。
