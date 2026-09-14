@@ -11,8 +11,9 @@
  *   work-meta.json                作品版本号（每次采用 +1，staleness 判据）
  */
 
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
+import { readProjectFile, recoverFileTransaction, withFileTransaction, writeProjectFile } from "../store/transaction.js";
 import type { ChapterNo } from "../types/primitives.js";
 import type { ChapterDraft, DraftId } from "./types.js";
 
@@ -38,24 +39,24 @@ export class DraftStore {
 
   /** 当前作品版本。无 meta 文件时为 0（筹备期，尚未采用过任何章）。 */
   workVersion(): number {
-    const path = join(this.root, META_FILE);
-    if (!existsSync(path)) return 0;
     try {
-      const meta = JSON.parse(readFileSync(path, "utf8")) as Partial<WorkMeta>;
-      return typeof meta.workVersion === "number" ? meta.workVersion : 0;
-    } catch {
-      return 0;
+      const text = readProjectFile(this.root, META_FILE);
+      if (text === undefined) return 0;
+      const meta = JSON.parse(text) as Partial<WorkMeta> | null;
+      if (meta === null || !Number.isSafeInteger(meta.workVersion) || (meta.workVersion ?? -1) < 0) throw new Error("workVersion 必须是非负安全整数");
+      return meta.workVersion as number;
+    } catch (error) {
+      throw new Error(`${META_FILE} 读取失败：${error instanceof Error ? error.message : String(error)}`, { cause: error });
     }
   }
 
   /** 版本 +1 并落盘，返回新版本。每次成功采用调一次。 */
   bumpWorkVersion(): number {
     const next = this.workVersion() + 1;
-    mkdirSync(this.root, { recursive: true });
-    writeFileSync(
-      join(this.root, META_FILE),
+    if (!Number.isSafeInteger(next)) throw new Error(`${META_FILE} 版本超出安全整数范围`);
+    writeProjectFile(
+      this.root, META_FILE,
       `${JSON.stringify({ workVersion: next } satisfies WorkMeta, null, 2)}\n`,
-      "utf8",
     );
     return next;
   }
@@ -69,25 +70,30 @@ export class DraftStore {
   }
 
   saveDraft(draft: ChapterDraft): void {
-    const dir = this.chapterDir(draft.chapter);
-    mkdirSync(dir, { recursive: true });
+    const dir = join(DRAFT_DIR, `ch${draft.chapter}`);
     const { body, ...meta } = draft;
-    writeFileSync(join(dir, `${draft.draftId}.json`), `${JSON.stringify(meta, null, 2)}\n`, "utf8");
-    writeFileSync(join(dir, `${draft.draftId}.txt`), body, "utf8");
+    this.transaction(() => {
+      writeProjectFile(this.root, join(dir, `${draft.draftId}.json`), `${JSON.stringify(meta, null, 2)}\n`);
+      writeProjectFile(this.root, join(dir, `${draft.draftId}.txt`), body);
+    });
+  }
+
+  transaction<T>(operation: () => T): T {
+    return withFileTransaction(this.root, operation);
   }
 
   loadDraft(chapter: ChapterNo, draftId: DraftId): ChapterDraft | undefined {
-    const dir = this.chapterDir(chapter);
-    const metaPath = join(dir, `${draftId}.json`);
-    if (!existsSync(metaPath)) return undefined;
-    const meta = JSON.parse(readFileSync(metaPath, "utf8")) as DraftMeta;
-    const bodyPath = join(dir, `${draftId}.txt`);
-    const body = existsSync(bodyPath) ? readFileSync(bodyPath, "utf8") : "";
+    const dir = join(DRAFT_DIR, `ch${chapter}`);
+    const text = readProjectFile(this.root, join(dir, `${draftId}.json`));
+    if (text === undefined) return undefined;
+    const meta = JSON.parse(text) as DraftMeta;
+    const body = readProjectFile(this.root, join(dir, `${draftId}.txt`)) ?? "";
     return { ...meta, body };
   }
 
   /** 该章全部草稿，按创建时间升序（末尾即最新）。 */
   listDrafts(chapter: ChapterNo): readonly ChapterDraft[] {
+    recoverFileTransaction(this.root);
     const dir = this.chapterDir(chapter);
     if (!existsSync(dir)) return [];
     return readdirSync(dir)
@@ -104,6 +110,7 @@ export class DraftStore {
 
   /** 有草稿的章号（升序）。resume 扫描与 staleness 标记的入口。 */
   chaptersWithDrafts(): readonly ChapterNo[] {
+    recoverFileTransaction(this.root);
     const base = join(this.root, DRAFT_DIR);
     if (!existsSync(base)) return [];
     return readdirSync(base)

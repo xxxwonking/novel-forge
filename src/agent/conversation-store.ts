@@ -9,9 +9,7 @@
  * 当前没有自动压缩或分段归档。
  */
 
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { randomUUID } from "node:crypto";
-import { join } from "node:path";
+import { readProjectFile, writeProjectFile } from "../store/transaction.js";
 import type { IsoTimestamp } from "../types/primitives.js";
 import type { AlternativeIdea, ConversationModelHistory, ConversationState, ConversationTurn } from "./types.js";
 
@@ -22,36 +20,27 @@ export class ConversationStore {
   private turnQueue: Promise<void> = Promise.resolve();
   constructor(private readonly root: string) {}
 
-  private path(): string {
-    return join(this.root, FILE);
-  }
-
-  /** 读整份对话状态。文件不存在或损坏时返回空态（新作品或首次对话）。 */
+  /** 仅缺失文件返回空态；坏的可见历史必须报错，不能被下一次保存静默覆盖。 */
   load(): ConversationState {
-    const p = this.path();
-    if (!existsSync(p)) return EMPTY;
     try {
-      const raw = JSON.parse(readFileSync(p, "utf8")) as Partial<ConversationState>;
+      const text = readProjectFile(this.root, FILE);
+      if (text === undefined) return EMPTY;
+      const raw = JSON.parse(text) as Partial<ConversationState> | null;
+      if (raw === null || !Array.isArray(raw.turns) || !raw.turns.every(validTurn) || !Array.isArray(raw.ideas) || !raw.ideas.every(validIdea)) throw new Error("turns / ideas 结构无效");
+      if (new Set(raw.ideas.map((idea) => idea.id)).size !== raw.ideas.length) throw new Error("备选想法 ID 重复");
       const modelHistory = readModelHistory(raw.modelHistory);
       return {
-        turns: Array.isArray(raw.turns) ? raw.turns : [],
-        ideas: Array.isArray(raw.ideas) ? raw.ideas : [],
+        turns: raw.turns,
+        ideas: raw.ideas,
         ...(modelHistory === undefined ? {} : { modelHistory }),
       };
-    } catch {
-      return EMPTY;
+    } catch (error) {
+      throw new Error(`${FILE} 读取失败：${error instanceof Error ? error.message : String(error)}`, { cause: error });
     }
   }
 
   private save(state: ConversationState): void {
-    mkdirSync(this.root, { recursive: true });
-    const temporary = join(this.root, `${FILE}.${randomUUID()}.tmp`);
-    try {
-      writeFileSync(temporary, `${JSON.stringify(state, null, 2)}\n`, "utf8");
-      renameSync(temporary, this.path());
-    } finally {
-      rmSync(temporary, { force: true });
-    }
+    writeProjectFile(this.root, FILE, `${JSON.stringify(state, null, 2)}\n`);
   }
 
   /** 一个 ProjectSession 内串行处理对话，防止模型历史与可见回合交错。不是跨进程锁。 */
@@ -90,6 +79,19 @@ export class ConversationStore {
   listIdeas(): readonly AlternativeIdea[] {
     return this.load().ideas;
   }
+}
+
+function record(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function validTurn(value: unknown): value is ConversationTurn {
+  return record(value) && (value.role === "user" || value.role === "agent") && typeof value.text === "string" && typeof value.at === "string" &&
+    (value.effects === undefined || (Array.isArray(value.effects) && value.effects.every((effect: unknown) => record(effect) && typeof effect.kind === "string")));
+}
+
+function validIdea(value: unknown): value is AlternativeIdea {
+  return record(value) && typeof value.id === "string" && value.id !== "" && typeof value.text === "string" && typeof value.at === "string";
 }
 
 function readModelHistory(value: unknown): ConversationModelHistory | undefined {

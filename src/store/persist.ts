@@ -6,9 +6,8 @@
  *
  * 布局与格式的两个判断：
  *
- * 1. **事件流用 JSONL append-only**，不是一个 JSON 数组。事件流的核心不变量
- *    就是 append-only（event-stream.ts），JSONL 让"追加一条"是真的追加一行，
- *    不需要读出整个数组、改、写回 —— 后者在写入中途崩溃会丢掉整份历史。
+ * 1. **事件流用 JSONL**，保留按行查看及逻辑 append-only 的格式。追加保留原有行，
+ *    裁决只改变信封。文件替换经同步事务保存，使采用涉及的正文、事件和版本一起恢复。
  * 2. **正文一章一个文件**，纯文本。它是用户资产里最重要的部分，必须在任何
  *    编辑器里能直接打开；塞进 JSON 会让 30 万字变成一行带 \n 转义的字符串。
  *
@@ -25,9 +24,10 @@
  *   <root>/chapters/ch{n}.txt    正文
  */
 
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync, appendFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { EventStream, type Clock, systemClock } from "./event-stream.js";
+import { readProjectFile, recoverFileTransaction, withFileTransaction, writeProjectFile } from "./transaction.js";
 import type { StructuralEvent } from "../types/events.js";
 import type { ChapterBeat, WorkProfile } from "../types/beat.js";
 import type { CharacterCard } from "../types/character.js";
@@ -89,12 +89,14 @@ export class ProjectStore {
 
   /** 目录是否已经是一个项目。web 层用它判断"新建还是打开"。 */
   exists(): boolean {
+    recoverFileTransaction(this.root);
     return existsSync(join(this.root, FILES.setting));
   }
 
   // ── 读 ────────────────────────────────────────────────────────────────
 
   load(): ProjectSnapshot {
+    recoverFileTransaction(this.root);
     return {
       setting: this.readJson<WorkSetting>(FILES.setting),
       discipline: this.readJsonOr<WritingDiscipline>(FILES.discipline, WRITING_DISCIPLINE),
@@ -116,9 +118,8 @@ export class ProjectStore {
    * 凭空少一条比整个项目打不开难查得多。
    */
   loadEvents(): readonly StructuralEvent[] {
-    const path = join(this.root, FILES.events);
-    if (!existsSync(path)) return [];
-    const text = readFileSync(path, "utf8");
+    const text = readProjectFile(this.root, FILES.events);
+    if (text === undefined) return [];
     const out: StructuralEvent[] = [];
     text.split("\n").forEach((line, i) => {
       if (line.trim() === "") return;
@@ -137,6 +138,7 @@ export class ProjectStore {
   }
 
   loadChapters(): ReadonlyMap<ChapterNo, string> {
+    recoverFileTransaction(this.root);
     const dir = join(this.root, CHAPTER_DIR);
     const out = new Map<ChapterNo, string>();
     if (!existsSync(dir)) return out;
@@ -149,33 +151,29 @@ export class ProjectStore {
   }
 
   readChapter(chapter: ChapterNo): string | undefined {
-    const path = join(this.root, CHAPTER_DIR, `ch${chapter}.txt`);
-    return existsSync(path) ? readFileSync(path, "utf8") : undefined;
+    return readProjectFile(this.root, join(CHAPTER_DIR, `ch${chapter}.txt`));
   }
 
   // ── 写 ────────────────────────────────────────────────────────────────
 
   /** 建目录并写入全部文件。已存在的项目会被整体覆盖。 */
   save(snapshot: ProjectSaveInput): void {
-    mkdirSync(join(this.root, CHAPTER_DIR), { recursive: true });
-    this.writeJson(FILES.setting, snapshot.setting);
-    this.writeDiscipline(snapshot.discipline ?? WRITING_DISCIPLINE);
-    this.writeSettings(snapshot.settings ?? []);
-    this.writeJson(FILES.profile, snapshot.profile);
-    this.writeJson(FILES.characters, snapshot.characters);
-    this.writeJson(FILES.plotLines, snapshot.plotLines);
-    this.writeJson(FILES.beats, snapshot.beats);
-    this.writeJson(FILES.alertStates, snapshot.alertStates);
-    writeFileSync(
-      join(this.root, FILES.events),
-      snapshot.events.map((e) => JSON.stringify(e)).join("\n") + (snapshot.events.length > 0 ? "\n" : ""),
-      "utf8",
-    );
-    for (const [chapter, text] of snapshot.chapters) this.writeChapter(chapter, text);
+    withFileTransaction(this.root, () => {
+      this.writeJson(FILES.setting, snapshot.setting);
+      this.writeDiscipline(snapshot.discipline ?? WRITING_DISCIPLINE);
+      this.writeSettings(snapshot.settings ?? []);
+      this.writeJson(FILES.profile, snapshot.profile);
+      this.writeJson(FILES.characters, snapshot.characters);
+      this.writeJson(FILES.plotLines, snapshot.plotLines);
+      this.writeJson(FILES.beats, snapshot.beats);
+      this.writeJson(FILES.alertStates, snapshot.alertStates);
+      this.rewriteEvents(snapshot.events);
+      for (const [chapter, text] of snapshot.chapters) this.writeChapter(chapter, text);
+    });
   }
 
   /**
-   * 追加事件。C8 提交走这条路，不重写整个文件。
+   * 追加事件。原有每一行保持原样，文件通过事务替换，避免失败后留下半行 JSON。
    *
    * ⚠ 裁决（proposed→committed）**不能**用它 —— 那是修改已有行。裁决后要
    * 调 `rewriteEvents`。这两种写法在 append-only 语义下的区别是：追加是
@@ -183,27 +181,23 @@ export class ProjectStore {
    */
   appendEvents(events: readonly StructuralEvent[]): void {
     if (events.length === 0) return;
-    mkdirSync(this.root, { recursive: true });
-    appendFileSync(
-      join(this.root, FILES.events),
-      events.map((e) => JSON.stringify(e)).join("\n") + "\n",
-      "utf8",
+    const previous = readProjectFile(this.root, FILES.events) ?? "";
+    writeProjectFile(
+      this.root, FILES.events,
+      previous + (previous && !previous.endsWith("\n") ? "\n" : "") + events.map((e) => JSON.stringify(e)).join("\n") + "\n",
     );
   }
 
   /** 全量重写事件流。裁决改了信封后用。 */
   rewriteEvents(events: readonly StructuralEvent[]): void {
-    mkdirSync(this.root, { recursive: true });
-    writeFileSync(
-      join(this.root, FILES.events),
+    writeProjectFile(
+      this.root, FILES.events,
       events.map((e) => JSON.stringify(e)).join("\n") + (events.length > 0 ? "\n" : ""),
-      "utf8",
     );
   }
 
   writeChapter(chapter: ChapterNo, text: string): void {
-    mkdirSync(join(this.root, CHAPTER_DIR), { recursive: true });
-    writeFileSync(join(this.root, CHAPTER_DIR, `ch${chapter}.txt`), text, "utf8");
+    writeProjectFile(this.root, join(CHAPTER_DIR, `ch${chapter}.txt`), text);
   }
 
   writeBeats(beats: readonly ChapterBeat[]): void {
@@ -229,10 +223,10 @@ export class ProjectStore {
   // ── 原语 ──────────────────────────────────────────────────────────────
 
   private readJson<T>(name: string): T {
-    const path = join(this.root, name);
-    if (!existsSync(path)) throw new Error(`项目文件缺失：${path}`);
     try {
-      return JSON.parse(readFileSync(path, "utf8")) as T;
+      const text = readProjectFile(this.root, name);
+      if (text === undefined) throw new Error(`项目文件缺失：${name}`);
+      return JSON.parse(text) as T;
     } catch (e) {
       throw new Error(`${name} 不是合法 JSON：${(e as Error).message}`);
     }
@@ -243,10 +237,9 @@ export class ProjectStore {
   }
 
   private writeJson(name: string, value: unknown): void {
-    mkdirSync(this.root, { recursive: true });
     // 缩进两格：这些文件用户会手改（§5.8 状态必须能给用户看和改），
     // 单行 JSON 改起来太难。
-    writeFileSync(join(this.root, name), `${JSON.stringify(value, null, 2)}\n`, "utf8");
+    writeProjectFile(this.root, name, `${JSON.stringify(value, null, 2)}\n`);
   }
 }
 

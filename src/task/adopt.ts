@@ -26,6 +26,10 @@ export interface AdoptDeps {
 }
 
 export function adoptDraft(deps: AdoptDeps, chapter: ChapterNo, draftId: DraftId): AdoptResult {
+  return deps.draftStore.transaction(() => adopt(deps, chapter, draftId));
+}
+
+function adopt(deps: AdoptDeps, chapter: ChapterNo, draftId: DraftId): AdoptResult {
   const now = (deps.clock ?? (() => new Date().toISOString()))();
   const draft = deps.draftStore.loadDraft(chapter, draftId);
   if (draft === undefined) throw new Error(`草稿不存在：ch${chapter}/${draftId}`);

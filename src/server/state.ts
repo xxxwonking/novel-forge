@@ -39,6 +39,7 @@ import { applyActionToBeat } from "../alerts/apply.js";
 import { createModelClient } from "../client/create.js";
 import type { ModelClient } from "../client/model.js";
 import { countWords } from "../text/measure.js";
+import { withFileTransaction } from "../store/transaction.js";
 
 export interface SessionDerived {
   readonly projections: Projections;
@@ -66,7 +67,7 @@ export class ProjectSession {
   private modelClient: ModelClient | undefined;
 
   constructor(
-    root: string,
+    private readonly root: string,
     readonly rules: Rules = loadRules(),
     writing: ChapterWriterOptions = {},
   ) {
@@ -176,27 +177,31 @@ export class ProjectSession {
 
   putBeat(beat: ChapterBeat): void {
     const rest = this.beats.filter((b) => b.chapter !== beat.chapter);
-    this.beats = [...rest, beat].sort((x, y) => x.chapter - y.chapter);
-    this.store.writeBeats(this.beats);
+    const beats = [...rest, beat].sort((x, y) => x.chapter - y.chapter);
+    this.store.writeBeats(beats);
+    this.beats = beats;
     this.invalidate();
   }
 
   putAlertState(state: AlertState): void {
-    this.alertStates.set(state.id, state);
-    this.store.writeAlertStates([...this.alertStates.values()]);
+    const states = new Map(this.alertStates).set(state.id, state);
+    this.store.writeAlertStates([...states.values()]);
+    this.alertStates = states;
     this.invalidate();
   }
 
   /** 追加事件（废弃伏笔、确认退场、改期都走这里）。 */
   appendEvents(inputs: readonly Parameters<EventStream["append"]>[0][]): void {
-    const written = inputs.map((i) => this.stream.append(i));
+    const stream = EventStream.restore(this.stream.all());
+    const written = inputs.map((i) => stream.append(i));
     this.store.appendEvents(written);
+    this.stream = stream;
     this.invalidate();
   }
 
   putChapter(chapter: ChapterNo, text: string): void {
-    this.chapters.set(chapter, text);
     this.store.writeChapter(chapter, text);
+    this.chapters = new Map(this.chapters).set(chapter, text);
     this.invalidate();
   }
 
@@ -210,10 +215,12 @@ export class ProjectSession {
    * 不能随本次采用一起生效。
    */
   commitDraftDeclaration(chapter: ChapterNo, declaration: C5Declaration): number {
-    const superseded = this.stream.supersedeChapter(chapter);
-    const added = commitDeclaration(this.stream, chapter, declaration);
-    for (const event of added) this.stream.decide(event.envelope.id, "committed");
-    this.store.rewriteEvents(this.stream.all());
+    const stream = EventStream.restore(this.stream.all());
+    const superseded = stream.supersedeChapter(chapter);
+    const added = commitDeclaration(stream, chapter, declaration);
+    for (const event of added) stream.decide(event.envelope.id, "committed");
+    this.store.rewriteEvents(stream.all());
+    this.stream = stream;
     this.invalidate();
     return superseded;
   }
@@ -249,7 +256,7 @@ export class ProjectSession {
   adopt(chapter: ChapterNo, draftId: DraftId): AdoptResult {
     const draft = this.drafts.loadDraft(chapter, draftId);
     if (draft !== undefined) this.writer.assertFresh(draft);
-    return adoptDraft(
+    return this.transact(() => adoptDraft(
       {
         draftStore: this.drafts,
         commitDeclaration: (ch, decl) => this.commitDraftDeclaration(ch, decl),
@@ -257,7 +264,22 @@ export class ProjectSession {
       },
       chapter,
       draftId,
-    );
+    ));
+  }
+
+  /** 文件失败时也恢复内存；各写入口只替换状态引用，不原地修改旧对象。 */
+  private transact<T>(operation: () => T): T {
+    const before = { setting: this.setting, discipline: this.discipline, settings: this.settings,
+      profile: this.profile, characters: this.characters, plotLines: this.plotLines, beats: this.beats,
+      alertStates: this.alertStates, chapters: this.chapters, stream: this.stream };
+    try {
+      return withFileTransaction(this.root, operation);
+    } catch (error) {
+      Object.assign(this, before);
+      throw error;
+    } finally {
+      this.invalidate();
+    }
   }
 
   // ── 对话式主 Agent（Stage 2·切片 1）────────────────────────────────────
