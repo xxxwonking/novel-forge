@@ -2,7 +2,7 @@
 
 更新时间：2026-09-15（Asia/Shanghai；正在执行“先检查现有项目，再继续完成”的持续目标；最新进展见第 17 节末尾）
 
-记录范围：本文件汇总项目调研、用户流程设计、能力映射和开发进展。Stage 1 见第 12 节，写章 API 见第 13 节，Gemini 真实单章见第 14 节，对话式主 Agent 见第 15 节，国内模型兼容见第 16 节。**接手先读第 17 节末尾及 `docs/superpowers/plans/2026-09-14-project-completion.md`。已有作品准备、生成、修改、逐章采用、后台恢复、建议采用、故事进度及固定版本 TXT 导出；本批补齐 C5 人物/地点引用和状态校验，最新 45 个文件 / 912 项测试、类型检查和 Web 构建通过。用户最新要求是先保存记忆并提交当前代码，发布位置以末尾交接记录为准。Gemini 同一故事当前仅完成第一章初稿，未采用；三章连续创作和用户流程 §10 全项验收仍未完成。沿用 LangGraph、当前代理独立实施与复核、已有 Gemini Chat 代理，暂不调用 Claude。**
+记录范围：本文件汇总项目调研、用户流程设计、能力映射和开发进展。Stage 1 见第 12 节，写章 API 见第 13 节，Gemini 真实单章见第 14 节，对话式主 Agent 见第 15 节，国内模型兼容见第 16 节。**接手先读第 17 节末尾及 `docs/superpowers/plans/2026-09-14-project-completion.md`。已有作品准备、生成、修改、逐章采用、后台恢复、建议采用、故事进度及固定版本 TXT 导出；本批补齐 C5 人物/地点引用和状态校验，最新 45 个文件 / 912 项测试、类型检查和 Web 构建通过。按用户要求保存当前进度，阶段代码已通过 `576bdb7` 合入主目录 `master` 并推送，远端已核对；开发工作树保留用于接续。Gemini 同一故事当前仅完成第一章初稿，未采用；三章连续创作和用户流程 §10 全项验收仍未完成。沿用 LangGraph、当前代理独立实施与复核、已有 Gemini Chat 代理，暂不调用 Claude。**
 
 ## 1. 当前状态与接续位置
 
@@ -747,3 +747,4 @@ Stage 2 =「作者通过对话完成首章」，切成三片、先做第 1 片�
 - 恢复命令（在项目工作目录）：`node --env-file=C:\Users\Administrator\Desktop\novel-forge\.env.local --import tsx .tmp-live-service.mjs C:\Users\Administrator\Desktop\novel-forge\data\flow-acceptance-2026-09-15-WVJ88z`。务必保留末尾目录，避免另建作品。浏览器运行 `node --import tsx .tmp-live-browser.mjs`；对话入口 `/api/conversation`，任务入口 `/api/tasks`。不要重复 `create` 或既有对话。
 - 既有数据校验：85 个基线文件中，`data/demo/alert-states.json`、`beats.json`、`events.jsonl` 的哈希与验收前不同，时间为 UTC 01:02–01:04；事件末尾有 `user_edit` 的伏笔改期记录，来源尚未核实。其余 82 个一致。没有恢复或覆盖这三份文件，防止抹掉用户操作；细节见 `evidence/checkpoint-files.json`，最终验收仍需核对，不能声称原数据全部未变。
 - 后续待办：第一章修订/结构纠错与采用 → 第二、三章创作和逐章采用 → 人工核对钥匙保管人、人物与伏笔及后续上下文 → 完整浏览器流程和 §10 的 16 项审计 → 更新 README 和最终验收报告。DeepSeek 官方真实调用仍缺对应凭证，属于尚未验证范围。
+- 本次代码提交 **`576bdb7 fix(c5): 修复结构引用和人物状态校验`**，此前十批功能提交一起快进合入 `C:/Users/Administrator/Desktop/novel-forge` 的 `master`，已推送 `origin/master` 并用 `git ls-remote` 核对。该代码提交后工作区干净；本条同步状态由后续文档提交保存。开发工作树 `C:/Users/Administrator/Desktop/novel-forge-worktrees/project-completion`、分支 `feat-project-completion` 继续保留；临时工装已备份并移出工作树，凭证和验收作品未入库。本次按用户要求交接，未启动新的真实生成或主目录 Web 服务。
