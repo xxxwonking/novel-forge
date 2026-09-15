@@ -48,6 +48,27 @@
 .story-arrangements, .story-evidence { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; font-size: 12px; }
 .story-evidence a { color: #9abbd1; text-underline-offset: 3px; }
 .story-progress-card .alert-actions button { color: var(--ink-dim); }
+.export-page { max-width: 920px; overflow-wrap: anywhere; }
+.export-form, .export-preview { padding: 18px; margin: 18px 0; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg-raised); }
+.export-form fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
+.export-form legend { margin-bottom: 14px; font-weight: 600; }
+.export-form .row { flex-wrap: wrap; gap: 12px 20px; margin-bottom: 18px; }
+.export-form .row label { display: flex; align-items: center; gap: 7px; font-size: 13px; }
+.export-range { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin: 16px 0; }
+.export-range label { display: grid; gap: 7px; font-size: 13px; }
+.export-range input { min-width: 0; width: 100%; padding: 9px; color: var(--ink); background: var(--bg-sunken); border: 1px solid var(--line-bright); }
+.export-preview h2 { font-size: 18px; margin-top: 0; }
+.export-preview p, .export-notice { font-size: 13px; line-height: 1.8; }
+.export-preview table { width: 100%; table-layout: fixed; margin: 18px 0; }
+.export-preview th, .export-preview td { overflow-wrap: anywhere; }
+.export-preview th:first-child { width: 22%; }
+.export-preview th:last-child { width: 23%; }
+.export-preview .row { flex-wrap: wrap; gap: 12px; }
+.export-notice { margin: 18px 0; }
+.export-notice h3 { font-size: 14px; }
+.export-notice ul { padding-left: 20px; }
+.export-filename { color: var(--ink-dim); }
+.export-link { display: inline-block; margin: 0 0 20px; color: #9abbd1; font-size: 13px; }
 .planning-dialog { width: min(540px, calc(100vw - 32px)); max-height: calc(100dvh - 40px); overflow: auto; color: var(--ink); background: var(--bg-raised); border: 1px solid var(--line-bright); border-radius: 8px; padding: 24px; }
 .planning-dialog::backdrop { background: rgb(0 0 0 / 65%); }
 .planning-dialog h2 { margin-top: 0; }

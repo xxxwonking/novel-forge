@@ -57,6 +57,11 @@ export async function handleAsync(session: ProjectSession, req: ApiRequest): Pro
 export function handle(session: ProjectSession, req: ApiRequest): ApiResponse {
   const { method, path } = req;
 
+  if ((method === "POST" && path === "/api/export/preview") || (method === "GET" && (path === "/api/export" || path === "/api/export/file"))) {
+    try { return ok(method === "POST" ? session.exports.prepare(req.body) : path === "/api/export/file" ? session.exports.file(req.query.get("id")) : session.exports.preview(req.query.get("id"))); }
+    catch (error) { if (error instanceof ChapterWriteError) return { status: error.status, body: { error: error.message } }; throw error; }
+  }
+
   if (path === "/api/preparation" && method === "GET") return ok({ ...session.preparation.view(), ideas: session.listIdeas() });
   if (path.startsWith("/api/preparation/") && method === "POST") {
     try {

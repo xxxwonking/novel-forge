@@ -84,6 +84,7 @@ export function Reader({ chapter, quote }: ReaderProps): React.ReactElement {
         </article>
 
         <aside className="side">
+          <a className="export-link" href="#/export">导出已采用正文</a>
           <h3>章节</h3>
           <select
             value={chapter}

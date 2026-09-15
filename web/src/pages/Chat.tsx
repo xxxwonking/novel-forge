@@ -206,6 +206,8 @@ function EffectChip({
       return <div className="effect"><span className="tag">{effect.foreshadowId} 改期 → 第 {effect.expectedBy} 章</span></div>;
     case "foreshadow_abandoned":
       return <div className="effect"><span className="tag" data-tone="done">{effect.foreshadowId} 已废弃</span></div>;
+    case "export_prepared":
+      return <div className="effect"><span className="tag">已固定 {effect.chapters} 章正式版本</span><a href={`#/export?id=${encodeURIComponent(effect.exportId)}`}>查看导出预览并下载</a></div>;
     case "idea_recorded":
       return <div className="effect"><span className="tag">已记为备选</span><span className="muted">{effect.text}</span></div>;
     case "action_failed":

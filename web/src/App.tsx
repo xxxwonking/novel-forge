@@ -20,6 +20,7 @@ import { Chat } from "./pages/Chat.js";
 import { Works } from "./pages/Works.js";
 import { Preparation } from "./pages/Preparation.js";
 import { Drafts } from "./pages/Drafts.js";
+import { Export } from "./pages/Export.js";
 import { PlanningActionDialog, type EditablePlanningAction } from "./components/PlanningActionDialog.js";
 
 const VIEWS = [
@@ -152,6 +153,7 @@ function ProjectApp(): React.ReactElement {
         ))}
 
         <div className="rail-group">正文</div>
+        <Link route={route} to="/export" go={go}>导出正文</Link>
         <Link route={route} to={`/chapter/${Math.max(overview.data?.currentChapter ?? 1, 1)}`} go={go}>
           章节与体检
         </Link>
@@ -210,6 +212,7 @@ function Routed({ route, overview, onAction, onIgnore, onJump, refresh, tasks, r
   if (path === "/preparation") {
     return <Preparation refresh={refresh} proposalId={query.get("proposal")} />;
   }
+  if (path === "/export") return <Export exportId={query.get("id")} />;
   if (path?.startsWith("/draft/")) {
     const [, , chapter, draftId] = path.split("/");
     return <Drafts key={`${chapter}/${draftId}`} chapter={Number(chapter)} draftId={draftId ?? ""} refresh={refresh} task={tasks.find((t) => t.draftId === draftId)} reloadTasks={reloadTasks} />;

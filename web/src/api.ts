@@ -288,6 +288,7 @@ export interface ActionResult {
 
 /** 一次对话回合里发生的状态变化。与后端 AgentEffect 一一对应（报文层重新声明）。 */
 export type AgentEffect =
+  | { kind: "export_prepared"; exportId: string; chapters: number }
   | { kind: "preparation_proposed" | "preparation_confirmed"; proposalId: string; summary: string }
   | { kind: "chapter_written" | "chapter_started" | "chapter_revised"; chapter: number; draftId: string; status: string; acceptable: boolean }
   | { kind: "task_updated"; chapter: number; draftId: string; status: string }
@@ -409,6 +410,15 @@ export interface PreparationPayload {
 
 // ── 请求 ────────────────────────────────────────────────────────────────
 
+export type ExportSelection = { scope: "all" } | { scope: "range"; from: number; to: number };
+export interface TextExportPreview {
+  id: string | null; title: string; filename: string | null; selection: ExportSelection;
+  chapters: { chapter: number; draftId: string | null; version: string; words: number; sha256: string }[];
+  omitted: { from: number; to: number }[];
+  pendingDrafts: { chapter: number; count: number }[];
+  totalWords: number; createdAt: string; sha256: string | null; message: string;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   // 地址属于当前页面，每次请求捕获自己的作品；另一个标签页切换不会改变它。
   const projectId = selectedProjectId();
@@ -428,6 +438,9 @@ function isRecord(v: unknown): v is Record<string, unknown> {
 }
 
 export const api = {
+  exportPreview: (selection: ExportSelection) => post<TextExportPreview>("/api/export/preview", selection),
+  getExport: (id: string) => request<TextExportPreview>(`/api/export?id=${encodeURIComponent(id)}`),
+  downloadExport: (id: string) => request<{ filename: string; text: string; sha256: string }>(`/api/export/file?id=${encodeURIComponent(id)}`),
   planningAction: (action: PlanningAction, reason?: string) => post<ActionResult>("/api/planning/action", { action, ...(reason === undefined ? {} : { reason }) }),
   preparation: () => request<PreparationPayload>("/api/preparation"),
   confirmPreparation: (proposalId: string) => post<{ changed: boolean; proposal: PreparationProposal }>("/api/preparation/confirm", { proposalId }),

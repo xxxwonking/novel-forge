@@ -51,6 +51,7 @@ import { checkChapter } from "../task/steps.js";
 import { crossCheckC5, checkPromisedResolutions } from "../chapter/c5-crosscheck.js";
 import { PlanningService } from "../planning/service.js";
 import { buildStoryProgress } from "../alerts/progress.js";
+import { TextExportService } from "../export/service.js";
 
 export interface SessionDerived {
   readonly projections: Projections;
@@ -62,6 +63,7 @@ export interface SessionDerived {
 export class ProjectSession {
   readonly preparation: PreparationService;
   readonly planning: PlanningService;
+  readonly exports: TextExportService;
   private readonly store: ProjectStore;
   private readonly drafts: DraftStore;
   private readonly writer: ChapterWriter;
@@ -108,6 +110,7 @@ export class ProjectSession {
       checkChapter: (chapter) => { buildChapterRunInput(this, chapter); },
     });
     this.planning = new PlanningService(this, operation => this.transact(operation));
+    this.exports = new TextExportService(root, this);
   }
 
   // ── 读 ────────────────────────────────────────────────────────────────
@@ -548,6 +551,13 @@ export class ProjectSession {
       getCharacter: (name) => readSource().loadCharacter(name),
       listOpenForeshadows: (weight) => readSource().listOpenForeshadows(weight),
       getStoryProgress: () => JSON.stringify(this.storyProgress()),
+      prepareTextExport: async selection => {
+        try {
+          const preview = this.exports.prepare(selection);
+          if (preview.id === null) return fail("prepare_text_export", JSON.stringify(preview));
+          return { message: JSON.stringify(preview), effect: { kind: "export_prepared", exportId: preview.id, chapters: preview.chapters.length } };
+        } catch (error) { return fail("prepare_text_export", error instanceof Error ? error.message : String(error)); }
+      },
       getNextPlan: () => {
         const next = this.nextChapter;
         const beat = this.beatFor(next);
