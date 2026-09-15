@@ -29,6 +29,8 @@ export class ChapterWriteError extends Error {
 
 export interface ChapterInputOptions {
   readonly maxOutputTokens?: number;
+  /** 当前作者的写章请求；新任务保存后，恢复使用已冻结的值。 */
+  readonly authorRequest?: string;
 }
 
 /** §13.5：埋设处前后各 200 字，是上下文窗口而非创作规则阈值。 */
@@ -97,6 +99,9 @@ export function buildChapterRunInput(
   options: ChapterInputOptions = {},
 ): ChapterRunInput {
   validateChapterNumber(chapter);
+  if (options.authorRequest !== undefined && (typeof options.authorRequest !== "string" || !options.authorRequest.trim())) {
+    throw new ChapterWriteError(400, "authorRequest 必须是非空文本");
+  }
   if (options.maxOutputTokens !== undefined &&
       (!Number.isSafeInteger(options.maxOutputTokens) || options.maxOutputTokens < 1)) {
     throw new ChapterWriteError(400, "maxOutputTokens 必须是正整数");
@@ -186,7 +191,10 @@ export function buildChapterRunInput(
         plannedForeshadows: ctx.projections.foreshadows
           .filter(f => f.status === "planned" && beat.plan.plants.some(p => p.label.trim() === f.label.trim()))
           .map(f => ({ id: f.id, label: f.label, intent: f.intent, weight: f.weight, expectedBy: f.expectedBy })),
-        task: C4_TASK,
+        task: options.authorRequest === undefined ? C4_TASK : [
+          C4_TASK, "", "# 作者本轮写章请求", options.authorRequest,
+          "仅执行其中与本章正文创作有关的要求。采用、导出、开始其他章节等操作由平台处理，不写进正文，也不将讨论或操作指令当作已发生的故事事实。仍只输出本章正文。",
+        ].join("\n"),
       },
     },
     parseContextBase: {

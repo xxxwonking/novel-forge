@@ -417,7 +417,7 @@ export class ProjectSession {
       client,
       store: this.conversation,
       // 排队的回合在真正开始时取资料，包含前一回合已采用的正文和状态。
-      ctx: () => this.buildAgentContext(),
+      ctx: () => this.buildAgentContext(text.trim()),
       contextInfo: () => this.agentContextInfo(),
       maxRounds: this.rules.agent.maxConversationRounds,
     });
@@ -466,7 +466,7 @@ export class ProjectSession {
   }
 
   /** 主 Agent 每次读工具查询当前正式资料；章节写作任务自身仍使用固定快照。 */
-  private buildAgentContext(): MainAgentToolContext {
+  private buildAgentContext(authorRequest: string): MainAgentToolContext {
     const readSource = () => buildChapterReadSource(this, Math.max(this.nextChapter, 1));
     const now = (): string => new Date().toISOString();
     const fail = (tool: string, message: string): AgentActionOutcome => ({
@@ -605,7 +605,7 @@ export class ProjectSession {
       },
       writeNextChapter: async (proposalId) => {
         try {
-          const draft = this.startChapter({ chapter: this.nextChapter, ...(proposalId === undefined ? {} : { proposalId }) });
+          const draft = this.startChapter({ chapter: this.nextChapter, authorRequest, ...(proposalId === undefined ? {} : { proposalId }) });
           const running = draft.execution?.status === "running";
           return {
             message: running ? `第 ${draft.chapter} 章任务 ${draft.draftId} 已启动，正在处理，尚未写完。离开页面后服务会继续，作者可查看、暂停或结束。`

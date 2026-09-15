@@ -69,11 +69,11 @@ describe("Chat 主 Agent 跨回合", () => {
     let prose = PROSE;
     const target = deriveBudget(WRITE_BEAT.plan, writingSnapshot().profile, loadRules()).words.sweet;
     while (countWords(prose) < target) prose += "\n他沿着石壁查看木匣，把封口与旧图对照，再记下匣底的编号。";
-    const tool = (id: string, name: string, input: unknown) => ({ ...assistant("", `reason-${id}`), tool_calls: [{ id, type: "function", function: { name, arguments: JSON.stringify(input) } }] });
+    const tool = (id: string, name: string, input: unknown) => ({ ...assistant("", `reason-${id}`), tool_calls: [{ id, type: "function", function: { name, arguments: JSON.stringify(input) }, extra_content: { signature: `signature-${id}` } }] });
     const isMain = (body: Body) => body.tools?.some((t: Body) => t.function?.name === "write_next_chapter");
+    const writeTool = tool("write", "write_next_chapter", {});
     const mainReplies = [
-      { message: tool("write", "write_next_chapter", {}) },
-      { message: assistant("第三章任务已启动。") },
+      { message: writeTool },
       { message: tool("adopt", "adopt_chapter", { draftId: "ch3d1" }) },
       { message: assistant("已采用第三章。") },
       { message: tool("read", "get_chapter_text", { chapter: 3, excerpt: "full" }) },
@@ -84,18 +84,25 @@ describe("Chat 主 Agent 跨回合", () => {
     const session = state.session();
     const written = await send(session, "按计划写下一章");
     expect(written.body).toMatchObject({ effects: [{ kind: "chapter_started", draftId: "ch3d1", status: "writing" }] });
+    expect(written.body).toMatchObject({ text: expect.stringContaining("后台") });
+    expect(mainIndex).toBe(1);
     expect((await session.writeChapter({ chapter: 3, draftId: "ch3d1" })).status).toBe("ready");
     expect(new ProjectStore(state.root).load().chapters.has(3)).toBe(false);
     const declarationRequest = state.requests.find((body) => body.response_format !== undefined);
     expect(declarationRequest?.response_format).toEqual({ type: "json_object" });
     expect(declarationRequest?.messages).toContainEqual(assistant(prose, "chapter-private-reasoning"));
-    expect(JSON.stringify(state.requests.filter(isMain)[1]?.messages)).not.toContain("chapter-private-reasoning");
     const adopted = await send(state.session(), "采用 ch3d1");
     expect(adopted.body).toMatchObject({ effects: [{ kind: "chapter_adopted", draftId: "ch3d1" }] });
     expect(new ProjectStore(state.root).load().chapters.get(3)).toBe(prose);
+    const resumed = state.requests.filter(isMain)[1]!.messages;
+    expect(resumed.filter((message: Body) => message.role === "assistant")).toEqual([writeTool]);
+    expect(resumed).toContainEqual(expect.objectContaining({ role: "tool", tool_call_id: "write" }));
+    expect(resumed).toContainEqual({ role: "user", content: expect.stringContaining("系统记录：") });
+    expect(JSON.stringify(resumed)).not.toContain("chapter-private-reasoning");
+    expect(JSON.stringify([written.body, adopted.body])).not.toMatch(/reason-write|signature-write/u);
     await send(state.session(), "读取第三章正文");
-    expect(state.requests).toHaveLength(8);
-    expect(state.requests[7]?.messages).toContainEqual({ role: "tool", tool_call_id: "read", content: prose });
+    expect(state.requests).toHaveLength(7);
+    expect(state.requests[6]?.messages).toContainEqual({ role: "tool", tool_call_id: "read", content: prose });
     expect(state.requests.every((r) => r.thinking.type === "enabled")).toBe(true);
   });
 

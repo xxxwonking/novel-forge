@@ -146,6 +146,9 @@ export class ChapterWriter {
     if (options.maxOutputTokens !== undefined && (!Number.isSafeInteger(options.maxOutputTokens) || options.maxOutputTokens < 1)) {
       throw new ChapterWriteError(400, "maxOutputTokens 必须是正整数");
     }
+    if (options.authorRequest !== undefined && (typeof options.authorRequest !== "string" || !options.authorRequest.trim())) {
+      throw new ChapterWriteError(400, "authorRequest 必须是非空文本");
+    }
 
     const receipt = this.receipt(options, followAutomatic);
     if (receipt !== undefined) {
@@ -159,7 +162,8 @@ export class ChapterWriter {
         (options.newDraft !== true || running.request.newDraft === true) &&
         (options.newDraft !== true || options.requestId === undefined || options.requestId === running.request.requestId) &&
         (options.proposalId === undefined || options.proposalId === running.request.proposalId) &&
-        (options.maxOutputTokens === undefined || options.maxOutputTokens === running.request.maxOutputTokens);
+        (options.maxOutputTokens === undefined || options.maxOutputTokens === running.request.maxOutputTokens) &&
+        (options.authorRequest === undefined || options.authorRequest === running.request.authorRequest);
       if (same) return running.promise;
       throw new ChapterWriteError(409, `第 ${running.request.chapter} 章正在生成，请先等待当前任务完成`);
     }
@@ -167,6 +171,9 @@ export class ChapterWriter {
     const draft = this.findDraft(options, followAutomatic);
     if (draft !== undefined && options.proposalId !== undefined && options.proposalId !== draft.writeContext?.proposalId) {
       throw new ChapterWriteError(409, "当前草稿依赖另一份资料；切换方案时请明确另写一版");
+    }
+    if (draft !== undefined && options.authorRequest !== undefined && options.authorRequest !== draft.writeContext?.authorRequest) {
+      throw new ChapterWriteError(409, "已有稿件的写作要求已固定，本轮要求未覆盖原任务；请针对该稿修订或明确另写一版");
     }
     if (draft?.status === "adopted" || draft?.status === "discarded") return Promise.resolve(draft);
     if (draft?.execution?.status === "ended") throw new ChapterWriteError(409, "本次任务已结束；已有结果仍保留，继续创作请明确另起任务");
@@ -180,8 +187,12 @@ export class ChapterWriter {
 
     const maxOutputTokens = options.maxOutputTokens ?? draft?.writeContext?.maxOutputTokens;
     const proposalId = options.proposalId ?? draft?.writeContext?.proposalId;
+    const authorRequest = draft?.writeContext?.authorRequest ?? options.authorRequest;
     const source = this.session.chapterSource(proposalId);
-    const input = buildChapterRunInput(source, options.chapter, maxOutputTokens === undefined ? {} : { maxOutputTokens });
+    const input = buildChapterRunInput(source, options.chapter, {
+      ...(maxOutputTokens === undefined ? {} : { maxOutputTokens }),
+      ...(authorRequest === undefined ? {} : { authorRequest }),
+    });
     const fingerprint = chapterInputFingerprint(source, options.chapter);
     const readSource = buildChapterReadSource(source, options.chapter);
     const needsModel = draft === undefined || draft.session === null || draft.declaration === null;
@@ -194,7 +205,7 @@ export class ChapterWriter {
     const requestId = draft?.writeContext?.requestId ?? options.requestId;
     const autoRevisionLimit = draft === undefined ? automaticRevisionLimit(this.session.rules.task.maxAutoRevisions)
       : draft.writeContext?.autoRevisionLimit ?? 0;
-    const context = { fingerprint, autoRevisionLimit, ...(requestId === undefined ? {} : { requestId }), ...(maxOutputTokens === undefined ? {} : { maxOutputTokens }), ...(proposalId === undefined ? {} : { proposalId }) };
+    const context = { fingerprint, autoRevisionLimit, ...(requestId === undefined ? {} : { requestId }), ...(maxOutputTokens === undefined ? {} : { maxOutputTokens }), ...(proposalId === undefined ? {} : { proposalId }), ...(authorRequest === undefined ? {} : { authorRequest }) };
     const draftId = draft?.draftId ?? this.drafts.nextDraftId(options.chapter);
     const operation = draft === undefined ? service.run(input, context) : service.resume(input, draftId, context);
     const promise = operation.then((result) => {
@@ -204,7 +215,7 @@ export class ChapterWriter {
       }
       return result;
     }).finally(() => { this.active = null; }).then((result) => this.finishAdoption(result));
-    this.active = { request: { ...options, ...(maxOutputTokens === undefined ? {} : { maxOutputTokens }), ...(proposalId === undefined ? {} : { proposalId }) }, draftId,
+    this.active = { request: { ...options, ...(maxOutputTokens === undefined ? {} : { maxOutputTokens }), ...(proposalId === undefined ? {} : { proposalId }), ...(authorRequest === undefined ? {} : { authorRequest }) }, draftId,
       rootDraftId: draft?.revision?.kind === "automatic" ? draft.revision.sourceDraftId : draftId, promise, control };
     return promise;
   }
@@ -267,6 +278,7 @@ export class ChapterWriter {
     if (prior !== undefined && (prior.chapter !== options.chapter ||
       (options.draftId !== undefined && options.draftId !== prior.draftId && options.draftId !== result?.draftId) ||
       (options.proposalId !== undefined && options.proposalId !== prior.writeContext?.proposalId) ||
+      (options.authorRequest !== undefined && options.authorRequest !== prior.writeContext?.authorRequest) ||
       (options.maxOutputTokens !== undefined && options.maxOutputTokens !== prior.writeContext?.maxOutputTokens))) {
       throw new ChapterWriteError(409, "请求编号已用于另一组写章参数，请检查原任务");
     }

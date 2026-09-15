@@ -235,7 +235,7 @@ describe("模型局部修订与片段续写", () => {
       if (options.outputSchema) return Object.hasOwn((options.outputSchema["properties"] ?? {}) as object, "decision") ? rewritten() : modelText(C5_JSON);
       round++;
       if (round === 1) return tool("get_chapter_draft", { draftId: "ch3d1" });
-      if (round === 4) return tool("adopt_chapter", { draftId: "ch3d2" });
+      if (round === 3) return tool("adopt_chapter", { draftId: "ch3d2" });
       const content = options.messages.at(-1)?.content;
       const result = Array.isArray(content) ? content.find(item => item.type === "tool_result") : undefined;
       if (result?.type !== "tool_result" || result.is_error) return modelText("这次操作未完成，原稿保留。");
@@ -244,9 +244,8 @@ describe("模型局部修订与片段续写", () => {
         expect(draft.body).toContain(selected);
         return tool("revise_chapter_draft", { draftId: draft.draftId, revisionToken: draft.revisionToken, mode: "rewrite", instruction: "增加一轮试探，结尾保持不变", scope: { quote: selected }, requestId: "conversation-rewrite" });
       }
-      if (round === 3) return modelText("已启动所选段落的改写，完成后会展示新版本。");
-      if (round === 5) return tool("get_chapter_text", { chapter: 3 });
-      if (round === 6) {
+      if (round === 4) return tool("get_chapter_text", { chapter: 3 });
+      if (round === 5) {
         expect(String(result.content)).toContain(replacement);
         expect(String(result.content)).not.toContain(selected);
         return modelText("已采用新版本，正式正文包含新增的试探。");
@@ -256,11 +255,14 @@ describe("模型局部修订与片段续写", () => {
     const { session } = fixture(client);
     const reply = await session.converse(`只把 ch3d1 里「${selected}」改成试探，结尾不变。`);
     expect(reply.effects).toContainEqual(expect.objectContaining({ kind: "chapter_revised", draftId: "ch3d2" }));
+    expect(reply.text).toContain("后台");
+    expect(round).toBe(2);
     expect((await finish(session, view(session, "ch3d2"))).status).toBe("ready");
+    expect(session.currentAdoptedDraftId(3)).toBeUndefined();
     await session.converse("采用 ch3d2，并读取第三章确认修改。");
     expect(session.currentAdoptedDraftId(3)).toBe("ch3d2");
     expect(buildChapterReadSource(session, 4).loadChapter(3, "full")).toContain(replacement);
-    expect(round).toBe(6);
+    expect(round).toBe(5);
   });
 
   it("前章采用新版本后，过期的下一章按最新正式事实修改并重检才能采用", async () => {

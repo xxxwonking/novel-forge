@@ -31,7 +31,7 @@ export const MAIN_AGENT_TOOLS: readonly Anthropic.Tool[] = [
   },
   {
     name: "revise_chapter_draft",
-    description: "按作者要求启动正文局部改写或未完成片段续写，保存新版本，随后核对与检查，不自动采用。先 get_chapter_draft 取得正文和 revisionToken。rewrite 必须以 scope.quote 指定精确原文，重复出现时 occurrence 从 0 开始；scope=null 仅用于作者明确允许修改整章。continue 仅追加并保留已有片段，scope=null。需要扩大范围时只返回建议。requestId 为本次操作稳定且唯一的字符串，重试沿用。返回 running 仅表示已启动，不等于已完成。",
+    description: "按作者要求启动正文局部改写或未完成片段续写，保存新版本，随后核对与检查，不自动采用。先 get_chapter_draft 取得正文和 revisionToken。rewrite 必须以 scope.quote 指定精确原文，重复出现时 occurrence 从 0 开始；scope=null 仅用于作者明确允许修改整章。continue 仅追加并保留已有片段，scope=null。需要扩大范围时只返回建议。requestId 为本次操作稳定且唯一的字符串，重试沿用。稿件 writing/declaring/checking 或任务 running 表示后台处理中；提交后返回任务入口，不在本轮轮询或重复启动。",
     input_schema: { type: "object", additionalProperties: false, properties: {
       draftId: { type: "string" }, revisionToken: { type: "string" }, instruction: { type: "string" },
       requestId: { type: "string", pattern: "^[A-Za-z0-9_-]{1,128}$" }, mode: { type: "string", enum: ["rewrite", "continue"] },

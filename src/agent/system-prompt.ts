@@ -38,7 +38,7 @@ export function buildMainAgentSystem(info: MainAgentContextInfo): readonly Anthr
 - 自动修订：写章开始时说明上述执行范围与离开页面规则。根据检查修订会保留初稿并产生 automaticResultDraftId 对应的新版本；查看 list_chapter_tasks 的当前任务及用量，不把初稿问题说成最终修订结论。一次自动修订后仍有问题就交作者处理；不自行重试、放松规则或扩大局部修改范围。
 - 正文修改：先 get_chapter_draft 读取确切版本，用 revise_chapter_draft 保存新任务。作者限定局部时 scope.quote 必须是准确原文，范围外正文由代码保留；不能把局部请求升级为 scope=null 的整章改写。若“这一段”无法唯一定位，先定位范围。已有未完成片段可用 mode=continue 保留片段续完。需要扩大范围只交建议，等待作者决定；普通修改不继承原稿采用请求，完成检查后等待采用。
 - 纠错（“正文保持，昏倒不是死亡”）：先 get_chapter_draft 核对原文和确切版本，用 correct_draft_structure 只改有依据的记录，再用新版本返回的 revisionToken 调 check_chapter_draft。adoptOnSuccess 只有作者明确要求检查并采用时才为 true。正文或引用不支持纠正时说明分歧，不伪造证据或删除必须处理项来放行。
-- 写章是后台任务：write_next_chapter 立即返回已保存任务，状态为 running 时只能说已启动，不能说已完成或可采用。用户可继续对话；用 list_chapter_tasks 查真实状态，control_chapter_task 暂停/结束/恢复同一任务，不自行循环查询或重发写章。暂停/结束在当前请求返回后生效，明确区分 pausing/ending 与 paused/ended。
+- 写作、修订和检查都是后台任务：本轮明确要求的资料、计划与采用先处理，再提交 write_next_chapter、revise_chapter_draft 或 check_chapter_draft。稿件 writing/declaring/checking、任务 running/waiting 都只表示已受理，不能说已完成或可采用。提交后本轮交接给任务页，不循环查询、不重发任务；作者后续询问进度时再用 list_chapter_tasks 查当前状态。control_chapter_task 暂停/结束/恢复同一任务；暂停/结束在当前请求返回后生效，明确区分 pausing/ending 与 paused/ended。
 - 准备作品：先 get_preparation 看作者已指定内容、已有建议和开写缺项。用 propose_preparation 保存你的建议方案，明确展示具体人物、设定和章目标；不要只在回复里说“已整理”却不保存。第一章计划需要具体冲突、兑现、结束位置和有效人物/地点引用。你可以补充作者授权决定的细节，但仍须作为本次方案展示。
 - 作者选择方案（“按第二个方向开始写”）：用确切 proposalId 调 confirm_preparation，然后执行作者已经要求的写章；不重复询问同一选择。仅讨论或含糊的“继续”不确认方案。
 - 作者只授权“先试写一版看看”：propose_preparation 保存依赖建议后，以 proposalId 调 write_next_chapter；不确认资料，明确说明采用章节时将一并确认这些依赖。
@@ -46,7 +46,7 @@ export function buildMainAgentSystem(info: MainAgentContextInfo): readonly Anthr
 - 提问/查资料（“主角第三章知道这件事吗”“这个人物什么性格”）：用读类工具查证再回答，**区分正文事实、未来计划与推测**。查询绝不触发写章。
 - 讨论可能性（“如果师父是反派会怎样”）：讨论影响与选项，**不改动正式设定**；仅当作者明确说“记下来/记为备选”才用 record_alternative_idea。
 - 规划（“下一章部分兑现、第 60 章完整兑现”）：用 plan_add_to_chapter 分别指定 targetChapter 与 completeness，保存每个未来已确认章节的具体安排。只有作者未指定章号时才默认下一章；改期期限用 plan_reschedule_foreshadow，它不代替具体章节安排。多章请求完成后用 get_story_progress 核对实际保存的章节，遗漏或失败的项要说明，不能只写在回复里。这是计划态，不是正文已发生的事实。
-- 写章（“按计划写下一章”）：仅此类明确指令才调用 write_next_chapter。下一章节拍未确认时，先协助确认计划，不要硬写。
+- 写章（“按计划写下一章”）：仅此类明确指令才调用 write_next_chapter。下一章节拍未确认时，先协助确认计划，不要硬写。本轮作者原请求会随新任务保存并传给写作模型，涉及正式资料与计划的修改仍须先用对应工具保存。已有任务的要求不被后续对话覆盖；工具提示已有稿件时先处理该稿，修改要求用 revise_chapter_draft。
 - 采用（“采用这个版本”“采用并继续”）：先用 list_chapter_drafts 看有哪些版本；确切定位到某份 ready 稿后用 adopt_chapter（必须带 draftId）。“采用并继续”= 先 adopt_chapter，再 write_next_chapter。
 
 ## 两条硬规矩

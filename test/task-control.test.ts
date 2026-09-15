@@ -157,18 +157,25 @@ describe("章节任务控制与返回恢复", () => {
       if (options.role === "creative") { if (options.outputSchema) return modelText(C5_JSON); entered.resolve(); return waiting.promise; }
       judge++;
       if (judge === 1) return tool("write_next_chapter", {});
-      if (judge === 3) return tool("control_chapter_task", { draftId: "ch3d1", action: "pause" });
-      return modelText(judge === 2 ? "第3章任务已启动，可随时查看或暂停。" : "已请求暂停。" );
+      if (judge === 2) return tool("control_chapter_task", { draftId: "ch3d1", action: "pause" });
+      throw new Error("后台任务受理后不应额外调用主 Agent");
     } };
     const { session } = fixture(client);
     const reply = session.converse("按计划写下一章");
     await entered.promise;
     try {
       await new Promise<void>((resolve) => setImmediate(resolve));
-      expect(judge).toBe(2);
-      expect((await reply).effects).toContainEqual(expect.objectContaining({ kind: "chapter_started", draftId: "ch3d1" }));
+      expect(judge).toBe(1);
+      const started = await reply;
+      expect(started.effects).toContainEqual(expect.objectContaining({ kind: "chapter_started", draftId: "ch3d1" }));
+      expect(started.text).toContain("后台");
+      expect(session.chapterTasks()[0]).toMatchObject({ status: "running", stage: "writing" });
+      expect(session.currentChapter).toBe(2);
+      expect(session.getDraft(3, "ch3d1")?.body).toBe("");
       const paused = await session.converse("暂停 ch3d1");
       expect(paused.effects).toContainEqual(expect.objectContaining({ kind: "task_updated", draftId: "ch3d1", status: "pausing" }));
+      expect(paused.text).toContain("当前模型调用返回并保存内容后生效");
+      expect(judge).toBe(2);
       expect(session.conversationTurns()).toHaveLength(4);
     } finally {
       const work = session.writeChapter({ chapter: 3, draftId: "ch3d1" });

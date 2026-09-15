@@ -83,9 +83,11 @@ describe("/api/conversation", () => {
     const reply = res.body as ConversationReply;
     const written = reply.effects.find((e) => e.kind === "chapter_started");
     expect(written).toMatchObject({ kind: "chapter_started", chapter: 3, draftId: "ch3d1" });
+    expect(reply.text).toContain("后台");
     expect((await session.writeChapter({ chapter: 3, draftId: "ch3d1" })).body).toBe(PROSE);
     expect(drafts.listDrafts(3)).toHaveLength(1);
-    expect(model.calls).toHaveLength(4); // 对话1 + C4 + C5 + 对话2
+    expect(judge).toBe(1);
+    expect(model.calls).toHaveLength(3); // 对话 + C4 + C5；受理后不再调用模型解释或轮询。
   });
 
   it("POST 经对话采用一份 ready 草稿：产 chapter_adopted，当前章推进到 3", async () => {

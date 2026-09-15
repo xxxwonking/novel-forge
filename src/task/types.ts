@@ -147,6 +147,8 @@ export interface DraftWriteContext {
   /** 创建请求的幂等编号，恢复时保留，不被新一轮检查覆盖。 */
   readonly requestId?: string;
   readonly maxOutputTokens?: number;
+  /** 新建任务时冻结的作者原请求；后续对话和旧任务恢复不能覆盖。 */
+  readonly authorRequest?: string;
   /** 试写依赖的具体资料方案；采用章节时一并确认，恢复时重建相同资料视图。 */
   readonly proposalId?: string;
 }

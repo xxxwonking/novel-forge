@@ -123,6 +123,65 @@ function toolUse(name: string, input: unknown) {
 }
 
 describe("runAgentLoop", () => {
+  it.each([
+    ["revise_chapter_draft", { draftId: "ch3d1", revisionToken: "source-token", instruction: "补足调查证据", requestId: "revision-1", mode: "rewrite", scope: null }],
+    ["check_chapter_draft", { draftId: "ch3d2", revisionToken: "source-token", adoptOnSuccess: false }],
+  ])("%s 受理后台任务后交接，不再让模型轮询进度", async (name, input) => {
+    const { client, calls } = fakeClient([toolUse(name as string, input), toolUse("list_chapter_tasks", {}), toolUse("list_chapter_tasks", {})]);
+    const r = await runAgentLoop(client, CALL_OPTS, fakeCtx(), 2);
+    expect(r.hitCap).toBe(false);
+    expect(calls).toHaveLength(1);
+    expect(r.text).toContain("ch3d2");
+    expect(r.text).toContain("后台");
+    expect(r.text).not.toContain("更具体");
+    expect(r.modelMessages).toContainEqual(expect.objectContaining({ role: "assistant", content: expect.arrayContaining([expect.objectContaining({ type: "tool_use", name })]) }));
+    expect(r.modelMessages).toContainEqual(expect.objectContaining({ role: "user", content: expect.arrayContaining([expect.objectContaining({ type: "tool_result", tool_use_id: "t1" })]) }));
+  });
+
+  it("采用并继续保留采用结果，完成整批工具历史后返回后台任务", async () => {
+    const { client, calls } = fakeClient([{ kind: "ok", message: modelMessage([
+      { ...block("adopt_chapter", { draftId: "ch2d1" }), id: "adopt" },
+      { ...block("write_next_chapter", {}), id: "write" },
+    ], "tool_use") }, toolUse("list_chapter_tasks", {}), toolUse("list_chapter_tasks", {})]);
+    const ctx = fakeCtx({
+      adoptChapter: async draftId => ({ message: "已采用", effect: { kind: "chapter_adopted", chapter: 2, draftId, superseded: 0, staleMarked: [] } }),
+      writeNextChapter: async () => ({ message: "任务已受理", effect: { kind: "chapter_started", chapter: 3, draftId: "ch3d1", status: "writing", acceptable: false } }),
+    });
+    const r = await runAgentLoop(client, CALL_OPTS, ctx, 2);
+    expect(calls).toHaveLength(1);
+    expect(r.hitCap).toBe(false);
+    expect(r.effects.map(effect => effect.kind)).toEqual(["chapter_adopted", "chapter_started"]);
+    expect(r.text).toContain("已采用第 2 章");
+    expect(r.text).toContain("ch3d1");
+    const results = r.modelMessages.flatMap(message => typeof message.content === "string" ? [] : message.content).filter(item => item.type === "tool_result");
+    expect(results.map(item => item.tool_use_id)).toEqual(["adopt", "write"]);
+  });
+
+  it.each(["pausing", "ending"])("%s 请求交接时说明等待当前调用保存，不冒充控制已经生效", async status => {
+    const { client, calls } = fakeClient([toolUse("control_chapter_task", { draftId: "ch3d1", action: status === "pausing" ? "pause" : "end" }), modelText("已经结束。")]);
+    const ctx = fakeCtx({ controlChapterTask: async draftId => ({ message: "控制已请求", effect: { kind: "task_updated", chapter: 3, draftId, status } }) });
+    const r = await runAgentLoop(client, CALL_OPTS, ctx, 8);
+    expect(calls).toHaveLength(1);
+    expect(r.text).toContain("保存");
+    expect(r.text).not.toContain("已经结束");
+  });
+
+  it("同步结构纠错仍继续检查，后台交接同时报告本轮失败动作", async () => {
+    const { client, calls } = fakeClient([
+      toolUse("correct_draft_structure", { draftId: "ch3d1", revisionToken: "source", summary: "纠正记录", changes: [] }),
+      { kind: "ok", message: modelMessage([
+        { ...block("check_chapter_draft", { draftId: "ch3d2", revisionToken: "new", adoptOnSuccess: false }), id: "check" },
+        { ...block("adopt_chapter", { draftId: "ch3d2" }), id: "failed-adopt" },
+      ], "tool_use") }, modelText("错误地说已经采用"),
+    ]);
+    const ctx = fakeCtx({ adoptChapter: async () => ({ message: "稿件仍有必须处理项，未采用", effect: { kind: "action_failed", tool: "adopt_chapter", message: "稿件仍有必须处理项，未采用" } }) });
+    const r = await runAgentLoop(client, CALL_OPTS, ctx, 8);
+    expect(calls).toHaveLength(2);
+    expect(r.effects.map(effect => effect.kind)).toEqual(["chapter_revised", "task_updated", "action_failed"]);
+    expect(r.text).toContain("未采用");
+    expect(r.text).toContain("后台");
+  });
+
   it("读类工具轮 → 最终文本，无 effect", async () => {
     const { client, calls } = fakeClient([toolUse("get_overview", {}), modelText("现在写到第 2 章。")]);
     const r = await runAgentLoop(client, CALL_OPTS, fakeCtx(), 8);

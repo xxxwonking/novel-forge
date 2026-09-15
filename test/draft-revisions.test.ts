@@ -328,10 +328,12 @@ describe("正文保持、纠正候选结构", () => {
     const session = new ProjectSession(root, undefined, { client });
     const reply = await session.converse("ch3d1 正文里的血刀客只是昏倒，正文保持，纠正死亡记录，检查通过就采用。");
     expect(reply.effects).toContainEqual(expect.objectContaining({ kind: "chapter_revised", draftId: "ch3d2" }));
+    expect(reply.effects).toContainEqual(expect.objectContaining({ kind: "task_updated", draftId: "ch3d2" }));
+    expect(reply.text).toContain("后台");
     const completed = await session.writeChapter({ chapter: 3, draftId: "ch3d2" });
     expect(completed.status).toBe("adopted");
     expect(JSON.parse(buildChapterReadSource(session, 4).loadCharacter("C02")!).state.vital).toBe("alive");
     expect(session.getDraft(3, "ch3d1")?.declaration?.characterStates[0]?.to).toBe("dead");
-    expect(round).toBe(4);
+    expect(round).toBe(3);
   });
 });

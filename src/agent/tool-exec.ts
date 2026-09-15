@@ -252,7 +252,7 @@ export interface AgentLoopResult {
 
 /**
  * 对话循环：调用模型 → 执行工具 → appendTurn → 续调，直到模型给出非 tool_use 的
- * 文本回复或达到 `maxRounds`。拒绝/错误/超长都归一化为可展示文本（§2：空白最差），
+ * 文本回复、后台任务受理或达到 `maxRounds`。拒绝/错误/超长都归一化为可展示文本（§2：空白最差），
  * 不抛异常。
  */
 export async function runAgentLoop(
@@ -266,7 +266,7 @@ export async function runAgentLoop(
   const effects: AgentEffect[] = [];
   const stopped = (text: string, hitCap = false): AgentLoopResult => ({
     text, effects, toolRounds, hitCap,
-    // 错误说明来自程序，不伪装成带有模型内部字段的 assistant 消息。
+    // 交接和错误说明来自程序，不伪装成带有模型内部字段的 assistant 消息。
     modelMessages: [...messages, { role: "user", content: `系统记录：上一轮在此停止，已返回的工具结果仍有效。对作者显示的结果：${text}` }],
   });
 
@@ -297,7 +297,27 @@ export async function runAgentLoop(
       if (effect !== undefined) effects.push(effect);
     }
     messages = appendTurn(messages, result.message, toolResults);
+    const background = effects.map(backgroundNotice).filter((notice): notice is string => notice !== null);
+    if (background.length > 0) {
+      const adopted = effects.flatMap(effect => effect.kind === "chapter_adopted" ? [`已采用第 ${effect.chapter} 章的 ${effect.draftId}。`] : []);
+      const failures = toolResults.flatMap(item => item.is_error ? [`另有操作未完成：${typeof item.content === "string" ? item.content : "请核对操作结果"}`] : []);
+      // 整轮工具均已执行并保留真实历史；进度由任务页查询，不再花模型轮次轮询。
+      return stopped([...adopted, ...new Set(background), "可从下方任务入口查看进度和检查结果；服务运行时，离开页面后任务仍会按本次要求继续。", ...failures].join("\n"));
+    }
   }
+}
+
+function backgroundNotice(effect: AgentEffect): string | null {
+  if (effect.kind === "chapter_started" || (effect.kind === "chapter_revised" && ["writing", "declaring", "checking"].includes(effect.status))) {
+    return `第 ${effect.chapter} 章的${effect.kind === "chapter_revised" ? "修订" : "写作"}任务 ${effect.draftId} 已提交后台处理。`;
+  }
+  if (effect.kind === "task_updated") {
+    if (effect.status === "pausing" || effect.status === "ending") {
+      return `已请求${effect.status === "pausing" ? "暂停" : "结束"}第 ${effect.chapter} 章任务 ${effect.draftId}，将在当前模型调用返回并保存内容后生效。`;
+    }
+    if (effect.status === "running" || effect.status === "waiting") return `第 ${effect.chapter} 章任务 ${effect.draftId} 已交给后台继续处理。`;
+  }
+  return null;
 }
 
 function extractText(message: Anthropic.Message): string {
