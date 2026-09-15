@@ -59,6 +59,8 @@ CHAT_THINKING=default
 
 预设从不改写地址、挑选模型、借用其他平台密钥或在失败后切换服务。当前部署一次选用一套配置；更换配置后重启服务。
 
+Chat 与 Claude 客户端均不自动跟随 HTTP 重定向，以免把凭证转发给其他端点。代理返回 3xx 时，应按平台文档直接配置最终 API 地址。Claude 错误信息会遮蔽配置中的 API key 和 Bearer token，再返回任务或页面。
+
 ## 地址与能力选项
 
 | `CHAT_BASE_URL` 写法 | 实际请求路径 |
@@ -77,7 +79,7 @@ CHAT_THINKING=default
 | `CHAT_JSON_MODE` | `json_schema`／`json_object`／`prompt`；generic 默认 schema，deepseek 默认 object |
 | `CHAT_THINKING` | `default`／`enabled`／`disabled`；generic 默认 default，deepseek 默认 disabled |
 | `CHAT_REASONING_EFFORT` | `default`／`low`／`high`／`max`；默认不传，指定强度需 thinking=enabled |
-| `CHAT_MAX_OUTPUT_TOKENS` | 可选正整数；每次取调用预算与此上限的较小值。未设置不额外限额；C4 默认 16000，C5 默认 4000，主 Agent 默认 2048 |
+| `CHAT_MAX_OUTPUT_TOKENS` | 可选正整数；每次取调用预算与此上限的较小值。未设置不额外限额；C4 默认 16000，C5 默认 4000，主 Agent 默认 8192 |
 | `CHAT_STREAM` | `auto`／`always`／`never`；默认 auto，实际输出预算大于 8192 时请求 SSE |
 | `CHAT_STREAM_INCLUDE_USAGE` | `true`／`false`，默认 true；false 时省略 stream_options，适用于不接受该扩展的代理 |
 | `CHAT_TIMEOUT_MS` | 1–2147483647 范围内的整数，默认 300000 毫秒 |
@@ -95,7 +97,7 @@ npm run web:build
 npm run serve -- data/your-project
 ```
 
-打开 `http://127.0.0.1:5174/chat` 进行对话。写章仍需已准备的设定、人物、地点与确认节拍。真实单章测试可运行：
+打开 `http://127.0.0.1:5174`，选择作品后进入“对话”。写章仍需已准备的设定、人物、地点与确认节拍。真实单章测试可运行：
 
 ```sh
 npm run acceptance:chat
@@ -105,7 +107,9 @@ npm run acceptance:chat
 
 主 Agent 保存完整 Chat 消息，包含工具结果、最终 assistant 的 reasoning_content 和工具签名；内部字段不返回 Web API。旧对话或切换模型时，可见文字会作为上下文接续，旧模型的内部字段不发往新目标。完整回放会增加上下文用量，目前没有自动压缩或跨进程锁。
 
-章节草稿恢复要求模型、端点和思考配置一致；更改这些配置后应恢复原配置或另写一版。密钥轮换、JSON 模式、输出限额和超时调整不改变会话目标，因此可在修正 JSON 能力配置后恢复已有正文的 C5。错误、拒绝、截断和资源不足均保留明确状态，客户端不自动重试或切换模型。
+章节草稿恢复要求模型、端点和思考配置一致；更改这些配置后应恢复原配置或另写一版。密钥轮换、JSON 模式、输出限额和超时调整不改变会话目标，因此可在修正 JSON 能力配置后恢复已有正文的 C5。错误、拒绝、截断和资源不足均保留明确状态；Chat 客户端不自动重试，两种客户端均不自动切换模型。
+
+Chat／Claude 正文流中断时，已收到的可见文本会保留为未完成片段；Chat 的 aborted／资源不足也保留已有正文。片段须继续完成后才能进入结构核对，思考内容和未闭合工具参数不会作为正文或可执行工具。原生 Claude SDK 的重试策略与 Chat 客户端不同；任务层不会在失败后另建无限重试循环。
 
 ## 验证范围
 

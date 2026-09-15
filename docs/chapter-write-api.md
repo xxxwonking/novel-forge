@@ -41,6 +41,10 @@ DeepSeek 等国内官方或代理 Chat 接口参见 [模型配置](model-configu
 
 ## 请求与返回
 
+服务只监听本机回环地址。所有请求的 Host 须为 `localhost`、`127.0.0.1` 或 `[::1]`（可带端口）；若携带 Origin，须与该 Host 对应的 HTTP 源完全一致。无 Origin 的本地脚本请求仍可使用。Vite 开发代理需保留浏览器 Host，仓库配置已设置 `changeOrigin: false`。
+
+API POST 统一要求 `Content-Type: application/json`（允许附加 charset），请求体最多 4 MiB。外部 Origin／非回环 Host 返回 403，非法 JSON 返回 400，超限返回 413，其他内容类型返回 415；这些请求不会启动写章。静态页面路径编码无效也返回 400。
+
 ```http
 POST /api/chapter/write
 Content-Type: application/json
@@ -78,14 +82,19 @@ Web 和主 Agent 使用 `POST /api/chapter/start`，参数相同，保存初始�
 | 写章 HTTP 状态 | 含义 |
 | --- | --- |
 | 200 | 返回草稿，具体生成结果见 `status` 和 `error` |
-| 400 | 参数、节拍或资料引用无效 |
+| 400 | JSON、参数、节拍或资料引用无效 |
+| 403 | Host 非回环地址或 Origin 与 Host 不同源 |
 | 404 | 缺少节拍或指定草稿不存在 |
 | 409 | 跳章、并发冲突、资料过期、节拍未确认或埋设原文失效 |
+| 413 | 请求体超过 4 MiB |
+| 415 | API POST 未使用 application/json |
 | 503 | 尚未配置可用的模型客户端 |
 
 ## 恢复、另写与采用
 
 恢复某稿：`{"chapter":1,"draftId":"ch1d1"}`。C4 已成功而 C5 失败时，恢复原会话执行 C5，保留原正文。已有完整检查结果的草稿直接返回；初稿已经产生自动修订版时，写章/恢复请求返回同任务的后续版本。
+
+正文流中断、模型报告 aborted／资源不足、输出达到上限或工具轮数耗尽时，已收到的可见文字保存为 C4 未完成片段，不调用 C5，也不能采用。客户端只保存正文文本，不把思考内容或残缺工具参数写进正文。选择保留片段续写需使用下方 `mode: "continue"` 接口；普通恢复仍重试原冻结请求。此保护针对客户端已检测并返回的文本，不保证强制结束进程前尚未写盘的流片段。
 
 chat 草稿保留原始 assistant 消息及工具签名。更换 chat 模型或端点后不能直接恢复旧会话，应恢复原配置或另写一版；同一端点和模型的密钥轮换不影响恢复。
 
@@ -185,7 +194,7 @@ HTTP 请求断开不会取消服务端任务。服务仍运行时会继续执行
 
 需要扩大范围时，`revision.scopeAdvice` 返回建议、原文保持不变，任务状态为 `awaiting_input`；不能直接检查采用。作者可重新选择范围生成新修订，或结束该任务。非法 JSON 或截断的替换内容不会应用，可以重试同一修改。
 
-续写使用 `mode: "continue"` 和 `scope: null`，只允许尚未完成的正文（详情 `canContinueBody` 为 true），已有片段固定作为前缀，模型只生成新增文字。再次截断会保存所有新增片段并标 C4 未完成，不调用 C5；再从最新版本发起续写。普通任务恢复仍重放原冻结请求，不自动改变为续写。
+续写使用 `mode: "continue"` 和 `scope: null`，只允许尚未完成的正文（详情 `canContinueBody` 为 true），已有片段固定作为前缀，模型只生成新增文字。再次截断或连接中断会保留旧前缀及已收到的新增文字，并标 C4 未完成，不调用 C5；再从最新版本发起续写。局部改写输出的替换 JSON 不完整时不应用替换，原文保持。普通任务恢复仍重放原冻结请求，不自动改变为续写。
 
 内部 `generation` 冻结源正文、范围和要求，不在详情中暴露。C5 保留模型真实完整响应，并同时读取代码合成的整章正文；C5 失败后恢复只做必要步骤。新修订不继承源稿采用授权。结果页支持选段、填写要求、查看局部前后差异和保留片段继续完成。
 
@@ -214,6 +223,8 @@ HTTP 请求断开不会取消服务端任务。服务仍运行时会继续执行
 `POST /api/planning/action` 接受 `{ action, reason? }`，供进度卡片使用，即使对象已经退出告警列表仍可管理。`POST /api/alerts/action` 继续接受 `{ alertId, action, reason? }`，额外核对提示与操作对象一致；提示失效后只允许无副作用的同结果重试。
 
 支持的动作：`add_resolution_to_beat`（`targetChapter/foreshadowId/weight/completeness`）、`add_advance_to_beat`（`targetChapter/plotLine`）、`add_character_to_beat`（`targetChapter/characterId`）、`reschedule`（`foreshadowId/expectedBy`）、`abandon`（`foreshadowId`）及 `confirm_exit`（`characterId`）。对象必须存在；安排只能修改未来已确认章节；权重需与正式伏笔一致；回收仅限已埋设、未完全兑现的伏笔。完整目标改成部分目标会更新并重算预算。
+
+主 Agent 使用 `plan_add_to_chapter` 指定 `targetChapter`，省略时默认为下一章；旧 `plan_add_to_next_chapter` 调用仍可执行。非法、过去或不存在的章号明确失败，不回退修改下一章。多章请求逐项保存，返回真实目标章节，并通过 `get_story_progress` 核对已保存的安排；调整伏笔期限不等同于安排具体章节。
 
 改期只更新预期期限，已有具体安排保留；放弃保留原因与历史，清除未来已确认章节的相关回收（尚未埋设规划也清除埋设目标）并重算预算。事件、计划、预算和提示状态在同一事务内保存，失败整组回滚，相同结果重试不重复追加事件。返回 `changed/message/adjustedChapters`，章节安排还返回 `beat/promotedToPayoff`。
 
