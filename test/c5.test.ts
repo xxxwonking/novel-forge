@@ -9,6 +9,8 @@ import { describe, expect, it } from "vitest";
 import { parseC5, type ParseContext } from "../src/chapter/c5-schema.js";
 import { checkPromisedResolutions, crossCheckC5 } from "../src/chapter/c5-crosscheck.js";
 import type { ForeshadowId } from "../src/types/primitives.js";
+import { commitDeclaration, EventStream } from "../src/store/event-stream.js";
+import { projectCharacterState } from "../src/store/project.js";
 
 const chapterText = [
   "血刀客推开破庙的门，刀还在鞘里。",
@@ -81,6 +83,15 @@ const validRaw = {
 };
 
 describe("parseC5：正常输入", () => {
+  it("资料服务支持的地点编号在采用后仍进入人物所在地", () => {
+    const { declaration, errors } = parseC5({ ...validRaw, character_states: [{ character_id: "C01", field: "location", from: null, to: "S_OldArchive", quote: "血刀客推开破庙的门" }] }, ctx);
+    expect(errors).toEqual([]);
+    const stream = new EventStream();
+    commitDeclaration(stream, 53, declaration);
+    stream.decideChapter(53, "committed");
+    expect(projectCharacterState(stream.effective(), "C01", 1).location).toBe("S_OldArchive");
+  });
+
   it("完整解析六类声明", () => {
     const { declaration, warnings } = parseC5(validRaw, ctx);
     expect(declaration.events).toHaveLength(3);

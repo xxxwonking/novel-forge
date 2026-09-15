@@ -151,7 +151,7 @@ export interface ForeshadowRescheduledPayload {
 export interface CharacterStateChangedPayload {
   readonly type: "character_state_changed";
   readonly characterId: CharacterId;
-  /** 人物卡上的字段路径，如 `condition` / `location` / `assets.money`。 */
+  /** 当前支持 condition / location / vital；旧版额外字段仅作为历史记录保留。 */
   readonly field: string;
   /** 变更前的值。null 表示该字段此前未设置。 */
   readonly from: string | null;

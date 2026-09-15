@@ -163,6 +163,16 @@ function runInput(): ChapterRunInput {
   };
 }
 
+it("遗留章循环拒绝人物姓名冒充编号，不发布被过滤后的事实", async () => {
+  const raw = { ...JSON.parse(c5Json), character_presence: [{ character_id: "李长风", role: "pov" }] };
+  const model = fakeClient([{ kind: "ok", message: fakeMessage(chapterProse) }, { kind: "ok", message: fakeMessage(JSON.stringify(raw)) }]);
+  const stream = new EventStream();
+  const result = await runChapter(model.client, stream, runInput());
+  expect(result.kind).toBe("failed");
+  expect(result).toMatchObject({ step: "C5", chapterText: chapterProse });
+  expect(stream.all()).toHaveLength(0);
+});
+
 describe("runChapter：正常路径", () => {
   it("跑通 C4 → C5，产出正文与结构声明", async () => {
     const { client } = fakeClient([

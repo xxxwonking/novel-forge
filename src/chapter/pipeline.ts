@@ -47,8 +47,18 @@ export const C5_TASK = [
   "伏笔声明要求：intent 必须写清这条伏笔将来要兑现什么，这决定了什么算「收」。",
   "expected_by 必须是未来的章号。宁可少报不要多报。",
   "",
-  "每条声明的 quote 必须是本章正文里真实存在的片段，8-40 字，用于定位。",
+  "每条声明的 quote 必须从本章正文逐字复制一个连续片段，8-40 字，用于定位。保留原标点，不改写、不拼接不同位置的句子。",
 ].join("\n");
+
+/** 引用 ID 与字段范围随作品传入，避免模型把人名或未支持字段当作结构记录。 */
+export function buildC5Task(context: Omit<ParseContext, "chapterText">): string {
+  return [C5_TASK,
+    `人物引用必须使用这些 ID，不能填写姓名：${JSON.stringify([...context.knownCharacters])}`,
+    `情节线引用只能使用这些 ID 或 null：${JSON.stringify([...context.knownPlotLines])}`,
+    ...(context.knownSettings === undefined ? [] : [`地点 ID：${JSON.stringify([...context.knownSettings])}`]),
+    "character_states 的 field 只支持 condition、location、vital。持有物或处境变化写在 condition 的完整现状中；location 的 from/to 用地点 ID；vital 的值只用 alive/dead/missing/unknown；无原值用 null。",
+  ].join("\n");
+}
 
 export interface ChapterRunInput {
   readonly chapter: ChapterNo;
@@ -143,7 +153,7 @@ export async function runChapter(
   const c5Messages: Anthropic.MessageParam[] = [
     ...req.messages,
     { role: "assistant", content: c4.message.content },
-    { role: "user", content: [{ type: "text", text: C5_TASK }] },
+    { role: "user", content: [{ type: "text", text: buildC5Task(input.parseContextBase) }] },
   ];
 
   const c5 = await client.call({
@@ -176,7 +186,7 @@ export async function runChapter(
   if (issue !== null) return { kind: "failed", step: "C5", detail: `C5 输出结构不完整或字段无效：${issue}`, chapterText, metrics };
 
   const parsed = parseC5(parse, { ...input.parseContextBase, chapterText });
-  if (parsed.errors.length > 0) return { kind: "failed", step: "C5", detail: `C5 伏笔记录需要核对：${parsed.errors.join("；")}`, chapterText, metrics };
+  if (parsed.errors.length > 0) return { kind: "failed", step: "C5", detail: `C5 结构记录需要核对：${parsed.errors.join("；")}`, chapterText, metrics };
   const c5Findings = [
     ...crossCheckC5({ declaration: parsed.declaration, chapterText }),
     ...checkPromisedResolutions(parsed.declaration, input.promisedResolutions),

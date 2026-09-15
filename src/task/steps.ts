@@ -14,7 +14,7 @@ import type Anthropic from "@anthropic-ai/sdk";
 import type { CallOptions } from "../client/claude.js";
 import type { ModelClient } from "../client/model.js";
 import { assemble, type AssembledRequest } from "../context/assemble.js";
-import { C5_TASK, textOf, type ChapterRunInput } from "../chapter/pipeline.js";
+import { buildC5Task, textOf, type ChapterRunInput } from "../chapter/pipeline.js";
 import { C5_OUTPUT_SCHEMA, parseC5, type ParseResult } from "../chapter/c5-schema.js";
 import { c5OutputIssue } from "../chapter/c5-validation.js";
 import { checkPromisedResolutions, crossCheckC5 } from "../chapter/c5-crosscheck.js";
@@ -102,8 +102,9 @@ export async function declareStructure(
   write: Extract<WriteResult, { kind: "ok" }>,
 ): Promise<DeclareResult> {
   // 真实响应完整保留；局部生成还须声明代码合成后的全文，不能只分析替换片段。
+  const instruction = buildC5Task(input.parseContextBase);
   const task = write.c4Response === null || write.declarationBody === true
-    ? `以下是本次版本的完整正文，是本次结构核对的唯一正文依据。此前的源稿或替换片段不代表本次完整结果。\n\n${write.body}\n\n${C5_TASK}` : C5_TASK;
+    ? `以下是本次版本的完整正文，是本次结构核对的唯一正文依据。此前的源稿或替换片段不代表本次完整结果。\n\n${write.body}\n\n${instruction}` : instruction;
   const c5Messages: Anthropic.MessageParam[] = write.c4Response === null ? [
     ...write.sessionMessages,
     { role: "user", content: [{ type: "text", text: task }] },
@@ -134,7 +135,7 @@ export async function declareStructure(
   if (issue !== null) return { kind: "failed", detail: `C5 输出结构不完整或字段无效：${issue}` };
 
   const parse = parseC5(json, { ...input.parseContextBase, chapterText: write.body });
-  if (parse.errors.length > 0) return { kind: "failed", detail: `C5 伏笔记录需要核对：${parse.errors.join("；")}` };
+  if (parse.errors.length > 0) return { kind: "failed", detail: `C5 结构记录需要核对：${parse.errors.join("；")}` };
   const c5Findings = [
     ...crossCheckC5({ declaration: parse.declaration, chapterText: write.body }),
     ...checkPromisedResolutions(parse.declaration, input.promisedResolutions),

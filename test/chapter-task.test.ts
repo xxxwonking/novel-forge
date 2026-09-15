@@ -112,6 +112,7 @@ function runInput(): ChapterRunInput {
       knownCharacters: new Set(["C01", "C02", "C03"]),
       knownForeshadows: new Set(["F03", "F07", "F11"]),
       knownPlotLines: new Set(["P01", "P02", "P03"]),
+      knownSettings: new Set(["S01", "S02"]),
       allocateForeshadowId: () => `F${String(++fsCounter)}` as ForeshadowId,
     },
     promisedResolutions: [
@@ -169,6 +170,33 @@ describe("ChapterTaskService.run：顺利路径", () => {
 });
 
 describe("ChapterTaskService：C5 失败与恢复（gap ①）", () => {
+  it.each([
+    ["事件参与者使用姓名", { events: [{ kind: "action", summary: "血刀客走进破庙", weight: 1, plot_line: "P01", participants: ["血刀客"], quote: "血刀客推开破庙的门" }] }],
+    ["人物状态使用姓名", { character_states: [{ character_id: "李长风", field: "condition", from: null, to: "断剑折断", quote: "断剑崩成两截" }] }],
+    ["人物出场使用姓名", { character_presence: [{ character_id: "血刀客", role: "major" }] }],
+    ["关系引用未知人物", { relations_changed: [{ from: "C01", to: "C404", from_kind: null, to_kind: "ally", note: "共同应敌", quote: "刀还在鞘里" }] }],
+    ["事件引用未知情节线", { events: [{ kind: "action", summary: "血刀客走进破庙", weight: 1, plot_line: "P404", participants: ["C02"], quote: "血刀客推开破庙的门" }] }],
+    ["未支持的状态字段", { character_states: [{ character_id: "C01", field: "inventory", from: null, to: "断剑折断", quote: "断剑崩成两截" }] }],
+    ["生存状态使用自由文本", { character_states: [{ character_id: "C01", field: "vital", from: "alive", to: "死亡", quote: "断剑崩成两截" }] }],
+    ["地点使用姓名而非编号", { character_states: [{ character_id: "C01", field: "location", from: null, to: "破庙", quote: "血刀客推开破庙的门" }] }],
+    ["地点引用未知编号", { character_states: [{ character_id: "C01", field: "location", from: null, to: "S404", quote: "血刀客推开破庙的门" }] }],
+  ])("%s 时不能靠过滤记录通过 C5，恢复仅重新核对正文", async (_name, changes) => {
+    const raw = { ...JSON.parse(C5_JSON), ...changes };
+    const failing = fakeClient([{ kind: "ok", message: textMessage(PROSE) }, { kind: "ok", message: textMessage(JSON.stringify(raw)) }]);
+    const draft = await service(failing.client).run(runInput());
+    expect(draft.status).toBe("failed");
+    expect(draft.error?.step).toBe("C5");
+    expect(draft.body).toBe(PROSE);
+    expect(draft.acceptable).toBe(false);
+    expect(draft.declaration).toBeNull();
+    const resuming = fakeClient([{ kind: "ok", message: textMessage(C5_JSON) }]);
+    const resumed = await service(resuming.client).resume(runInput(), draft.draftId);
+    expect(resumed.status).toBe("ready");
+    expect(resumed.body).toBe(PROSE);
+    expect(resumed.declaration?.characterPresence.map(item => item.characterId)).toEqual(["C01", "C02"]);
+    expect(resuming.calls).toHaveLength(1);
+  });
+
   it("C5 失败保留正文与会话，草稿标 failed", async () => {
     const { client } = fakeClient([
       { kind: "ok", message: textMessage(PROSE) },

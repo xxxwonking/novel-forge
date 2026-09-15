@@ -61,7 +61,7 @@ export function StructureEditor({ draft, characters, onSaved, onClose }: { draft
     if (key === "weight") return section === "events" ? [["1", "局部推进"], ["2", "影响本卷"], ["3", "影响全书"]] : [["main", "主线"], ["sub", "支线"], ["detail", "细节"]];
     if (key === "fromKind") return [["", "未记录"], ...enums.relations!];
     if (key === "toKind") return enums.relations;
-    if (section === "characterStates" && value["field"] === "vital" && ["from", "to"].includes(key)) return [...(key === "from" ? [["", "未记录"] as [string, string]] : []), ["alive", "存活"], ["dead", "死亡"], ["missing", "失踪"]];
+    if (section === "characterStates" && value["field"] === "vital" && ["from", "to"].includes(key)) return [...(key === "from" ? [["", "未记录"] as [string, string]] : []), ["alive", "存活"], ["dead", "死亡"], ["missing", "失踪"], ["unknown", "未明"]];
     return enums[key];
   };
   return <section className="prep-section draft-editor" aria-label="纠正结构记录"><h2>正文保持，纠正记录</h2><p className="muted">选择误读的记录，并填写准确的正文依据。保存为候选新版本后重新检查。</p>

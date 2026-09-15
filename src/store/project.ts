@@ -344,7 +344,7 @@ function isVital(v: string): v is VitalStatus {
 
 /** location 字段的值必须是设定 ID；模型给了自由文本时置空而非污染 state。 */
 function isSettingId(v: string): v is SettingId {
-  return /^S\d+$/.test(v);
+  return /^S[A-Za-z0-9_-]+$/u.test(v);
 }
 
 /** 供告警模块复用的类型出口。 */

@@ -67,7 +67,6 @@ export function correctDeclaration(original: C5Declaration, changes: readonly St
     if (parsed.warnings.length > 0 || parsed.errors.length > 0 || entry === undefined) throw new ChapterWriteError(400, `结构记录含无效人物/伏笔引用或字段：${[...parsed.errors, ...parsed.warnings].join("；") || change.section}`);
     const normalized = correctionValue(entry);
     if (Object.keys(value).some(name => JSON.stringify(value[name]) !== JSON.stringify(normalized[name]))) throw new ChapterWriteError(400, "结构记录含无效人物引用或字段；未静默删改，请核对后重试");
-    if (entry.type === "character_state_changed" && entry.field === "vital" && !["alive", "dead", "missing"].includes(entry.to)) throw new ChapterWriteError(400, "人物生存状态必须是 alive、dead 或 missing");
     let corrected: Entry = entry;
     if ("anchor" in entry) {
       const occurrence = change.occurrence ?? (previous && "anchor" in previous && previous.anchor.quote === entry.anchor.quote ? previous.anchor.occurrence : 0);

@@ -119,7 +119,7 @@ export const C5_OUTPUT_SCHEMA: Record<string, unknown> = {
         required: ["character_id", "field", "from", "to", "quote"],
         properties: {
           character_id: { type: "string" },
-          field: { type: "string", description: "如 condition / location / vital" },
+          field: { type: "string", enum: ["condition", "location", "vital"], description: "condition 是当前处境（可含持有物变化）；location 填地点 ID；vital 填 alive/dead/missing/unknown" },
           from: { type: ["string", "null"] },
           to: { type: "string" },
           quote: { type: "string" },
@@ -147,8 +147,9 @@ export interface ParseContext {
   readonly chapter: number;
   /** 本章正文，用于把 quote 解析成 offsetHint。 */
   readonly chapterText: string;
-  /** 已知人物 ID 集合。模型引用不存在的 ID 时丢弃该条并记 warn。 */
+  /** 已知人物 ID 集合。未知引用不能通过删掉记录来获得采用资格。 */
   readonly knownCharacters: ReadonlySet<string>;
+  readonly knownSettings?: ReadonlySet<string>;
   readonly knownForeshadows: ReadonlySet<string>;
   /** 正式清单含规划与结束项，用于识别原规划、同名冲突；不代表它们都可以兑现。 */
   readonly foreshadows?: readonly Pick<ForeshadowTimelineItem, "id" | "label" | "status">[];
@@ -214,7 +215,10 @@ export function parseC5(raw: unknown, ctx: ParseContext): ParseResult {
     const plotLine = str(item["plot_line"]);
     if (plotLine !== null && !ctx.knownPlotLines.has(plotLine)) {
       warnings.push(`事件引用了不存在的情节线 ${plotLine}，已置空`);
+      errors.push(`事件的情节线 ${plotLine} 不存在，请填写已确认的情节线 ID 或 null`);
     }
+    const unknownParticipants = arr(item["participants"]).filter(p => typeof p !== "string" || !ctx.knownCharacters.has(p));
+    if (unknownParticipants.length > 0) errors.push(`事件参与者不是已确认人物的 ID：${unknownParticipants.join("、")}，不能使用姓名代替编号`);
     const participants = arr(item["participants"])
       .map((p) => str(p))
       .filter((p): p is string => p !== null && ctx.knownCharacters.has(p));
@@ -326,6 +330,7 @@ export function parseC5(raw: unknown, ctx: ParseContext): ParseResult {
     if (from === null || to === null || toKind === null || note === null || quote === null) continue;
     if (!ctx.knownCharacters.has(from) || !ctx.knownCharacters.has(to)) {
       warnings.push(`关系变更引用了不存在的人物 ${from}→${to}，已丢弃`);
+      errors.push(`关系变更引用了未知人物 ID ${from}→${to}`);
       continue;
     }
     if (!isRelationKind(toKind)) {
@@ -354,13 +359,27 @@ export function parseC5(raw: unknown, ctx: ParseContext): ParseResult {
     if (id === null || field === null || to === null || quote === null) continue;
     if (!ctx.knownCharacters.has(id)) {
       warnings.push(`状态变更引用了不存在的人物 ${id}，已丢弃`);
+      errors.push(`状态变更的人物 ${id} 不是已确认的 ID，不能使用姓名代替编号`);
+      continue;
+    }
+    if (!["condition", "location", "vital"].includes(field)) {
+      errors.push(`人物 ${id} 的状态字段 ${field} 不受支持，请使用 condition、location 或 vital`);
+      continue;
+    }
+    const from = str(item["from"]);
+    if (field === "vital" && [from, to].some(value => value !== null && !["alive", "dead", "missing", "unknown"].includes(value))) {
+      errors.push(`人物 ${id} 的生存状态必须是 alive、dead、missing 或 unknown`);
+      continue;
+    }
+    if (field === "location" && [from, to].some(value => value !== null && (!/^S[A-Za-z0-9_-]{1,79}$/u.test(value) || (ctx.knownSettings !== undefined && !ctx.knownSettings.has(value))))) {
+      errors.push(`人物 ${id} 的地点必须使用已确认的地点 ID，不能填写地点名称或未知编号`);
       continue;
     }
     characterStates.push({
       type: "character_state_changed",
       characterId: id as CharacterId,
       field,
-      from: str(item["from"]),
+      from,
       to,
       anchor: makeAnchor(ctx.chapter, ctx.chapterText, quote),
     });
@@ -373,7 +392,10 @@ export function parseC5(raw: unknown, ctx: ParseContext): ParseResult {
     const id = str(item["character_id"]);
     const role = str(item["role"]);
     if (id === null || role === null) continue;
-    if (!ctx.knownCharacters.has(id)) continue;
+    if (!ctx.knownCharacters.has(id)) {
+      errors.push(`出场人物 ${id} 不是已确认的 ID，不能使用姓名代替编号`);
+      continue;
+    }
     if (role !== "pov" && role !== "major" && role !== "minor" && role !== "mentioned") continue;
     // 每章每人最多一条 —— presence 是章级布尔，不是计数。
     if (seenPresence.has(id)) {

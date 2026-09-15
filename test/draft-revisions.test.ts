@@ -253,6 +253,14 @@ describe("正文保持、纠正候选结构", () => {
     expect(handle(reopened, request("/api/chapter/correct", { ...payload, changes: [{ section: "characterStates", index: 0, value: null }] })).status).toBe(409);
   });
 
+  it("纠错与 C5 使用相同的未知生存状态值", () => {
+    const { session, body } = setup();
+    const response = correct(session, [{ section: "characterStates", index: 0, value: { characterId: "C02", field: "vital", from: "alive", to: "unknown", quote: "血刀客突然昏倒在门前" } }]);
+    expect(response.status, JSON.stringify(response.body)).toBe(200);
+    expect((response.body as View).body).toBe(body);
+    expect((response.body as View).declaration?.characterStates[0]).toMatchObject({ field: "vital", to: "unknown" });
+  });
+
   it("不存在的人物引用不能被解析器静默丢弃后当作纠正成功", () => {
     const { session } = setup();
     const response = correct(session, [{ section: "events", index: 0, value: { kind: "action", summary: "陌生人打开密库", weight: 2, plotLine: "P01", participants: ["C999"], quote: "青铜钥匙打开了宗门密库" } }]);
