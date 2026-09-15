@@ -579,13 +579,13 @@ export class ProjectSession {
         });
       },
       addToNextChapter: async (input) => {
-        const next = this.nextChapter;
-        const action = toAlertAction(input, next);
-        if (typeof action === "string") return fail("plan_add_to_next_chapter", action);
+        const targetChapter = input.targetChapter ?? this.nextChapter;
+        const action = toAlertAction(input, targetChapter);
+        if (typeof action === "string") return fail("plan_add_to_chapter", action);
         try {
           const applied = this.planning.apply(action);
-          return { message: applied.message, effect: { kind: "plan_updated", chapter: next, promotedToPayoff: applied.promotedToPayoff ?? false } };
-        } catch (error) { return fail("plan_add_to_next_chapter", error instanceof Error ? error.message : String(error)); }
+          return { message: applied.message, effect: { kind: "plan_updated", chapter: targetChapter, promotedToPayoff: applied.promotedToPayoff ?? false } };
+        } catch (error) { return fail("plan_add_to_chapter", error instanceof Error ? error.message : String(error)); }
       },
       rescheduleForeshadow: async (foreshadowId, expectedBy) => {
         try {

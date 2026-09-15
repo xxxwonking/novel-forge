@@ -30,6 +30,44 @@ const reschedule = { kind: "reschedule", foreshadowId: "F01", expectedBy: 6 };
 const abandon = { kind: "abandon", foreshadowId: "F01" };
 
 describe("故事安排的写入边界与重试", () => {
+  it("对话分别安排下一章部分兑现和更后章节完整兑现，重开后保留两个目标", async () => {
+    const { session, root } = fixture([
+      { kind: "ok", message: modelMessage([
+        { type: "tool_use", id: "partial", name: "plan_add_to_chapter", input: { what: "resolution", targetChapter: 3, foreshadowId: "F01", weight: "main", completeness: "partial" } },
+        { type: "tool_use", id: "full", name: "plan_add_to_chapter", input: { what: "resolution", targetChapter: 4, foreshadowId: "F01", weight: "main", completeness: "full" } },
+      ] as Anthropic.ContentBlock[], "tool_use") }, modelText("已分别安排。"),
+    ]);
+    const events = session.events();
+    const result = await session.converse("第三章只解释部分线索，第四章才完整兑现。");
+    const reopened = new ProjectSession(root);
+    expect(reopened.beatFor(3)?.plan.resolves).toEqual([{ foreshadowId: "F01", weight: "main", completeness: "partial" }]);
+    expect(reopened.beatFor(4)?.plan.resolves).toEqual([{ foreshadowId: "F01", weight: "main", completeness: "full" }]);
+    expect(result.effects.map(effect => effect.kind === "plan_updated" ? effect.chapter : null)).toEqual([3, 4]);
+    expect(reopened.events()).toEqual(events);
+    expect(reopened.currentChapter).toBe(2);
+  });
+
+  it("新规划工具未指定章号时仍安排下一章", async () => {
+    const { session } = fixture([
+      { kind: "ok", message: modelMessage([{ type: "tool_use", id: "next", name: "plan_add_to_chapter", input: { what: "resolution", foreshadowId: "F02", weight: "sub", completeness: "partial" } }] as Anthropic.ContentBlock[], "tool_use") }, modelText("已安排部分兑现。"),
+    ]);
+    const result = await session.converse("这条伏笔在下一章部分兑现。");
+    expect(result.effects).toContainEqual(expect.objectContaining({ kind: "plan_updated", chapter: 3 }));
+    expect(session.beatFor(3)?.plan.resolves).toContainEqual({ foreshadowId: "F02", weight: "sub", completeness: "partial" });
+  });
+
+  it.each([null, "4", 0, 2, 4.5, 99])("对话明确指定无效目标 %s 时不能悄悄改写下一章", async targetChapter => {
+    const { session, root, model } = fixture([
+      { kind: "ok", message: modelMessage([{ type: "tool_use", id: "bad-target", name: "plan_add_to_chapter", input: { what: "resolution", targetChapter, foreshadowId: "F01", weight: "main", completeness: "full" } }] as Anthropic.ContentBlock[], "tool_use") }, modelText("无法保存。"),
+    ]);
+    const before = new ProjectStore(root).load();
+    const result = await session.converse("只安排指定章号，不要改其他章。");
+    expect(new ProjectStore(root).load()).toEqual(before);
+    expect(result.effects.some(effect => effect.kind === "plan_updated")).toBe(false);
+    const blocks = model.calls[1]!.messages.flatMap(message => typeof message.content === "string" ? [] : message.content);
+    expect(blocks).toContainEqual(expect.objectContaining({ type: "tool_result", tool_use_id: "bad-target", is_error: true }));
+  });
+
   it("不能借 F01 的告警去改动另一个已存在的伏笔", () => {
     const { session, root } = fixture();
     const before = new ProjectStore(root).load();

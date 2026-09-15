@@ -141,13 +141,14 @@ export const MAIN_AGENT_TOOLS: readonly Anthropic.Tool[] = [
     input_schema: { type: "object", properties: {}, required: [] },
   },
   {
-    name: "plan_add_to_next_chapter",
+    name: "plan_add_to_chapter",
     description:
-      "把一项安排写进下一章节拍表（计划态，不是已发生的事实）。what=resolution 收一条伏笔（需 foreshadowId/weight/completeness）；what=advance 推进一条情节线（需 plotLine）；what=character 让某人物在下一章出场（需 characterId）。收一条主线伏笔会把该章升级为回收章并放宽字数预算。",
+      "把一项安排写进指定的未来已确认章节；targetChapter 省略时使用下一章。多章安排逐章调用，不能把其他章的安排算作已保存。what=resolution 收一条伏笔（需 foreshadowId/weight/completeness）；what=advance 推进情节线（需 plotLine）；what=character 安排人物出场（需 characterId）。这是计划态；主线回收可能升级章节类型并重算预算。",
     input_schema: {
       type: "object",
       properties: {
         what: { type: "string", enum: ["resolution", "advance", "character"] },
+        targetChapter: { type: "integer", minimum: 1, description: "作者指定的未来章号；省略时使用下一章" },
         foreshadowId: { type: "string" },
         weight: { type: "string", enum: ["main", "sub", "detail"] },
         completeness: { type: "string", enum: ["full", "partial"] },
@@ -229,7 +230,7 @@ export const EXPECTED_MAIN_AGENT_TOOL_ORDER: readonly string[] = [
   "get_character",
   "list_open_foreshadows",
   "get_next_plan",
-  "plan_add_to_next_chapter",
+  "plan_add_to_chapter",
   "plan_reschedule_foreshadow",
   "plan_abandon_foreshadow",
   "record_alternative_idea",

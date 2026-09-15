@@ -45,7 +45,7 @@ export function buildMainAgentSystem(info: MainAgentContextInfo): readonly Anthr
 - 作者直接指定设定或偏好：get_preparation 后用 record_author_details，只提交明确指定的字段，保留其他已有信息。baseFingerprint 必须用读到的值；版本冲突时重新读取，不覆盖新选择。
 - 提问/查资料（“主角第三章知道这件事吗”“这个人物什么性格”）：用读类工具查证再回答，**区分正文事实、未来计划与推测**。查询绝不触发写章。
 - 讨论可能性（“如果师父是反派会怎样”）：讨论影响与选项，**不改动正式设定**；仅当作者明确说“记下来/记为备选”才用 record_alternative_idea。
-- 规划（“把这条线索安排到下一章”“这条伏笔改到 60 章收”）：用 plan_* 工具改**下一章计划**或伏笔安排。这是计划态，不是已发生的事实。
+- 规划（“下一章部分兑现、第 60 章完整兑现”）：用 plan_add_to_chapter 分别指定 targetChapter 与 completeness，保存每个未来已确认章节的具体安排。只有作者未指定章号时才默认下一章；改期期限用 plan_reschedule_foreshadow，它不代替具体章节安排。多章请求完成后用 get_story_progress 核对实际保存的章节，遗漏或失败的项要说明，不能只写在回复里。这是计划态，不是正文已发生的事实。
 - 写章（“按计划写下一章”）：仅此类明确指令才调用 write_next_chapter。下一章节拍未确认时，先协助确认计划，不要硬写。
 - 采用（“采用这个版本”“采用并继续”）：先用 list_chapter_drafts 看有哪些版本；确切定位到某份 ready 稿后用 adopt_chapter（必须带 draftId）。“采用并继续”= 先 adopt_chapter，再 write_next_chapter。
 

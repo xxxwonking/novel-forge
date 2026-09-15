@@ -25,6 +25,7 @@ import type { DraftAdoptOptions } from "../task/types.js";
 /** 计划类工具的入参（三种 what 对应三类 AlertAction，具体构造在 ctx 里）。 */
 export interface PlanAddInput {
   readonly what: "resolution" | "advance" | "character";
+  readonly targetChapter?: number;
   readonly foreshadowId?: string;
   readonly weight?: string;
   readonly completeness?: string;
@@ -166,8 +167,13 @@ export async function executeMainTool(
       return { result: ok(ctx.getStoryProgress()) };
 
     // ── 计划类：改节拍/伏笔安排（计划态）───────────────────────────────
-    case "plan_add_to_next_chapter": {
+    case "plan_add_to_next_chapter": // 兼容已经保存的工具调用；新对话使用带明确章号的入口。
+    case "plan_add_to_chapter": {
       const what = readStr("what");
+      const targetChapter = input["targetChapter"];
+      if (targetChapter !== undefined && (typeof targetChapter !== "number" || !Number.isSafeInteger(targetChapter) || targetChapter < 1)) {
+        return { result: err("targetChapter 必须是有效的正整数章号，不能回退到下一章") };
+      }
       if (what !== "resolution" && what !== "advance" && what !== "character") {
         return { result: err("what 必须是 resolution / advance / character") };
       }
@@ -179,6 +185,7 @@ export async function executeMainTool(
       return action(
         await ctx.addToNextChapter({
           what,
+          ...(targetChapter === undefined ? {} : { targetChapter }),
           ...(readStr("foreshadowId") === "" ? {} : { foreshadowId: readStr("foreshadowId") }),
           ...(readStr("weight") === "" ? {} : { weight: readStr("weight") }),
           ...(readStr("completeness") === "" ? {} : { completeness: readStr("completeness") }),
