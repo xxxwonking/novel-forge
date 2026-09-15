@@ -33,7 +33,13 @@ export async function rewriteChapterBody(client: ModelClient, input: ChapterRunI
     ...(mode === "rewrite" ? { outputSchema: REWRITE_SCHEMA } : {}),
   }, ctx, maxToolRounds);
   const result = loop.result;
-  if (result.kind === "error") return { kind: "failed", detail: result.error.message };
+  if (result.kind === "error") {
+    const partial = result.partialText;
+    if (mode === "continue" && partial?.trim() && !partial.startsWith(originalBody)) {
+      return { kind: "incomplete", body: originalBody + partial, detail: `${result.error.message} 已有及新增片段均已保存；可继续完成。` };
+    }
+    return { kind: "failed", detail: result.error.message };
+  }
   if (result.kind === "refusal") return { kind: "refused", userMessage: result.userMessage };
   const text = textOf(result.message);
   if (mode === "rewrite" && result.kind === "max_tokens") return { kind: "failed", detail: "改写输出达到上限，未应用不完整替换；原文已保留，可以重试这次修改" };

@@ -124,6 +124,20 @@ describe("作品工作区", () => {
     expect((await request("/api/chapter?n=3", "book-b")).status).toBe(404);
   });
 
+  it.runIf(process.platform === "win32")("Windows 大小写不同的作品地址共享最新资料，不用旧会话覆盖作者修改", async () => {
+    const root = directory();
+    new ProjectStore(join(root, "case-book")).save(writingSnapshot());
+    const { request } = await start(root);
+    const lower = (await request("/api/preparation", "case-book")).body;
+    await request("/api/preparation", "CASE-BOOK");
+    expect((await request("/api/preparation/author", "case-book", { summary: "修改风格", baseFingerprint: lower.fingerprint, changes: { setting: { styleKeywords: ["保留这次修改"] } } })).status).toBe(200);
+    const upper = (await request("/api/preparation", "CASE-BOOK")).body;
+    expect(upper.confirmed.setting.styleKeywords).toEqual(["保留这次修改"]);
+    expect((await request("/api/preparation/author", "CASE-BOOK", { summary: "修改书名", baseFingerprint: upper.fingerprint, changes: { setting: { title: "新书名" } } })).status).toBe(200);
+    expect(new ProjectStore(join(root, "case-book")).load().setting).toMatchObject({ title: "新书名", styleKeywords: ["保留这次修改"] });
+    expect((await request("/api/overview", "case-book")).body.title).toBe("新书名");
+  });
+
   it.each(["../outside", "..\\outside", "C:\\outside", ".", "..", "%2e%2e%2foutside"])("拒绝越界作品 ID %s", async (id) => {
     const { request } = await start();
     expect((await request("/api/overview", id)).status).toBe(400);

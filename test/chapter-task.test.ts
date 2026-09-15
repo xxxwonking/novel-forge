@@ -138,6 +138,21 @@ function service(client: ClaudeClient): ChapterTaskService {
 }
 
 describe("ChapterTaskService.run：顺利路径", () => {
+  it("工具轮数耗尽时保留文字为未完成片段，不能进入声明或采用", async () => {
+    const tool = toolUseMessage([{ id: "read", name: "load_character", input: { name: "李长风" } }]);
+    const pending = { ...tool, content: [...textMessage(PROSE).content, ...tool.content] };
+    const model = fakeClient([{ kind: "ok", message: tool }, { kind: "ok", message: pending }, { kind: "ok", message: textMessage(C5_JSON) }]);
+    const limited = new ChapterTaskService({ client: model.client, draftStore: store, readSource: READ, maxToolRounds: 1 });
+    expect(await limited.run(runInput())).toMatchObject({ status: "failed", body: PROSE, declaration: null, acceptable: false, error: { step: "C4" } });
+    expect(model.calls).toHaveLength(2);
+  });
+
+  it.each([null, "pause_turn"] as const)("正文 stop_reason=%s 时不能当成完整一章检查", async (stop_reason) => {
+    const model = fakeClient([{ kind: "ok", message: { ...textMessage(PROSE), stop_reason } }, { kind: "ok", message: textMessage(C5_JSON) }]);
+    expect(await service(model.client).run(runInput())).toMatchObject({ status: "failed", body: PROSE, declaration: null, error: { step: "C4" } });
+    expect(model.calls).toHaveLength(1);
+  });
+
   it("write→declare→check 产出 ready 草稿并落盘", async () => {
     const { client } = fakeClient([
       { kind: "ok", message: textMessage(PROSE) },

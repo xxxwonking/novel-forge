@@ -124,10 +124,15 @@ export function chatResult(response: ChatCompletion, model: string, target: stri
   const choice = response.choices[0];
   if (choice === undefined) throw new Error("chat 响应为空");
   if (choice.finish_reason === "insufficient_system_resource" || choice.finish_reason === "aborted") {
-    return { kind: "error", error: { type: "status", status: null, retryable: true, message: `模型未完成生成（${choice.finish_reason}），请稍后重试。` } };
+    const partialText = choice.message.content;
+    return { kind: "error", error: { type: "status", status: null, retryable: true, message: `模型未完成生成（${choice.finish_reason}），请稍后重试。` },
+      ...(partialText?.trim() && !choice.message.refusal ? { partialText } : {}) };
   }
   const raw = choice.message;
   const refusal = typeof raw.refusal === "string" && raw.refusal !== "" ? raw.refusal : null;
+  if (refusal === null && choice.finish_reason === "tool_calls" && (raw.tool_calls?.length ?? 0) === 0) {
+    throw new Error("chat 响应要求继续工具调用，但缺少工具内容，不能视为生成完成");
+  }
   const stopReason = refusal !== null || choice.finish_reason === "content_filter" ? "refusal" : choice.finish_reason === "length" ? "max_tokens" : (raw.tool_calls?.length ?? 0) > 0 ? "tool_use" : "end_turn";
   const content: Anthropic.ContentBlock[] = [];
   if (raw.content) content.push({ type: "text", text: raw.content, citations: [] });

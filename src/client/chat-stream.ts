@@ -1,5 +1,12 @@
 import { isRecord, parseChatCompletion, type ChatCompletion, type JsonRecord } from "./chat-wire.js";
 
+export class ChatStreamError extends Error {
+  constructor(cause: unknown, readonly partialText: string) {
+    super(cause instanceof Error ? cause.message : "chat 流在完成前中断", { cause });
+    this.name = "ChatStreamError";
+  }
+}
+
 /** 合并代理的附加元数据；文本和工具 arguments 在调用处按增量拼接。 */
 function mergeMetadata(base: JsonRecord, delta: JsonRecord): JsonRecord {
   const result = { ...base };
@@ -85,11 +92,14 @@ export async function readChatStream(response: Response): Promise<ChatCompletion
       if (buffer !== "") line(buffer);
       event();
     }
+    if (finishReason === null) throw new Error("chat 流在完成前中断，缺少 finish_reason");
+    if (tools.size > 0) message.tool_calls = [...tools.entries()].sort(([a], [b]) => a - b).map(([, tool]) => tool);
+    return parseChatCompletion({ id, model, choices: [{ message, finish_reason: finishReason }], usage });
+  } catch (error) {
+    const partialText = finishReason !== "content_filter" && !message.refusal && typeof message.content === "string" ? message.content : "";
+    throw new ChatStreamError(error, partialText);
   } finally {
     await reader.cancel().catch(() => {});
     reader.releaseLock();
   }
-  if (finishReason === null) throw new Error("chat 流在完成前中断，缺少 finish_reason");
-  if (tools.size > 0) message.tool_calls = [...tools.entries()].sort(([a], [b]) => a - b).map(([, tool]) => tool);
-  return parseChatCompletion({ id, model, choices: [{ message, finish_reason: finishReason }], usage });
 }

@@ -67,7 +67,12 @@ export type CallResult =
       readonly userMessage: string;
     }
   | { readonly kind: "max_tokens"; readonly message: Anthropic.Message }
-  | { readonly kind: "error"; readonly error: ClientError };
+  | {
+      readonly kind: "error";
+      readonly error: ClientError;
+      /** 仅已收到的可见文本；不是完整响应，不能用于执行工具或结构声明。 */
+      readonly partialText?: string;
+    };
 
 export interface ClientError {
   readonly type: "not_found" | "rate_limit" | "status" | "connection" | "unknown";
@@ -83,9 +88,10 @@ export class ClaudeClient {
   private readonly sdk: Anthropic;
   readonly official: boolean;
 
-  constructor(opts: ClientOptions) {
+  constructor(private readonly opts: ClientOptions) {
     this.sdk = new Anthropic({
       apiKey: opts.apiKey,
+      fetchOptions: { redirect: "manual" },
       ...(opts.baseURL === undefined ? {} : { baseURL: opts.baseURL }),
     });
     this.official = opts.official;
@@ -110,14 +116,22 @@ export class ClaudeClient {
 
   async call(opts: CallOptions): Promise<CallResult> {
     const params = buildParams(opts);
+    let partialText = "";
     try {
-      const message =
-        opts.maxTokens > STREAMING_THRESHOLD
-          ? await this.sdk.messages.stream(params).finalMessage()
-          : await this.sdk.messages.create(params);
+      let message: Anthropic.Message;
+      if (opts.maxTokens > STREAMING_THRESHOLD) {
+        const stream = this.sdk.messages.stream(params);
+        stream.on("streamEvent", (_event, snapshot) => {
+          partialText = snapshot.content.filter(block => block.type === "text").map(block => block.text).join("\n\n");
+        });
+        message = await stream.finalMessage();
+      } else message = await this.sdk.messages.create(params);
       return classify(message);
     } catch (err) {
-      return { kind: "error", error: toClientError(err) };
+      const error = toClientError(err);
+      const message = (this.opts.apiKey === "" ? error.message : error.message.split(this.opts.apiKey).join("[REDACTED]"))
+        .replace(/Bearer\s+[^\s"']+/giu, "Bearer [REDACTED]").slice(0, 1000);
+      return { kind: "error", error: { ...error, message }, ...(partialText.trim() ? { partialText } : {}) };
     }
   }
 }

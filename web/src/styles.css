@@ -787,6 +787,9 @@ th.num {
   .rail-title, .rail-sub, .rail-group, .rail .all-works { display: none; }
   .rail a { width: 50%; padding: 10px 12px; }
   .main { flex: 1; min-height: 0; min-width: 0; width: 100%; padding: 22px 16px 40px; }
+  .reader { grid-template-columns: minmax(0, 1fr); }
+  .reader .prose { max-width: none; padding: 20px 18px; }
+  .reader .side { position: static; }
   .prep-tabs { flex-wrap: wrap; gap: 10px; }
   .composer textarea { min-width: 0; }
 }

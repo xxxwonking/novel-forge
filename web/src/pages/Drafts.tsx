@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { api, type TextAnchor, type ChapterTaskView, type DraftView } from "../api.js";
-import { useFetch } from "../hooks.js";
+import { useFetch, useRouteActive } from "../hooks.js";
 import { TaskCard, taskRunning } from "../components/TaskPanel.js";
 import { DraftEditor, RevisionComparison } from "../components/DraftEditing.js";
 import { StructureEditor } from "../components/StructureEditor.js";
@@ -10,6 +10,7 @@ import { DraftProposals } from "../components/DraftProposals.js";
 const states: Record<string, string> = { writing: "正文未完成", pending_check: "待检查", declaring: "结构核对未完成", checking: "检查未完成", failed: "执行未完成", needs_revision: "需要修改", ready: "待采用", adopted: "已采用", stale: "依据已变化，需重新核对", discarded: "已丢弃" };
 
 export function Drafts({ chapter, draftId, refresh, task, reloadTasks }: { chapter: number; draftId: string; refresh: () => void; task: ChapterTaskView | undefined; reloadTasks: () => void }): React.ReactElement {
+  const isCurrent = useRouteActive();
   const query = useFetch(() => api.chapterDraft(chapter, draftId), [chapter, draftId]);
   const versions = useFetch(() => api.chapterDrafts(chapter), [chapter, draftId]);
   const preparation = useFetch(() => api.preparation(), [chapter, draftId]);
@@ -29,9 +30,9 @@ export function Drafts({ chapter, draftId, refresh, task, reloadTasks }: { chapt
   const dependency = preparation.data?.proposals.find((p) => p.id === draft.preparationProposalId);
   const names = dependency?.content.characters ?? preparation.data?.confirmed.characters ?? [];
   const name = (id: string): string => names.find((c) => c.id === id)?.name ?? id;
-  const reload = (): void => { query.reload(); versions.reload(); preparation.reload(); reloadTasks(); refresh(); };
-  const goDraft = (n: number, id: string): void => { window.location.hash = `/draft/${n}/${id}`; setAnchor(null); };
-  const saved = (next: DraftView): void => { setEditor(null); goDraft(next.chapter, next.draftId); reload(); };
+  const reload = (): void => { if (isCurrent()) { query.reload(); versions.reload(); preparation.reload(); } reloadTasks(); refresh(); };
+  const goDraft = (n: number, id: string): void => { if (isCurrent()) { window.location.hash = `/draft/${n}/${id}`; setAnchor(null); } };
+  const saved = (next: DraftView): void => { if (isCurrent()) { setEditor(null); goDraft(next.chapter, next.draftId); } reload(); };
   const editable = draft.status !== "discarded" && (draft.status !== "adopted" || draft.isCurrentAdopted) && !taskRunning(task);
   const perform = async (action: "adopt" | "continue" | "resume" | "new" | "discard" | "check" | "checkAdopt"): Promise<void> => {
     if (busy) return;
@@ -40,21 +41,21 @@ export function Drafts({ chapter, draftId, refresh, task, reloadTasks }: { chapt
     try {
       if (action === "check" || action === "checkAdopt") {
         await api.checkDraft({ chapter, draftId, revisionToken: draft.revisionToken, adoptOnSuccess: action === "checkAdopt", ...(action === "checkAdopt" ? { selectedProposals } : {}) });
-        setNotice(action === "checkAdopt" ? "已开始检查；通过后采用这一版，有必须处理的问题时保留结果。" : "已开始检查当前版本。");
+        if (isCurrent()) setNotice(action === "checkAdopt" ? "已开始检查；通过后采用这一版，有必须处理的问题时保留结果。" : "已开始检查当前版本。");
       }
       if (action === "adopt" || action === "continue") {
         await api.adopt(chapter, draftId, { revisionToken: draft.revisionToken, selectedProposals }); adopted = true; reload();
-        setNotice(`已采用第 ${chapter} 章。${action === "continue" ? "正在准备下一章…" : "它已成为后续创作依据。"}`);
+        if (isCurrent()) setNotice(`已采用第 ${chapter} 章。${action === "continue" ? "正在准备下一章…" : "它已成为后续创作依据。"}`);
       }
-      if (action === "discard") { await api.discard(chapter, draftId); setNotice("草稿已丢弃，历史内容仍可查看。"); }
+      if (action === "discard") { await api.discard(chapter, draftId); if (isCurrent()) setNotice("草稿已丢弃，历史内容仍可查看。"); }
       if (action === "resume" || action === "new" || action === "continue") {
         const next = await api.writeChapter(action === "continue" ? { chapter: chapter + 1 }
           : action === "resume" ? { chapter, draftId }
             : { chapter, newDraft: true, ...(draft.preparationProposalId === null ? {} : { proposalId: draft.preparationProposalId }) });
         goDraft(next.chapter, next.draftId);
       }
-    } catch (e) { setError(`${adopted ? `第 ${chapter} 章已采用；下一章尚未完成：` : ""}${(e as Error).message}`); }
-    finally { setBusy(false); reload(); }
+    } catch (e) { if (isCurrent()) setError(`${adopted ? `第 ${chapter} 章已采用；下一章尚未完成：` : ""}${(e as Error).message}`); }
+    finally { if (isCurrent()) setBusy(false); reload(); }
   };
   const evidence = (a: TextAnchor): React.ReactElement => <button data-quiet="true" onClick={() => { setAnchor(a); requestAnimationFrame(() => prose.current?.querySelector("mark")?.scrollIntoView({ behavior: "smooth", block: "center" })); }}>查看原文 ↗</button>;
   const offsets: number[] = [];

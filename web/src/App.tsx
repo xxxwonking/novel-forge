@@ -210,7 +210,7 @@ function Routed({ route, overview, onAction, onIgnore, onJump, refresh, tasks, r
     return <Chat onJump={onJump} refresh={refresh} initialPrompt={query.get("prompt") ?? ""} />;
   }
   if (path === "/preparation") {
-    return <Preparation refresh={refresh} proposalId={query.get("proposal")} />;
+    return <Preparation key={query.get("proposal") ?? "confirmed"} refresh={refresh} proposalId={query.get("proposal")} />;
   }
   if (path === "/export") return <Export exportId={query.get("id")} />;
   if (path?.startsWith("/draft/")) {
@@ -225,7 +225,7 @@ function Routed({ route, overview, onAction, onIgnore, onJump, refresh, tasks, r
   }
   if (path?.startsWith("/chapter/")) {
     const n = Number(path.slice("/chapter/".length));
-    return <Reader chapter={Number.isInteger(n) ? n : overview.currentChapter} quote={query.get("quote")} onJump={onJump} />;
+    return <Reader key={route} chapter={Number.isInteger(n) ? n : overview.currentChapter} quote={query.get("quote")} onJump={onJump} />;
   }
 
   const view = VIEWS.find((v) => v.path === path);

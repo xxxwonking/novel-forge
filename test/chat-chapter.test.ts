@@ -30,7 +30,7 @@ afterEach(async () => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
-async function setup(reply: (request: Body, number: number) => { status?: number; message?: Body; error?: string }, env: Record<string, string> = {}) {
+async function setup(reply: (request: Body, number: number) => { status?: number; message?: Body; error?: string; sse?: string; finish?: string }, env: Record<string, string> = {}) {
   const requests: Body[] = [];
   const server = createServer(async (req, res) => {
     let input = "";
@@ -38,10 +38,15 @@ async function setup(reply: (request: Body, number: number) => { status?: number
     const body = JSON.parse(input) as Body;
     requests.push(body);
     const result = reply(body, requests.length);
+    if (result.sse !== undefined) {
+      res.writeHead(200, { "content-type": "text/event-stream" });
+      res.end(result.sse);
+      return;
+    }
     res.writeHead(result.status ?? 200, { "content-type": "application/json" });
     res.end(JSON.stringify(result.error === undefined ? {
       id: `chat-${requests.length}`, model: "gemini-test", usage: { prompt_tokens: 30, completion_tokens: 20 },
-      choices: [{ message: result.message, finish_reason: result.message?.tool_calls ? "tool_calls" : "stop" }],
+      choices: [{ message: result.message, finish_reason: result.finish ?? (result.message?.tool_calls ? "tool_calls" : "stop") }],
     } : { error: { message: result.error } }));
   });
   servers.push(server);
@@ -65,6 +70,25 @@ function write(session: ProjectSession, draftId?: string) {
 }
 
 describe("Chat 章节入口", () => {
+  it.each(["sse", "aborted", "insufficient_system_resource"])("%s 中断保留正文，重开作品可续写，未完成的正文不能采用", async (kind) => {
+    const content = PROSE + "血刀客正要开口，";
+    const state = await setup(() => kind === "sse"
+      ? { sse: `data: ${JSON.stringify({ choices: [{ delta: { content, reasoning_content: "内部推理" }, finish_reason: null }] })}\n\n` }
+      : { message: { role: "assistant", content, reasoning_content: "内部推理" }, finish: kind });
+    const before = state.store.load();
+    const response = await write(state.session);
+    expect(response.status).toBe(200);
+    const draft = response.body as ChapterDraft;
+    expect(draft).toMatchObject({ status: "failed", body: content, acceptable: false, declaration: null, error: { step: "C4" } });
+    expect(state.requests).toHaveLength(1);
+    const restored = new ProjectSession(state.root, SINGLE_PASS_RULES);
+    const view = handle(restored, { method: "GET", path: "/api/chapter/draft", query: new URLSearchParams({ n: "3", id: draft.draftId }), body: undefined });
+    expect(view.body).toMatchObject({ body: content, canContinueBody: true });
+    expect(handle(restored, { method: "POST", path: "/api/chapter/adopt", query: new URLSearchParams(), body: { chapter: 3, draftId: draft.draftId } })).toMatchObject({ status: 400, body: { error: expect.stringContaining("不能采用") } });
+    expect(state.store.load().events).toEqual(before.events);
+    expect(state.store.load().chapters).toEqual(before.chapters);
+  });
+
   it.each(["generic", "deepseek"])("%s 真实本地 HTTP 生成草稿，采用后正文与正式事件才生效", async (preset) => {
     let prose = PROSE;
     const target = deriveBudget(WRITE_BEAT.plan, writingSnapshot().profile, loadRules()).words.sweet;

@@ -133,6 +133,7 @@ describe("模型局部修订与片段续写", () => {
 
   it.each([
     { label: "截断", result: { kind: "max_tokens", message: modelMessage([{ type: "text", text: JSON.stringify({ decision: "apply", replacement, summary: "试探", scopeAdvice: "" }), citations: [] }], "max_tokens") } as CallResult },
+    { label: "连接中断", result: { kind: "error", error: { type: "connection", status: null, message: "connection lost", retryable: true }, partialText: '{"decision":"apply","replacement":"未完成' } as CallResult },
     { label: "缺少字段", result: modelText(JSON.stringify({ replacement })) },
   ])("修订输出$label时不应用替换、不启动 C5", async ({ result }) => {
     const model = fakeClient([result]); const { session, body } = fixture(model.client);
@@ -189,10 +190,12 @@ describe("模型局部修订与片段续写", () => {
     expect((await finish(session, draft)).body).toBe(PROSE + "风".repeat(3000));
   });
 
-  it("续写保留已有片段，截断后保留新增片段，下一次继续只接着写", async () => {
+  it.each(["max_tokens", "connection"])("续写保留已有片段，%s 后保留新增片段，下一次继续只接着写", async (kind) => {
     const more = "李长风合上账本，还没等他开口，";
     const partial = PROSE + "血刀客忽然说：";
-    const first = fakeClient([{ kind: "max_tokens", message: modelMessage([{ type: "text", text: more, citations: [] }], "max_tokens") }]);
+    const first = fakeClient([kind === "max_tokens"
+      ? { kind: "max_tokens", message: modelMessage([{ type: "text", text: more, citations: [] }], "max_tokens") }
+      : { kind: "error", error: { type: "connection", status: null, message: "connection lost", retryable: true }, partialText: more } as CallResult]);
     const { session, store, root } = fixture(first.client);
     store.saveDraft(savedDraft({ body: partial, status: "failed", acceptable: false, declaration: null, error: { step: "C4", detail: "输出达到上限" } }));
     const draft = await start(session, payload(session, { mode: "continue", scope: null, instruction: "保留片段，继续完成本章" }));

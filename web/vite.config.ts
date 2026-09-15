@@ -9,7 +9,8 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: 5173,
-    proxy: { "/api": "http://127.0.0.1:5174" },
+    // 保留浏览器 Host，后端才能按同一 Origin 校验开发页的写请求。
+    proxy: { "/api": { target: "http://127.0.0.1:5174", changeOrigin: false } },
   },
   build: { outDir: "dist", emptyOutDir: true },
 });

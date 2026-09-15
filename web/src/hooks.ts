@@ -1,5 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
+/** 已提交的操作可在后台完成；迟到响应只能更新发起它的页面。 */
+export function useRouteActive(): () => boolean {
+  const alive = useRef(true);
+  const route = window.location.href;
+  useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
+  return useCallback(() => alive.current && window.location.href === route, [route]);
+}
+
 /** 一次性拉取 + 手动重取。三态（加载/错误/数据）在每个页面都要用。 */
 export function useFetch<T>(fn: () => Promise<T>, deps: readonly unknown[] = []): {
   data: T | null;

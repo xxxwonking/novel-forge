@@ -21,6 +21,10 @@ import { workspaceApi } from "./workspace-api.js";
 
 const LOCALHOST = "127.0.0.1";
 
+class HttpRequestError extends Error {
+  constructor(readonly status: 400 | 403 | 413 | 415, message: string) { super(message); }
+}
+
 const MIME: Readonly<Record<string, string>> = {
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
@@ -45,7 +49,7 @@ export function serve(options: ServeOptions): ReturnType<typeof createServer> {
 
   const server = createServer((req, res) => {
     void route(workspace, staticDir, req, res).catch((e: unknown) => {
-      send(res, e instanceof ChapterWriteError ? e.status : 500, { error: (e as Error).message });
+      send(res, e instanceof ChapterWriteError || e instanceof HttpRequestError ? e.status : 500, { error: (e as Error).message });
     });
   });
 
@@ -67,9 +71,13 @@ async function route(
   req: IncomingMessage,
   res: ServerResponse,
 ): Promise<void> {
+  assertLocalRequest(req);
   const url = new URL(req.url ?? "/", `http://${LOCALHOST}`);
 
   if (url.pathname.startsWith("/api/")) {
+    if (req.method === "POST" && req.headers["content-type"]?.split(";", 1)[0]?.trim().toLowerCase() !== "application/json") {
+      throw new HttpRequestError(415, "写操作需要 application/json 请求体");
+    }
     const apiRequest: ApiRequest = {
       method: req.method ?? "GET",
       path: url.pathname,
@@ -95,12 +103,30 @@ async function route(
   send(res, 404, { error: "没有前端构建产物；用 npm run web 起开发服务器" });
 }
 
+/** 绑定回环地址仍会收到浏览器跨站请求；同时限制 Host 与 Origin。 */
+function assertLocalRequest(req: IncomingMessage): void {
+  const host = req.headers.host;
+  if (host === undefined || !/^(?:localhost|127\.0\.0\.1|\[::1\])(?::\d{1,5})?$/iu.test(host)) {
+    throw new HttpRequestError(403, "仅允许通过本机地址访问");
+  }
+  let origin: string;
+  try { origin = new URL(`http://${host}`).origin; }
+  catch { throw new HttpRequestError(403, "本机地址无效"); }
+  // Vite 代理显式保留浏览器的 Host，开发和生产页面均按实际同源地址校验。
+  if (req.headers.origin !== undefined && req.headers.origin !== origin) {
+    throw new HttpRequestError(403, "不允许其他网站访问本机作品接口");
+  }
+}
+
 /**
  * 静态文件。路径穿越防护是必须的 —— 这个进程能读用户主目录下的一切，
  * 而 `GET /../../.ssh/id_rsa` 是最基本的探测。
  */
 function serveStatic(root: string, pathname: string, res: ServerResponse): void {
-  const rel = normalize(decodeURIComponent(pathname)).replace(/^(\.\.[/\\])+/u, "");
+  let decoded: string;
+  try { decoded = decodeURIComponent(pathname); }
+  catch { throw new HttpRequestError(400, "路径编码无效"); }
+  const rel = normalize(decoded).replace(/^(\.\.[/\\])+/u, "");
   let file = resolve(join(root, rel));
 
   if (!file.startsWith(root)) {
@@ -137,7 +163,7 @@ async function readJson(req: IncomingMessage): Promise<unknown> {
   for await (const chunk of req) {
     const buf = chunk as Buffer;
     size += buf.length;
-    if (size > MAX_BODY) throw new Error("请求体过大");
+    if (size > MAX_BODY) throw new HttpRequestError(413, "请求体过大");
     chunks.push(buf);
   }
   const text = Buffer.concat(chunks).toString("utf8");
@@ -145,6 +171,6 @@ async function readJson(req: IncomingMessage): Promise<unknown> {
   try {
     return JSON.parse(text);
   } catch (e) {
-    throw new Error(`请求体不是合法 JSON：${(e as Error).message}`);
+    throw new HttpRequestError(400, `请求体不是合法 JSON：${(e as Error).message}`);
   }
 }

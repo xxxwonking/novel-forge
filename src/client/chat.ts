@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import type { CallOptions, CallResult, ClientError } from "./claude.js";
 import type { ModelClient } from "./model.js";
 import { chatRequest, chatResult, isRecord, parseChatCompletion, type JsonRecord } from "./chat-wire.js";
-import { readChatStream } from "./chat-stream.js";
+import { ChatStreamError, readChatStream } from "./chat-stream.js";
 import { resolveChatCapabilities, type ChatCapabilities, type ChatConnectionOptions } from "./chat-config.js";
 
 export interface ChatClientOptions extends ChatConnectionOptions {
@@ -53,8 +53,10 @@ export class ChatClient implements ModelClient {
       this.options.onUsage?.({ model: result.model ?? this.options.model, stream, usage: result.usage ?? null });
       return chatResult(result, this.options.model, this.conversationKey);
     } catch (error) {
-      const connection = error instanceof Error && ["TypeError", "AbortError", "TimeoutError"].includes(error.name);
-      return { kind: "error", error: { type: connection ? "connection" : "unknown", status: null, retryable: connection, message: this.safeError(error instanceof Error ? error.message : "chat 请求失败") } };
+      const cause = error instanceof ChatStreamError ? error.cause : error;
+      const connection = cause instanceof Error && ["TypeError", "AbortError", "TimeoutError"].includes(cause.name);
+      return { kind: "error", error: { type: connection ? "connection" : "unknown", status: null, retryable: connection, message: this.safeError(error instanceof Error ? error.message : "chat 请求失败") },
+        ...(error instanceof ChatStreamError && error.partialText.trim() !== "" ? { partialText: error.partialText } : {}) };
     }
   }
 

@@ -175,7 +175,8 @@ describe("ChatClient", () => {
   it.each(["insufficient_system_resource", "aborted"])("国内模型 %s 返回明确错误，残缺工具参数不会执行", async (reason) => {
     const service = await endpoint((_body, res) => json(res, completion({ role: "assistant", content: "部分内容", tool_calls: [{ id: "partial", type: "function", function: { name: "load_character", arguments: "{" } }] }, reason)));
     const result = await new ChatClient({ baseURL: service.baseURL, apiKey: "local-test-key", model: "deepseek-test" }).call(options());
-    expect(result).toMatchObject({ kind: "error", error: { type: "status", retryable: true, message: expect.stringContaining(reason) } });
+    expect(result).toMatchObject({ kind: "error", partialText: "部分内容", error: { type: "status", retryable: true, message: expect.stringContaining(reason) } });
+    expect(result).not.toHaveProperty("message");
     expect(service.requests).toHaveLength(1);
   });
 
@@ -271,6 +272,13 @@ describe("ChatClient", () => {
     const service = await endpoint((_body, res) => json(res, { choices: [] }));
     expect((await new ChatClient({ baseURL: service.baseURL, apiKey: "local-test-key", model: "gemini-test" }).call(options())).kind).toBe("error");
   });
+
+  it.each([{ tool_calls: undefined }, { tool_calls: [] }])("tool_calls 结束但调用列表为 $tool_calls 时不能冒充正文完成", async ({ tool_calls }) => {
+    const service = await endpoint((_body, res) => json(res, completion({ role: "assistant", content: "我还需要先查资料。", tool_calls }, "tool_calls")));
+    const result = await new ChatClient({ baseURL: service.baseURL, apiKey: "local-test-key", model: "gemini-test" }).call(options());
+    expect(result).toMatchObject({ kind: "error", error: { message: expect.stringContaining("工具") } });
+    expect(service.requests).toHaveLength(1);
+  });
 });
 
 describe("chat SSE", () => {
@@ -304,6 +312,22 @@ describe("chat SSE", () => {
 
   it("网络提前结束且没有 finish_reason 时拒绝不完整响应", async () => {
     const response = new Response('data: {"choices":[{"delta":{"content":"未完成"},"finish_reason":null}]}\n\n');
-    await expect(readChatStream(response)).rejects.toThrow();
+    await expect(readChatStream(response)).rejects.toMatchObject({ partialText: "未完成" });
+  });
+
+  it("读取连接中断时保留已完成的文本事件，不混入思考或半截工具", async () => {
+    let reads = 0;
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (++reads > 1) { controller.error(new TypeError("connection lost")); return; }
+        controller.enqueue(new TextEncoder().encode('data: {"choices":[{"delta":{"content":"已经写出的片段","reasoning_content":"内部推理","tool_calls":[{"index":0,"id":"partial","type":"function","function":{"name":"load_character","arguments":"{"}}]},"finish_reason":null}]}\n\n'));
+      },
+    }, { highWaterMark: 0 });
+    await expect(readChatStream(new Response(stream))).rejects.toMatchObject({ partialText: "已经写出的片段", cause: expect.any(TypeError) });
+  });
+
+  it("只有思考内容的中断不会伪造正文片段", async () => {
+    const response = new Response('data: {"choices":[{"delta":{"reasoning_content":"内部推理"},"finish_reason":null}]}\n\n');
+    await expect(readChatStream(response)).rejects.toMatchObject({ partialText: "" });
   });
 });

@@ -69,11 +69,18 @@ export async function writeChapterBody(
   const loop = await runToolLoop(client, callOpts, ctx, maxToolRounds);
   const r = loop.result;
 
-  if (r.kind === "error") return { kind: "failed", detail: r.error.message };
+  if (r.kind === "error") return r.partialText?.trim()
+    ? { kind: "incomplete", body: r.partialText, detail: `${r.error.message} 已收到的正文片段已保留；请继续完成或重新生成后再检查。` }
+    : { kind: "failed", detail: r.error.message };
   if (r.kind === "refusal") return { kind: "refused", userMessage: r.userMessage };
 
   const body = textOf(r.message);
   if (r.kind === "max_tokens") return { kind: "incomplete", body, detail: "正文达到模型输出上限，片段已保留；请继续完成或重新生成后再检查。" };
+  if (r.message.stop_reason !== "end_turn" && r.message.stop_reason !== "stop_sequence") {
+    return { kind: "incomplete", body, detail: loop.hitCap
+      ? "正文工具调用达到轮数上限，已有文字仅作为未完成片段保留；请核对后继续完成或重新生成。"
+      : "正文响应尚未完整结束，片段已保留；请继续完成或重新生成后再检查。" };
+  }
   if (body.trim() === "") {
     return {
       kind: "failed",

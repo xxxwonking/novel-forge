@@ -74,10 +74,12 @@ export class Workspace {
     const selected = id ?? this.defaultProjectId;
     if (selected === null) throw new ChapterWriteError(409, "请先从作品列表选择或创建一本作品");
     const root = this.projectPath(selected);
-    let session = this.sessions.get(selected);
+    // Windows 的大小写及短文件名可能指向同一目录，必须共用状态和活动任务锁。
+    const canonicalRoot = realpathSync.native(root);
+    let session = this.sessions.get(canonicalRoot);
     if (session === undefined) {
-      session = new ProjectSession(root, undefined, this.options);
-      this.sessions.set(selected, session);
+      session = new ProjectSession(canonicalRoot, undefined, this.options);
+      this.sessions.set(canonicalRoot, session);
     }
     return session;
   }

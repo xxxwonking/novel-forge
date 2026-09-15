@@ -1,12 +1,13 @@
 import { useState } from "react";
 import { api, type PreparationContent, type PreparationPayload, type PreparationProposal } from "../api.js";
-import { useFetch } from "../hooks.js";
+import { useFetch, useRouteActive } from "../hooks.js";
 
 const discuss = (prompt: string): string => `#/chat?prompt=${encodeURIComponent(prompt)}`;
 const planPrompt = "请先读取作品资料，根据我已指定的想法整理人物、必要设定和下一章的具体计划，保存为待确认方案让我看。";
 const status = (p: PreparationProposal): string => p.status === "confirmed" ? "已确认" : p.status === "rejected" ? "已丢弃" : p.stale ? "需要重新核对" : "待确认";
 
 export function Preparation({ refresh, proposalId }: { refresh: () => void; proposalId: string | null }): React.ReactElement {
+  const isCurrent = useRouteActive();
   const data = useFetch(() => api.preparation(), []);
   const [selected, setSelected] = useState<string | null>(proposalId);
   const [editing, setEditing] = useState(false);
@@ -24,22 +25,22 @@ export function Preparation({ refresh, proposalId }: { refresh: () => void; prop
     try {
       if (action === "reject") {
         await api.rejectPreparation(proposal.id);
-        setNotice("方案已丢弃，保留历史记录。");
+        if (isCurrent()) setNotice("方案已丢弃，保留历史记录。");
       } else {
         if (action !== "trial") {
           await api.confirmPreparation(proposal.id);
           confirmed = true;
-          setNotice("方案已确认。资料和章节计划已经更新。");
-          refresh(); data.reload();
+          if (isCurrent()) { setNotice("方案已确认。资料和章节计划已经更新。"); data.reload(); }
+          refresh();
         }
         if (action === "write" || action === "trial") {
-          setNotice(`${confirmed ? "方案已确认。" : "保留为建议。"}正在写第 ${view.nextChapter} 章，离开页面后服务会继续处理。`);
+          if (isCurrent()) setNotice(`${confirmed ? "方案已确认。" : "保留为建议。"}正在写第 ${view.nextChapter} 章，离开页面后服务会继续处理。`);
           const draft = await api.writeChapter({ chapter: view.nextChapter, ...(action === "trial" ? { proposalId: proposal.id } : {}) });
-          window.location.hash = `/draft/${draft.chapter}/${draft.draftId}`;
+          if (isCurrent()) window.location.hash = `/draft/${draft.chapter}/${draft.draftId}`;
         }
       }
-    } catch (e) { setError(`${confirmed ? "方案已确认；本次写章未完成：" : ""}${(e as Error).message}`); }
-    finally { setBusy(false); data.reload(); refresh(); }
+    } catch (e) { if (isCurrent()) setError(`${confirmed ? "方案已确认；本次写章未完成：" : ""}${(e as Error).message}`); }
+    finally { if (isCurrent()) { setBusy(false); data.reload(); } refresh(); }
   };
 
   return <>
