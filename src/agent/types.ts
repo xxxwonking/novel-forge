@@ -81,3 +81,16 @@ export interface ConversationReply {
   readonly effects: readonly AgentEffect[];
   readonly toolRounds: number;
 }
+
+/**
+ * 一回合进行中的界面事件。`round` 表示新一次模型调用开始，此前流出的文本只是
+ * 中间思路，界面应清空重来；最终以 `done` 携带的完整回复为准。
+ */
+export type ConversationStreamEvent =
+  | { readonly type: "round"; readonly round: number }
+  | { readonly type: "delta"; readonly text: string }
+  | { readonly type: "tool"; readonly name: string; readonly status: "started" | "finished"; readonly ok: boolean }
+  | { readonly type: "done"; readonly reply: ConversationReply }
+  | { readonly type: "error"; readonly message: string };
+
+export type ConversationObserver = (event: ConversationStreamEvent) => void;

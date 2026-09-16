@@ -310,6 +310,17 @@ describe("chat SSE", () => {
     expect(result.choices[0]?.message.tool_calls?.[0]).not.toHaveProperty("index");
   });
 
+  it("onTextDelta 只收到可见正文增量，不含思考内容和工具参数", async () => {
+    const chunks = [
+      { choices: [{ delta: { role: "assistant", content: "雨夜", reasoning_content: "先查", tool_calls: [{ index: 0, id: "call-1", type: "function", function: { name: "load_character", arguments: '{"name":' } }] }, finish_reason: null }] },
+      { choices: [{ delta: { content: "。", reasoning_content: "人物。", tool_calls: [{ index: 0, function: { arguments: '"李长风"}' } }] }, finish_reason: "tool_calls" }] },
+    ];
+    const body = chunks.map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`).join("") + "data: [DONE]\n\n";
+    const deltas: string[] = [];
+    await readChatStream(new Response(body), (delta) => deltas.push(delta));
+    expect(deltas).toEqual(["雨夜", "。"]);
+  });
+
   it("网络提前结束且没有 finish_reason 时拒绝不完整响应", async () => {
     const response = new Response('data: {"choices":[{"delta":{"content":"未完成"},"finish_reason":null}]}\n\n');
     await expect(readChatStream(response)).rejects.toMatchObject({ partialText: "未完成" });

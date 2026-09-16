@@ -17,7 +17,7 @@ import type Anthropic from "@anthropic-ai/sdk";
 import { appendTurn, type CallOptions } from "../client/claude.js";
 import type { ModelClient } from "../client/model.js";
 import type { ChapterExcerpt, ForeshadowFilter } from "../task/tool-exec.js";
-import type { AgentEffect } from "./types.js";
+import type { AgentEffect, ConversationObserver } from "./types.js";
 import type { StructureCorrection } from "../chapter/c5-correction.js";
 import type { DraftRewriteOptions } from "../server/draft-rewrite.js";
 import type { DraftAdoptOptions } from "../task/types.js";
@@ -260,6 +260,7 @@ export async function runAgentLoop(
   callOpts: CallOptions,
   ctx: MainAgentToolContext,
   maxRounds: number,
+  observe?: ConversationObserver,
 ): Promise<AgentLoopResult> {
   let messages: readonly Anthropic.MessageParam[] = callOpts.messages;
   let toolRounds = 0;
@@ -271,7 +272,12 @@ export async function runAgentLoop(
   });
 
   for (;;) {
-    const result = await client.call({ ...callOpts, messages });
+    observe?.({ type: "round", round: toolRounds + 1 });
+    const result = await client.call({
+      ...callOpts,
+      messages,
+      ...(observe === undefined ? {} : { onTextDelta: (text: string) => observe({ type: "delta", text }) }),
+    });
 
     if (result.kind === "error") {
       return stopped(`（模型调用失败：${result.error.message}）`);
@@ -292,7 +298,9 @@ export async function runAgentLoop(
     const toolResults: Anthropic.ToolResultBlockParam[] = [];
     for (const b of result.message.content) {
       if (b.type !== "tool_use") continue;
+      observe?.({ type: "tool", name: b.name, status: "started", ok: true });
       const { result: tr, effect } = await executeMainTool(b, ctx);
+      observe?.({ type: "tool", name: b.name, status: "finished", ok: tr.is_error !== true });
       toolResults.push(tr);
       if (effect !== undefined) effects.push(effect);
     }

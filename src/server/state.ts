@@ -34,7 +34,7 @@ import { ConversationStore } from "../agent/conversation-store.js";
 import { MainAgentService } from "../agent/service.js";
 import type { AgentActionOutcome, MainAgentToolContext, PlanAddInput } from "../agent/tool-exec.js";
 import type { MainAgentContextInfo } from "../agent/system-prompt.js";
-import type { AlternativeIdea, ConversationReply, ConversationTurn } from "../agent/types.js";
+import type { AlternativeIdea, ConversationObserver, ConversationReply, ConversationTurn } from "../agent/types.js";
 import { createModelClient } from "../client/create.js";
 import type { ModelClient } from "../client/model.js";
 import { countWords } from "../text/measure.js";
@@ -411,7 +411,7 @@ export class ProjectSession {
    * 一轮对话：主 Agent 理解意图、自主选工具，产出回复与本回合的 effects。
    * 需要模型客户端（未配置抛 503）—— 只读浏览不经过这里，不受影响。
    */
-  async converse(text: string): Promise<ConversationReply> {
+  async converse(text: string, observe?: ConversationObserver): Promise<ConversationReply> {
     const client = this.getModelClient();
     const service = new MainAgentService({
       client,
@@ -421,7 +421,7 @@ export class ProjectSession {
       contextInfo: () => this.agentContextInfo(),
       maxRounds: this.rules.agent.maxConversationRounds,
     });
-    return service.send(text);
+    return service.send(text, observe);
   }
 
   conversationTurns(): readonly ConversationTurn[] {

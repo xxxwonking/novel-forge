@@ -36,7 +36,7 @@ export class ChatClient implements ModelClient {
     try {
       if (!Number.isSafeInteger(options.maxTokens) || options.maxTokens < 1) throw new Error("chat maxTokens 必须是正整数");
       const maxTokens = Math.min(options.maxTokens, this.capabilities.maxOutputTokens ?? options.maxTokens);
-      const stream = this.capabilities.stream === "always" || (this.capabilities.stream === "auto" && maxTokens > STREAMING_THRESHOLD);
+      const stream = this.capabilities.stream === "always" || (this.capabilities.stream === "auto" && (maxTokens > STREAMING_THRESHOLD || options.onTextDelta !== undefined));
       const body = chatRequest({ ...options, maxTokens }, this.options.model, this.conversationKey, stream, this.capabilities);
       const response = await fetch(this.endpoint, {
         method: "POST", redirect: "manual", signal: AbortSignal.timeout(this.capabilities.timeoutMs),
@@ -49,7 +49,7 @@ export class ChatClient implements ModelClient {
         const type: ClientError["type"] = response.status === 404 ? "not_found" : response.status === 429 ? "rate_limit" : "status";
         return { kind: "error", error: { type, status: response.status, message: this.safeError(detail), retryable: response.status === 429 || response.status >= 500 } };
       }
-      const result = response.headers.get("content-type")?.includes("text/event-stream") ? await readChatStream(response) : parseChatCompletion(await response.json());
+      const result = response.headers.get("content-type")?.includes("text/event-stream") ? await readChatStream(response, options.onTextDelta) : parseChatCompletion(await response.json());
       this.options.onUsage?.({ model: result.model ?? this.options.model, stream, usage: result.usage ?? null });
       return chatResult(result, this.options.model, this.conversationKey);
     } catch (error) {

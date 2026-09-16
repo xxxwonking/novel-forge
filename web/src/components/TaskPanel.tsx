@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Button } from "antd";
 import { api, type ChapterTaskView } from "../api.js";
 
 const stages = { writing: "创作正文中", revising: "根据检查修改中", declaring: "核对结构中", checking: "检查中" };
@@ -32,9 +33,9 @@ export function TaskCard({ task, reload, detailed = false }: { task: ChapterTask
     <div className="task-actions">
       {!detailed && <a href={`#/draft/${task.chapter}/${task.draftId}`}>查看任务与结果 →</a>}
       {!detailed && task.automaticResultDraftId && <a href={`#/draft/${task.chapter}/${task.automaticResultDraftId}`}>查看自动修订稿 →</a>}
-      {task.status === "running" && <button disabled={busy} onClick={() => void act("pause")}>暂停任务</button>}
-      {resumable && <button disabled={busy} onClick={() => void act("resume")}>{(task.stage === "writing" || task.stage === "revising") && task.words > 0 ? "重试当前任务" : "继续任务"}</button>}
-      {(live || resumable || task.status === "awaiting_input") && <button data-quiet="true" disabled={busy || task.status === "ending"} onClick={() => void act("end")}>结束本次任务</button>}
+      {task.status === "running" && <Button size="small" disabled={busy} onClick={() => void act("pause")}>暂停任务</Button>}
+      {resumable && <Button size="small" disabled={busy} onClick={() => void act("resume")}>{(task.stage === "writing" || task.stage === "revising") && task.words > 0 ? "重试当前任务" : "继续任务"}</Button>}
+      {(live || resumable || task.status === "awaiting_input") && <Button size="small" type="text" disabled={busy || task.status === "ending"} onClick={() => void act("end")}>结束本次任务</Button>}
     </div>
     {task.status === "running" && <small className="muted">暂停或结束在当前模型请求返回后生效，已完成内容会保留。</small>}
     {detailed && <p className="task-usage">{task.usageRecorded ? <>模型调用 {task.usage.calls} 次 · 已报告输入 {task.usage.inputTokens.toLocaleString()} / 输出 {task.usage.outputTokens.toLocaleString()} tokens{task.usage.unmeasuredCalls > 0 ? `；另有 ${task.usage.unmeasuredCalls} 次调用未返回用量` : ""}</> : "这份历史结果未记录模型用量。"}</p>}

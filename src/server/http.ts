@@ -13,7 +13,9 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, extname, join, normalize, resolve } from "node:path";
-import { handleAsync, type ApiRequest } from "./api.js";
+import { conversationStream, handleAsync, type ApiRequest } from "./api.js";
+import type { ProjectSession } from "./state.js";
+import type { ConversationStreamEvent } from "../agent/types.js";
 import type { ChapterWriterOptions } from "./chapter-writer.js";
 import { ChapterWriteError } from "./chapter-input.js";
 import { Workspace } from "../workspace/service.js";
@@ -91,7 +93,12 @@ async function route(
     let projectId: string | undefined;
     try { projectId = header === undefined ? undefined : decodeURIComponent(header); }
     catch { throw new ChapterWriteError(400, "作品 ID 无效"); }
-    const result = await handleAsync(workspace.project(projectId), apiRequest);
+    const session = workspace.project(projectId);
+    if (req.method === "POST" && url.pathname === "/api/conversation/stream") {
+      await streamConversation(session, apiRequest.body, res);
+      return;
+    }
+    const result = await handleAsync(session, apiRequest);
     send(res, result.status, result.body);
     return;
   }
@@ -152,6 +159,26 @@ function send(res: ServerResponse, status: number, body: unknown): void {
     "content-length": Buffer.byteLength(text),
   });
   res.end(text);
+}
+
+/**
+ * 对话的 SSE 通道：每个事件一行 `data:` JSON。头部在第一个事件时才写，
+ * 这样开始前的失败（缺 text、未配置模型）仍能返回带状态码的 JSON。
+ * 浏览器中途断开时服务端继续完成并保存回合，只是不再写入已关闭的响应。
+ */
+async function streamConversation(session: ProjectSession, body: unknown, res: ServerResponse): Promise<void> {
+  let headersSent = false;
+  const emit = (event: ConversationStreamEvent): void => {
+    if (res.destroyed || res.writableEnded) return;
+    if (!headersSent) {
+      headersSent = true;
+      res.writeHead(200, { "content-type": "text/event-stream; charset=utf-8", "cache-control": "no-cache", "x-accel-buffering": "no" });
+    }
+    res.write(`data: ${JSON.stringify(event)}\n\n`);
+  };
+  const failed = await conversationStream(session, body, emit);
+  if (failed !== null) { send(res, failed.status, failed.body); return; }
+  if (!res.destroyed && !res.writableEnded) res.end();
 }
 
 /** 请求体上限：正文可能几万字，但节拍表与动作请求都很小。 */

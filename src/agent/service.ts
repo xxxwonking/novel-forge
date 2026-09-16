@@ -18,7 +18,7 @@ import { MAIN_AGENT_TOOLS } from "./tools.js";
 import { runAgentLoop, type MainAgentToolContext } from "./tool-exec.js";
 import { buildMainAgentSystem, type MainAgentContextInfo } from "./system-prompt.js";
 import type { ConversationStore } from "./conversation-store.js";
-import type { ConversationReply, ConversationState, ConversationTurn } from "./types.js";
+import type { ConversationObserver, ConversationReply, ConversationState, ConversationTurn } from "./types.js";
 
 /** 含资料方案工具参数，需要容纳完整人物、设定和首章规划；短回复仍要求简洁。 */
 const REPLY_MAX_TOKENS = 8192;
@@ -43,13 +43,13 @@ export class MainAgentService {
     return (this.deps.clock ?? (() => new Date().toISOString()))();
   }
 
-  async send(userText: string): Promise<ConversationReply> {
+  async send(userText: string, observe?: ConversationObserver): Promise<ConversationReply> {
     const text = userText.trim();
     if (text === "") throw new Error("消息不能为空");
-    return this.deps.store.runTurn(() => this.sendTurn(text));
+    return this.deps.store.runTurn(() => this.sendTurn(text, observe));
   }
 
-  private async sendTurn(text: string): Promise<ConversationReply> {
+  private async sendTurn(text: string, observe?: ConversationObserver): Promise<ConversationReply> {
     const history = this.deps.store.load();
     const target = this.deps.client.conversationKey;
     const messages: Anthropic.MessageParam[] = [
@@ -65,7 +65,7 @@ export class MainAgentService {
     };
 
     const ctx = typeof this.deps.ctx === "function" ? this.deps.ctx() : this.deps.ctx;
-    const loop = await runAgentLoop(this.deps.client, callOpts, ctx, this.deps.maxRounds);
+    const loop = await runAgentLoop(this.deps.client, callOpts, ctx, this.deps.maxRounds, observe);
     const replyText = loop.text || EMPTY_REPLY;
 
     const userAt = this.now();

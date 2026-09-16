@@ -9,6 +9,7 @@
  */
 
 import { useEffect, useRef } from "react";
+import { Select } from "antd";
 import { api, type GateFinding, type HealthPayload } from "../api.js";
 import { useFetch } from "../hooks.js";
 
@@ -86,27 +87,16 @@ export function Reader({ chapter, quote }: ReaderProps): React.ReactElement {
         <aside className="side">
           <a className="export-link" href="#/export">导出已采用正文</a>
           <h3>章节</h3>
-          <select
+          <Select
+            aria-label="选择章节"
             value={chapter}
-            onChange={(e) => {
-              window.location.hash = `/chapter/${e.target.value}`;
-            }}
-            style={{
-              width: "100%",
-              padding: 6,
-              background: "var(--bg-raised)",
-              color: "var(--ink)",
-              border: "1px solid var(--line-bright)",
-              borderRadius: 3,
-              marginBottom: 18,
-            }}
-          >
-            {(list.data ?? []).map((c) => (
-              <option key={c.chapter} value={c.chapter}>
-                第 {c.chapter} 章{c.beat === null ? "" : ` · ${c.beat.slice(0, 14)}`}
-              </option>
-            ))}
-          </select>
+            style={{ width: "100%", marginBottom: 18 }}
+            onChange={(value) => { window.location.hash = `/chapter/${value}`; }}
+            options={(list.data ?? []).map((c) => ({
+              value: c.chapter,
+              label: `第 ${c.chapter} 章${c.beat === null ? "" : ` · ${c.beat.slice(0, 14)}`}`,
+            }))}
+          />
 
           <Health health={health.data} />
         </aside>

@@ -53,6 +53,11 @@ export interface CallOptions {
   readonly messages: readonly Anthropic.MessageParam[];
   /** 结构化输出 schema。C5 用它约束声明格式。 */
   readonly outputSchema?: Record<string, unknown>;
+  /**
+   * 可见文本增量。提供时客户端强制流式请求并逐段回传；只用于界面展示，
+   * 最终结果仍以完整响应为准（不含思考内容和工具参数）。
+   */
+  readonly onTextDelta?: (delta: string) => void;
 }
 
 /** 调用结果。refusal 是一等状态而非异常 —— 它会带着可展示的文案回来。 */
@@ -119,10 +124,11 @@ export class ClaudeClient {
     let partialText = "";
     try {
       let message: Anthropic.Message;
-      if (opts.maxTokens > STREAMING_THRESHOLD) {
+      if (opts.maxTokens > STREAMING_THRESHOLD || opts.onTextDelta !== undefined) {
         const stream = this.sdk.messages.stream(params);
-        stream.on("streamEvent", (_event, snapshot) => {
+        stream.on("streamEvent", (event, snapshot) => {
           partialText = snapshot.content.filter(block => block.type === "text").map(block => block.text).join("\n\n");
+          if (event.type === "content_block_delta" && event.delta.type === "text_delta") opts.onTextDelta?.(event.delta.text);
         });
         message = await stream.finalMessage();
       } else message = await this.sdk.messages.create(params);

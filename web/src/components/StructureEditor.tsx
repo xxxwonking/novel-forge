@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import { Button, Input, InputNumber, Select } from "antd";
 import { api, type DraftView } from "../api.js";
 
 type Section = keyof NonNullable<DraftView["declaration"]>;
@@ -65,19 +66,24 @@ export function StructureEditor({ draft, characters, onSaved, onClose }: { draft
     return enums[key];
   };
   return <section className="prep-section draft-editor" aria-label="纠正结构记录"><h2>正文保持，纠正记录</h2><p className="muted">选择误读的记录，并填写准确的正文依据。保存为候选新版本后重新检查。</p>
-    <div className="revision-fields"><label>记录类别<select value={section} onChange={e => select(e.target.value as Section, 0)}>{Object.entries(sections).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
-      <label>选择记录<select value={index} onChange={e => select(section, Number(e.target.value))}>{source.declaration?.[section].map((entry, n) => <option key={n} value={n}>{entryLabel(entry, n)}</option>)}<option value={source.declaration?.[section].length ?? 0}>新增一条记录</option></select></label></div>
+    <div className="revision-fields"><label>记录类别<Select value={section} onChange={value => select(value, 0)}
+        options={Object.entries(sections).map(([key, label]) => ({ value: key as Section, label }))} /></label>
+      <label>选择记录<Select value={index} onChange={n => select(section, n)}
+        options={[...(source.declaration?.[section] ?? []).map((entry, n) => ({ value: n, label: entryLabel(entry, n) })), { value: source.declaration?.[section].length ?? 0, label: "新增一条记录" }]} /></label></div>
     <div className="revision-fields">{[...fields[section], ...(section === "characterPresence" ? [] : ["quote"])].map(key => {
       const options = choices(key);
       const update = (next: unknown): void => setValue(previous => ({ ...previous, [key]: next }));
       const nullable = key === "plotLine" || key === "fromKind" || (key === "from" && section === "characterStates");
-      return <label key={key}>{labels[key] ?? key}{key === "participants" ? <select multiple value={value[key] as string[]} onChange={e => update(Array.from(e.target.selectedOptions, option => option.value))}>{characterOptions.map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select>
-        : options ? <select value={String(value[key] ?? "")} onChange={e => update(key === "weight" && section === "events" ? Number(e.target.value) : nullable && e.target.value === "" ? null : e.target.value)}>{!options.some(([id]) => id === String(value[key] ?? "")) && <option value={String(value[key] ?? "")}>{String(value[key] ?? "请选择")}</option>}{options.map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select>
-          : key === "expectedBy" ? <input type="number" min={source.chapter + 1} value={String(value[key] ?? "")} onChange={e => update(Number(e.target.value))} />
-            : <textarea rows={key === "quote" || key === "summary" || key === "intent" ? 3 : 2} value={String(value[key] ?? "")} onChange={e => update(nullable && e.target.value === "" ? null : e.target.value)} />}</label>;
+      const current = String(value[key] ?? "");
+      return <label key={key}>{labels[key] ?? key}{key === "participants" ? <Select mode="multiple" allowClear value={(value[key] as string[]) ?? []} onChange={next => update(next)}
+        options={characterOptions.map(([id, name]) => ({ value: id, label: name }))} />
+        : options ? <Select value={current} onChange={next => update(key === "weight" && section === "events" ? Number(next) : nullable && next === "" ? null : next)}
+            options={[...(options.some(([id]) => id === current) ? [] : [{ value: current, label: current === "" ? "请选择" : current }]), ...options.map(([id, name]) => ({ value: id, label: name }))]} />
+          : key === "expectedBy" ? <InputNumber<number> min={source.chapter + 1} value={typeof value[key] === "number" ? value[key] as number : null} onChange={next => update(next ?? source.chapter + 1)} />
+            : <Input.TextArea rows={key === "quote" || key === "summary" || key === "intent" ? 3 : 2} value={current} onChange={e => update(nullable && e.target.value === "" ? null : e.target.value)} />}</label>;
     })}</div>
-    <label>纠错说明<input value={summary} onChange={e => setSummary(e.target.value)} placeholder="例如：正文写的是昏倒，应保留存活状态" /></label>
+    <label>纠错说明<Input value={summary} onChange={e => setSummary(e.target.value)} placeholder="例如：正文写的是昏倒，应保留存活状态" /></label>
     {error && <p className="finding" data-level="block" role="alert">{error}</p>}
-    <div className="row"><button data-primary="true" disabled={busy} onClick={() => void save()}>保存记录修订</button>{index < (source.declaration?.[section].length ?? 0) && <button disabled={busy} onClick={() => void save(true)}>移除此条记录</button>}<button disabled={busy} onClick={onClose}>取消纠错</button></div>
+    <div className="row"><Button type="primary" loading={busy} onClick={() => void save()}>保存记录修订</Button>{index < (source.declaration?.[section].length ?? 0) && <Button disabled={busy} danger onClick={() => void save(true)}>移除此条记录</Button>}<Button disabled={busy} onClick={onClose}>取消纠错</Button></div>
   </section>;
 }

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Button, Input, Tag } from "antd";
 import { api, type PreparationContent, type PreparationPayload, type PreparationProposal } from "../api.js";
 import { useFetch, useRouteActive } from "../hooks.js";
 
@@ -14,7 +15,7 @@ export function Preparation({ refresh, proposalId }: { refresh: () => void; prop
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  if (data.data === null) return <div className="empty">{data.error ?? "读取作品资料…"}<button onClick={data.reload}>重新读取</button></div>;
+  if (data.data === null) return <div className="empty">{data.error ?? "读取作品资料…"} <Button size="small" onClick={data.reload}>重新读取</Button></div>;
   const view = data.data;
   const candidate = view.proposals.find((p) => p.id === selected);
 
@@ -53,13 +54,13 @@ export function Preparation({ refresh, proposalId }: { refresh: () => void; prop
     {(error ?? data.error) !== null && <div className="finding" role="alert" data-level="block">{error ?? data.error}</div>}
     {notice !== null && <p className="prep-notice" role="status">{notice}</p>}
     <div className="prep-tabs" role="group" aria-label="资料视图">
-      <button data-primary={selected === null} onClick={() => { setSelected(null); setEditing(false); }}>已指定 / 已确认</button>
+      <Button type={selected === null ? "primary" : "default"} onClick={() => { setSelected(null); setEditing(false); }}>已指定 / 已确认</Button>
       <span className="muted">{view.proposals.filter((p) => p.status === "proposed").length} 份方案等待处理</span>
     </div>
     <div className="prep-layout">
       <div className="prep-main">
         {candidate === undefined ? <>
-          <div className="section-head"><h2>当前创作依据</h2><button onClick={() => setEditing(!editing)}>{editing ? "返回资料" : "编辑基本设定与偏好"}</button></div>
+          <div className="section-head"><h2>当前创作依据</h2><Button onClick={() => setEditing(!editing)}>{editing ? "返回资料" : "编辑基本设定与偏好"}</Button></div>
           {editing ? <AuthorForm view={view} onSaved={(p) => { setEditing(false); setSelected(p.status === "proposed" ? p.id : null); setNotice(p.status === "confirmed" ? "作者设定已更新。" : "修改涉及已有正文，已保存为候选，请查看影响。" ); data.reload(); refresh(); }} /> : <Content content={view.confirmed} />}
           <section className="prep-section"><h2>未来伏笔计划</h2><p className="muted">这些安排已确认，尚未写成正文中的埋设或兑现。</p>{view.plannedForeshadows.length === 0 ? <p className="muted">暂时没有独立的未来伏笔规划。</p> : view.plannedForeshadows.map(plan => <div className="draft-change" key={plan.id}><strong>{plan.label}</strong><p>{plan.intent}</p><small>预期第 {plan.expectedBy} 章前兑现 · 尚未埋设</small></div>)}</section>
           <section className="prep-section"><h2>备选想法</h2>{view.ideas.length === 0 ? <p className="muted">暂时没有记录。可以在对话中说“把这个想法记为备选”。</p> : <ul>{view.ideas.map((idea) => <li key={idea.id}>{idea.text}</li>)}</ul>}</section>
@@ -69,13 +70,13 @@ export function Preparation({ refresh, proposalId }: { refresh: () => void; prop
           {candidate.impacts.map((impact, index) => <div key={index} className="finding" data-level="warn"><strong>{impact.message}</strong><div>{impact.chapters.map((n) => <a key={n} href={`#/chapter/${n}`}>第 {n} 章　</a>)}</div><p>先形成相应章节的候选修改，再核对这些设定。</p></div>)}
           {candidate.findings.map((finding, index) => <div key={index} className="finding" data-level={finding.level}>{finding.message}</div>)}
           {candidate.status === "proposed" && <div className="prep-proposal-actions">
-            <div className="row"><button data-primary="true" disabled={busy || candidate.stale || candidate.impacts.length > 0} onClick={() => void act(candidate, "write")}>确认并写第 {view.nextChapter} 章</button><button disabled={busy || candidate.stale || candidate.impacts.length > 0} onClick={() => void act(candidate, "confirm")}>只确认方案</button><button disabled={busy || candidate.stale || candidate.impacts.length > 0} onClick={() => void act(candidate, "trial")}>按方案先试写</button><button data-quiet="true" disabled={busy} onClick={() => void act(candidate, "reject")}>丢弃</button></div>
+            <div className="row"><Button type="primary" disabled={busy || candidate.stale || candidate.impacts.length > 0} onClick={() => void act(candidate, "write")}>确认并写第 {view.nextChapter} 章</Button><Button disabled={busy || candidate.stale || candidate.impacts.length > 0} onClick={() => void act(candidate, "confirm")}>只确认方案</Button><Button disabled={busy || candidate.stale || candidate.impacts.length > 0} onClick={() => void act(candidate, "trial")}>按方案先试写</Button><Button type="text" disabled={busy} onClick={() => void act(candidate, "reject")}>丢弃</Button></div>
             <p className="muted">试写会把这份方案附在草稿上；采用章节时，再一并确认这些依赖。</p>
           </div>}
           <p className="muted">以下为该方案保存时的完整预览。</p><Content content={candidate.content} />
         </>}
       </div>
-      <aside className="prep-sidebar"><h2>方案记录</h2>{view.proposals.length === 0 ? <p className="muted">还没有方案。先和 Agent 聊聊想写的故事。</p> : view.proposals.map((p) => <button className="prep-proposal-item" data-selected={p.id === selected} key={p.id} onClick={() => { setSelected(p.id); setEditing(false); }}><span className="tag">{status(p)}</span><strong>{p.summary}</strong><small>{new Date(p.createdAt).toLocaleDateString("zh-CN")}</small></button>)}</aside>
+      <aside className="prep-sidebar"><h2>方案记录</h2>{view.proposals.length === 0 ? <p className="muted">还没有方案。先和 Agent 聊聊想写的故事。</p> : view.proposals.map((p) => <button className="prep-proposal-item" data-selected={p.id === selected} key={p.id} onClick={() => { setSelected(p.id); setEditing(false); }}><Tag>{status(p)}</Tag><strong>{p.summary}</strong><small>{new Date(p.createdAt).toLocaleDateString("zh-CN")}</small></button>)}</aside>
     </div>
   </>;
 }
@@ -94,7 +95,7 @@ function AuthorForm({ view, onSaved }: { view: PreparationPayload; onSaved: (pro
     const changes = { ...(Object.keys(changed).length > 0 ? { setting: changed } : {}), ...(writingRules === view.confirmed.discipline.rules.join("\n") ? {} : { writingRules: rules }) };
     if (Object.keys(changes).length === 0) { setError("没有需要保存的修改。"); setBusy(false); return; }
     void api.recordAuthorDetails({ summary: "作者修改基本设定与写作偏好", baseFingerprint: view.fingerprint, changes }).then(onSaved).catch((e: Error) => setError(e.message)).finally(() => setBusy(false));
-  }}><fieldset disabled={busy}>{(Object.keys(labels) as (keyof typeof values)[]).map((key) => <label key={key}>{labels[key]}{key === "title" ? <input required value={values[key]} onChange={(e) => setValues({ ...values, [key]: e.target.value })} /> : <textarea required={key === "premise"} rows={key === "writingRules" ? 6 : 3} value={values[key]} onChange={(e) => setValues({ ...values, [key]: e.target.value })} />}</label>)}{error && <p role="alert" className="finding" data-level="block">{error}</p>}<button data-primary="true" type="submit">{busy ? "保存中…" : "保存作者设定"}</button></fieldset></form>;
+  }}><fieldset disabled={busy}>{(Object.keys(labels) as (keyof typeof values)[]).map((key) => <label key={key}>{labels[key]}{key === "title" ? <Input required value={values[key]} onChange={(e) => setValues({ ...values, [key]: e.target.value })} /> : <Input.TextArea required={key === "premise"} rows={key === "writingRules" ? 6 : 3} value={values[key]} onChange={(e) => setValues({ ...values, [key]: e.target.value })} />}</label>)}{error && <p role="alert" className="finding" data-level="block">{error}</p>}<Button type="primary" htmlType="submit" loading={busy}>保存作者设定</Button></fieldset></form>;
 }
 
 function Content({ content }: { content: PreparationContent }): React.ReactElement {

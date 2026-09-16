@@ -7,6 +7,8 @@
  */
 
 import { useCallback, useState } from "react";
+import { Button } from "antd";
+import { MenuOutlined } from "@ant-design/icons";
 import { api, selectedProjectId, type Alert, type AlertAction, type PlanningAction } from "./api.js";
 import { useFetch, usePolling, useRoute, useToast } from "./hooks.js";
 import { TaskPanel } from "./components/TaskPanel.js";
@@ -34,7 +36,7 @@ export function App(): React.ReactElement {
   const [route] = useRoute();
   const workspace = useFetch(() => api.workspace(), []);
   if (workspace.data === null) {
-    return <div className="empty">{workspace.error === null ? "打开工作区…" : <>读取工作区失败：{workspace.error} <button onClick={workspace.reload}>重试</button></>}</div>;
+    return <div className="empty">{workspace.error === null ? "打开工作区…" : <>读取工作区失败：{workspace.error} <Button size="small" onClick={workspace.reload}>重试</Button></>}</div>;
   }
   if (route === "/works" || (selectedProjectId() === null && workspace.data.defaultProjectId === null)) {
     return <Works />;
@@ -124,7 +126,7 @@ function ProjectApp(): React.ReactElement {
 
   return (
     <div className="shell">
-      <header className="mobile-work-header"><a href="#/works">← 作品</a><strong>{overview.data?.title ?? "novel-forge"}</strong><button aria-label="作品导航" aria-controls="project-navigation" aria-expanded={navOpen} onClick={() => setNavOpen(!navOpen)}>目录</button></header>
+      <header className="mobile-work-header"><a href="#/works">← 作品</a><strong>{overview.data?.title ?? "novel-forge"}</strong><Button size="small" icon={<MenuOutlined />} aria-label="作品导航" aria-controls="project-navigation" aria-expanded={navOpen} onClick={() => setNavOpen(!navOpen)}>目录</Button></header>
       <nav className="rail" id="project-navigation" data-open={navOpen} onClick={(event) => { if ((event.target as HTMLElement).closest("a")) setNavOpen(false); }}>
         <a href="#/works" className="all-works">← 全部作品</a>
         <div className="rail-title">{overview.data?.title ?? "novel-forge"}</div>

@@ -1,3 +1,4 @@
+import { Checkbox, Tag } from "antd";
 import type { DraftView } from "../api.js";
 
 export function DraftProposals({ draft, selected, onSelected, disabled }: {
@@ -9,10 +10,10 @@ export function DraftProposals({ draft, selected, onSelected, disabled }: {
     <h2>写作中补充的建议</h2>
     <p className="muted">{adopted ? "这里保留本版本采用时的选择。确认过的资料与未来规划可在作品资料中查看。" : "勾选你认可的建议，采用本稿时一起确认。未勾选的建议保留，人物当前状态仍以正文记录为准。"}</p>
     {draft.proposalOptions.map(option => <div className="draft-proposal" key={option.index}>
-      <label>{!adopted && <input type="checkbox" checked={selected.includes(option.index)} disabled={disabled || !option.available}
+      <label>{!adopted && <Checkbox checked={selected.includes(option.index)} disabled={disabled || !option.available}
         onChange={event => onSelected(event.target.checked ? [...selected, option.index].sort((a, b) => a - b) : selected.filter(index => index !== option.index))} />}
         <strong>{option.index + 1}. {option.title}</strong>
-        {adopted && <span className="tag">{option.status === "applied" ? "已随本稿确认" : "本次未采用"}</span>}
+        {adopted && (option.status === "applied" ? <Tag color="cyan">已随本稿确认</Tag> : <Tag>本次未采用</Tag>)}
       </label>
       {option.kind === "character_update" && <p><span className="muted">原资料：</span>{option.from ?? "未记录"}</p>}
       <p><span className="muted">{option.kind === "character_update" ? "建议改为：" : "规划："}</span>{option.to}</p>

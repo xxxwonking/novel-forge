@@ -17,7 +17,7 @@ function mergeMetadata(base: JsonRecord, delta: JsonRecord): JsonRecord {
   return result;
 }
 
-export async function readChatStream(response: Response): Promise<ChatCompletion> {
+export async function readChatStream(response: Response, onTextDelta?: (delta: string) => void): Promise<ChatCompletion> {
   if (response.body === null) throw new Error("chat 流式响应没有正文");
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
@@ -51,6 +51,7 @@ export async function readChatStream(response: Response): Promise<ChatCompletion
     for (const [key, value] of Object.entries(delta)) {
       if (["content", "reasoning_content", "refusal"].includes(key) && typeof value === "string") {
         message[key] = (typeof message[key] === "string" ? message[key] : "") + value;
+        if (key === "content" && value !== "") onTextDelta?.(value);
       } else if (key === "tool_calls" && Array.isArray(value)) {
         for (const item of value) {
           if (!isRecord(item) || !Number.isSafeInteger(item.index) || (item.index as number) < 0) throw new Error("chat SSE 工具缺少有效 index");

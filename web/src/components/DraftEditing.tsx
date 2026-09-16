@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import { Button, Input } from "antd";
 import { api, type DraftView } from "../api.js";
 import { useFetch } from "../hooks.js";
 
@@ -23,10 +24,10 @@ export function DraftEditor({ draft, onSaved, onClose }: { draft: DraftView; onS
   };
   return <section className="prep-section draft-editor" aria-label="修改正文">
     <h2>修改正文</h2><p className="muted">保存为新版本，旧正文和检查结果保留。保存后可选择检查或检查并采用。</p>
-    <label>正文<textarea aria-label="编辑正文" rows={16} value={body} onChange={e => setBody(e.target.value)} disabled={busy} /></label>
-    <label>修改说明<input value={summary} onChange={e => setSummary(e.target.value)} placeholder="这次主要调整了什么（可选）" disabled={busy} /></label>
+    <label>正文<Input.TextArea aria-label="编辑正文" rows={16} value={body} onChange={e => setBody(e.target.value)} disabled={busy} /></label>
+    <label>修改说明<Input value={summary} onChange={e => setSummary(e.target.value)} placeholder="这次主要调整了什么（可选）" disabled={busy} /></label>
     {error && <p className="finding" data-level="block" role="alert">{error}</p>}
-    <div className="row"><button data-primary="true" disabled={busy || !body.trim()} onClick={() => void save()}>{busy ? "保存中…" : "保存新版本"}</button><button disabled={busy} onClick={onClose}>取消编辑</button></div>
+    <div className="row"><Button type="primary" loading={busy} disabled={!body.trim()} onClick={() => void save()}>保存新版本</Button><Button disabled={busy} onClick={onClose}>取消编辑</Button></div>
   </section>;
 }
 

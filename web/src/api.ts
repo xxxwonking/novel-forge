@@ -323,6 +323,55 @@ export interface ConversationHistory {
   ideas: AlternativeIdea[];
 }
 
+/** 流式对话事件，与服务端 ConversationStreamEvent 一一对应。 */
+export type ConversationStreamEvent =
+  | { type: "round"; round: number }
+  | { type: "delta"; text: string }
+  | { type: "tool"; name: string; status: "started" | "finished"; ok: boolean }
+  | { type: "done"; reply: ConversationReply }
+  | { type: "error"; message: string };
+
+/**
+ * 逐事件读取 SSE 响应。响应体在 fetch 处即以流的形式读取，不等整段结束；
+ * 服务端开始前失败时仍是 JSON，沿用普通错误处理。
+ */
+async function streamRequest(path: string, body: unknown, onEvent: (event: ConversationStreamEvent) => void): Promise<ConversationReply> {
+  const projectId = selectedProjectId();
+  const headers = new Headers({ "content-type": "application/json", accept: "text/event-stream" });
+  if (projectId !== null) headers.set("x-novel-project", encodeURIComponent(projectId));
+  const res = await fetch(path, { method: "POST", headers, body: JSON.stringify(body) });
+  if (!res.ok || !(res.headers.get("content-type") ?? "").includes("text/event-stream")) {
+    const payload: unknown = await res.json().catch(() => ({}));
+    throw new Error(isRecord(payload) && typeof payload["error"] === "string" ? payload["error"] : `HTTP ${res.status}`);
+  }
+  if (res.body === null) throw new Error("服务端没有返回事件流");
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let reply: ConversationReply | null = null;
+  const consume = (frame: string): void => {
+    const data = frame.split("\n").filter((line) => line.startsWith("data:")).map((line) => line.slice(5).replace(/^ /u, "")).join("\n");
+    if (data === "") return;
+    const event = JSON.parse(data) as ConversationStreamEvent;
+    if (event.type === "done") reply = event.reply;
+    if (event.type === "error") throw new Error(event.message);
+    onEvent(event);
+  };
+  for (;;) {
+    const next = await reader.read();
+    buffer += next.done ? decoder.decode() : decoder.decode(next.value, { stream: true });
+    let boundary: number;
+    while ((boundary = buffer.indexOf("\n\n")) >= 0) {
+      consume(buffer.slice(0, boundary));
+      buffer = buffer.slice(boundary + 2);
+    }
+    if (next.done) break;
+  }
+  if (buffer.trim() !== "") consume(buffer);
+  if (reply === null) throw new Error("对话在完成前中断，请刷新查看是否已保存");
+  return reply;
+}
+
 /** 草稿的对外视图（后端剔除了内部会话快照）。只声明 UI 用到的字段。 */
 export interface DraftView {
   proposalOptions: { index: number; title: string; kind: string; from: string | null; to: string; reason: string; available: boolean; problem: string | null; status: "suggested" | "applied" | "not_selected"; foreshadowId?: string }[];
@@ -471,6 +520,7 @@ export const api = {
   // 对话式主 Agent 与章节草稿
   conversationHistory: () => request<ConversationHistory>("/api/conversation"),
   converse: (text: string) => post<ConversationReply>("/api/conversation", { text }),
+  converseStream: (text: string, onEvent: (event: ConversationStreamEvent) => void) => streamRequest("/api/conversation/stream", { text }, onEvent),
   chapterDrafts: (n: number) => request<DraftView[]>(`/api/chapter/drafts?n=${n}`),
   chapterDraft: (n: number, id: string) => request<DraftView>(`/api/chapter/draft?n=${n}&id=${encodeURIComponent(id)}`),
   editDraft: (input: { chapter: number; draftId: string; revisionToken: string; body: string; summary: string; requestId: string }) => post<DraftView>("/api/chapter/edit", input),

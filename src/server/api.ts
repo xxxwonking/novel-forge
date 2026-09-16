@@ -23,6 +23,7 @@ import { toDraftView } from "./draft-view.js";
 import type { StructureCorrection } from "../chapter/c5-correction.js";
 import type { DraftRewriteOptions } from "./draft-rewrite.js";
 import type { DraftAdoptOptions } from "../task/types.js";
+import type { ConversationStreamEvent } from "../agent/types.js";
 
 export interface ApiRequest {
   readonly method: string;
@@ -463,6 +464,30 @@ async function conversationSend(session: ProjectSession, body: unknown): Promise
     if (error instanceof ChapterWriteError) return { status: error.status, body: { error: error.message } };
     throw error;
   }
+}
+
+/**
+ * 同一轮对话的流式版本：进行中的文本增量与工具进度经 emit 逐条发出，最后是
+ * `done`（完整回复）或 `error`。回合在服务端照常保存 —— 观察者断开不影响结果。
+ * 在发出任何事件之前失败（参数错误、未配置模型）时返回普通 JSON 响应。
+ */
+export async function conversationStream(
+  session: ProjectSession,
+  body: unknown,
+  emit: (event: ConversationStreamEvent) => void,
+): Promise<ApiResponse | null> {
+  if (!isRecord(body)) return bad("请求体必须是对象");
+  const text = body["text"];
+  if (typeof text !== "string" || text.trim() === "") return bad("缺少 text");
+  let started = false;
+  try {
+    const reply = await session.converse(text, (event) => { started = true; emit(event); });
+    emit({ type: "done", reply });
+  } catch (error) {
+    if (!started && error instanceof ChapterWriteError) return { status: error.status, body: { error: error.message } };
+    emit({ type: "error", message: error instanceof Error ? error.message : String(error) });
+  }
+  return null;
 }
 
 function chapterDrafts(session: ProjectSession, query: URLSearchParams): ApiResponse {
