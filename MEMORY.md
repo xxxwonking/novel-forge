@@ -1,8 +1,8 @@
 # novel-forge 工作记忆
 
-更新时间：2026-09-16（Asia/Shanghai；本轮为进度核对与记忆同步；“继续完成项目”总目标保持暂停，最新进展见第 19 节）
+更新时间：2026-09-16（Asia/Shanghai；本轮为界面重做、演示数据修复与差距盘点；“继续完成项目”总目标保持暂停，最新进展见第 20 节）
 
-记录范围：本文件汇总项目调研、用户流程设计、能力映射和开发进展。Stage 1 见第 12 节，写章 API 见第 13 节，Gemini 真实单章见第 14 节，对话式主 Agent 见第 15 节，国内模型兼容见第 16 节。**接手先读第 19 节，再按需读第 18 节、第 17 节末尾和 `docs/superpowers/plans/2026-09-14-project-completion.md`。首版主要功能已实现；最新代码提交 `9bca531`（后台交接与写作要求传递修复）已在主目录 master，本记忆的文档提交随后推送。最新 48 文件 / 962 项测试与类型检查通过。Gemini 真实验收《雾港封签》三章（ch1d3 / ch2d4 / ch3d4，共 9745 字）已逐章采用并完成 1–3 章固定版本 TXT 导出，累计 62 次真实调用。尚未完成：作者要求传递修复后的真实 C4 复测、三章正文人工核对、用户流程 §10 全项审计与最终验收报告。沿用 LangGraph、当前代理独立实施与复核；不擅自恢复暂停的总目标或调用 Claude。**
+记录范围：本文件汇总项目调研、用户流程设计、能力映射和开发进展。Stage 1 见第 12 节，写章 API 见第 13 节，Gemini 真实单章见第 14 节，对话式主 Agent 见第 15 节，国内模型兼容见第 16 节。**接手先读第 20 节（含产品差距盘点，可直接当任务清单），再按需读第 19 节、第 18 节、第 17 节末尾和 `docs/superpowers/plans/2026-09-14-project-completion.md`。界面已引入 antd 6 重做并支持对话流式输出；最新代码提交 `e88d961` 已在主目录 master 与 `origin/master`；最新 49 文件 / 969 项测试、两个类型检查与 Web 构建通过。Gemini 真实验收《雾港封签》三章（ch1d3 / ch2d4 / ch3d4，共 9745 字）已逐章采用并完成 1–3 章固定版本 TXT 导出，累计 62 次真实调用。尚未完成：作者要求传递修复后的真实 C4 复测、三章正文人工核对、用户流程 §10 全项审计与最终验收报告。沿用 LangGraph、当前代理独立实施与复核；不擅自恢复暂停的总目标或调用 Claude。**
 
 ## 1. 当前状态与接续位置
 
@@ -821,3 +821,71 @@ Stage 2 =「作者通过对话完成首章」，切成三片、先做第 1 片�
 3. 用户流程 §10 的 16 项逐条审计与最终验收报告；目前只有代码审计报告 `docs/reports/2026-09-15-code-audit.md`。
 4. 暂缓项不变：DeepSeek 官方凭证、Claude 与 10 章缓存实测、旧作导入/批量生成等 v1 推迟范围。
 5. “检查项目并继续完成项目”的总目标仍为 paused，不因本次记忆同步而恢复或标为完成。
+
+## 20. 2026-09-16 界面重做、演示数据修复与差距盘点
+
+**当前接续入口。** 用户依次要求：检查进度 → 更新记忆提交 → 界面太丑要引入组件库并要流式输出 → 章节页滚动体验差 → 统一其余页面并美化滚动条 → 盘点“作为小说 Agent 还差什么”并把进度与后续任务写进本文件。全部实现与复核由当前代理完成，未启动子代理、未调用 Claude；浏览器验证一律使用脚本化模型替身，**本轮 0 次真实模型调用**。
+
+### 本轮代码提交（均已推送 `origin/master`）
+
+| 提交 | 内容 |
+| --- | --- |
+| `8a631c4` | 引入 antd 6 重做界面；主 Agent 对话新增 SSE 流式输出 |
+| `d657da2` | 重做正文页滚动与阅读版面 |
+| `65f0553` | 统一首页/结构视图版面；全局滚动条样式；修复节拍表缺权重的 500 |
+| `e88d961` | 演示人物各有自己的外貌与说话方式 |
+
+基线为 `367eeaf`（上一轮记忆同步）。工作区干净，开发 worktree `feat-project-completion` 已快进到同一提交。
+
+### 界面与交互（用户明确驱动）
+
+- **引入 antd 6.6.4 + @ant-design/icons**，主题在 `web/src/theme.ts`（暗色金调，与既有 CSS 变量同源）。全站原生 `select/radio/checkbox/number/dialog` 清零；状态标签统一走 `web/src/components/Chip.tsx`（antd `Tag` 在 `exactOptionalPropertyTypes` 下不收 `color={undefined}`，收口一处）。枚举中文名统一 `web/src/labels.ts`。
+- **对话流式输出**：`CallOptions.onTextDelta` → `ChatClient`/`ClaudeClient` 在有回调时强制流式 → `runAgentLoop` 每轮发 `round`、工具调用发 `tool` 事件 → `POST /api/conversation/stream` 以 SSE 逐条推送 `round/delta/tool/done/error`。断开连接不影响服务端保存回合；发出事件前失败仍返回带状态码的 JSON。Web 侧 `api.converseStream` 逐事件读取。
+- **作品列表/新建**：书脊式卡片、衬线标题、antd 表单。
+- **对话页**：三段式（标题／可滚动消息流／底部输入卡），逐字光标、工具进度胶囊（中文标签）、草稿抽屉、向上翻看时不被强制拉回底部。
+- **正文页**：顶栏固定，阅读区与体检栏**各自滚动**；正文列在可用宽度内居中（实测左右各留白 92px）、衬线加宽行距；章节选择/上下章/阅读进度条进顶栏；换章回章首；手机单轴滚动、体检栏排在正文之后。
+- **其余页面**：统一 `.panel` 纸面、统计条改指标卡、表格包 `table-panel` 可横向滚、图例统一、导出页与结构纠错表单重做版面。
+- **滚动条**：全站细窄半透明滑块，悬停转金色，轨道透明，正文页更窄一档。
+
+### 顺带修复的两个真问题
+
+- **节拍表缺权重导致 `/api/health` 500**：`deriveWordBudget` 直接解构 `rules.resolveCost[r.weight]`，手改或损坏的 `beats.json` 会抛 `undefined is not iterable`。现在报「节拍表里的伏笔收束「F01」的权重无效：undefined（可选项：main、sub、detail）」，并补回归（`test/derive.test.ts`，测试数 968→969）。
+- **演示人物共用模板**：`seed-demo.ts` 六个人物外貌/说话方式完全相同（用户报“点开详情显示的都是一个”）。已按角色身份各写一份；现有 `data/demo/characters.json` 就地更新（备份 `characters.json.bak-before-appearance-fix`，`data/` 不入库），其余字段与用户既有手工调整未动。**注意**：真实作品《雾港封签》的人物数据本来就各自独立，不受影响。
+
+### 验证边界
+
+- 49 文件 / 969 项测试、`npm.cmd run typecheck`（根 + web）、`npm run web:build`、`git diff --check` 全通过。
+- 浏览器核对三批工装，桌面 1440 / 390 / 320px：作品列表与新建、对话流式（实测逐字增长且最终文本与 `done` 一致）、结果页与导出控件、正文页独立滚动与锚点定位、首页、四个结构视图、提示列表、滚动条计算样式。均无横向溢出、无脚本错误。
+- 工装备份（含 SHA256 已核对，脚本保留相对导入，复跑时复制回工作树根目录为 `.tmp-*.mjs`）：
+  - `C:/Users/Administrator/AppData/Local/Temp/nf-ui-browser-LwHudw/ui-browser.source.mjs`
+  - `C:/Users/Administrator/AppData/Local/Temp/nf-reader-browser-BgkK5I/reader-browser.source.mjs`
+  - `C:/Users/Administrator/AppData/Local/Temp/nf-pages-browser-pt4gFO/pages-browser.source.mjs`
+- Playwright 经 npx 缓存调用：`C:/Users/Administrator/AppData/Local/npm-cache/_npx/e41f203b7505f1fb/node_modules/playwright`，Chromium 在 `.../ms-playwright/chromium-1208/chrome-win64/chrome.exe`。
+- **本轮未做**：§10 全项审计、真实模型复测、三章正文人工核对。
+
+### 产品差距盘点（用户提问“作为小说 Agent 还差什么”，当前代理核对代码后给出）
+
+已核对事实：外貌与说话方式**确实进入模型上下文**（`src/context/select-l3.ts` 渲染进 L3）；`VoiceCheckSpec` / `VoiceCheckChannel = "code" | "model"` 在 `src/types/character.ts` 定义但**全项目无任何消费点**；`src/gate/` 只有 `code-channel.ts`、`cross-chapter.ts`、`route.ts`，**没有模型审查通道**；API 端点清单中**无导入、无删除作品、无全文检索**；`Beat` 有 `volume` 字段但无卷管理入口。
+
+按优先级：
+
+1. **手改资料**：资料准备页表单只有 5 个字段（书名/想法/核心冲突/起点/写作规则），人物、地点、情节线、节拍表在界面上不能手改 —— 而后端 `record_author_details` 的 schema 已经支持传完整 `characters/settings/plotLines/beats`。**只差表单，成本最低、收益最直接。**
+2. **导入旧作**：v1 明确推迟，但没有导入就接不住有存量稿的作者。
+3. **VoiceCheck 的 model 通道**：SpeechProfile 已存、已喂模型，只差检查环节；“这一章 X 说话不像 X”目前完全没查。
+4. **语义一致性审查（原 M4 诊断通道）**：C6 只判可机械判定的项（引文定位、权重、密度、句长、标点），人物动机、伏笔是否真兑现、跨章设定矛盾都判不了。
+5. **批量/连续创作**与**跨多章返修**：现在严格一次一章；改第 5 章只把后续稿标过期，不找受影响段落、不给修订建议。
+6. **卷/部结构**：长篇组织必需，`volume` 字段已有但无入口。
+7. **删除与恢复入口**（作品与草稿）、**备份/迁移**（资产就是 `data/` 下一堆 JSON）。
+8. **导出格式**：只有固定版本 TXT，无 EPUB/DOCX/分卷/设定集导出。
+9. **全文检索**：找“钥匙第一次出现是哪一章”目前只能问 Agent。
+10. **成本账**：Claude 官方 10 章缓存实测缺官方 key、DeepSeek 官方接口缺凭证，长篇每千字成本没有实测数据；模型选择仍只有环境变量，无 UI 切换。
+
+用户尚未指定先做哪一项；第 1 项是当前代理的建议起点。
+
+### 下一轮接续待办
+
+- [ ] 用户确认从上面哪一项开始；未确认前不擅自扩大范围。
+- [ ] 沿用第 19 节未完成的三项验收：作者要求传递修复后的真实 C4 复测、三章正文人工故事核对、用户流程 §10 的 16 项审计与最终验收报告。
+- [ ] 若继续真实验收，仍用第 17 节指定目录与《雾港封签》，**不要另建或覆盖**；已有 62 次真实调用，三章均已采用并导出。
+- [ ] DeepSeek 官方真实验收仍需该平台凭证；Claude 真实调用继续暂缓；Gemini 代理凭证只用于原端点。
+- [ ] “检查项目并继续完成项目”的总目标仍为 paused，不因界面工作或本次记忆同步而恢复或标为完成。
