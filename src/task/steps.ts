@@ -184,6 +184,7 @@ export function checkChapter(
       budget: beat.budget,
       profile: input.gate.profile,
       declaredEventWeights: declaration.events.map((e) => e.weight),
+      ...(input.gate.characters === undefined ? {} : { characters: input.gate.characters }),
     },
     input.gate.rules,
   );

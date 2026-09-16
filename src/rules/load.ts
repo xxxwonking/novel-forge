@@ -21,6 +21,7 @@ import type {
   PlatformBase,
   Range,
   RepetitionRules,
+  VoiceRules,
   Rules,
   ZeroToleranceRule,
   ZeroToleranceScope,
@@ -165,6 +166,17 @@ function readRepetition(root: unknown): RepetitionRules {
       level: oneOf<GateLevel>(root, "repetition.interjectionRepeat.level", LEVELS),
       message: str(root, "repetition.interjectionRepeat.message"),
     }),
+  });
+}
+
+/** §12.3 C6 声音一致性的 code 通道参数。 */
+function readVoice(root: unknown): VoiceRules {
+  return Object.freeze({
+    speechVerbs: strList(root, "voice.speechVerbs"),
+    sentenceLengthTolerance: num(root, "voice.sentenceLengthTolerance"),
+    verbalTicMinLines: num(root, "voice.verbalTicMinLines"),
+    syntaxBiasTolerance: num(root, "voice.syntaxBiasTolerance"),
+    questionMarkers: strList(root, "voice.questionMarkers"),
   });
 }
 
@@ -336,6 +348,7 @@ export function buildRules(root: unknown): Rules {
       endingCliche: readZeroTolerance(root, "zeroTolerance.endingCliche"),
     }),
     repetition: readRepetition(root),
+    voice: readVoice(root),
     crossChapter: readCrossChapter(root),
     beatValidation: readBeatValidation(root),
     patchPriority: readPatchPriority(root),

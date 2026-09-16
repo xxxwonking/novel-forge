@@ -137,7 +137,10 @@ export interface VoiceCheckSpec {
 /** §12.3 C6 的声音一致性检查清单。顺序固定，便于快照测试。 */
 export const VOICE_CHECKS: readonly VoiceCheckSpec[] = [
   { field: "forbiddenLexicon", channel: "code", action: "block" },
-  { field: "addressForms", channel: "code", action: "warn" },
+  // addressForms 原被标成 code，但「该人物提到目标时用的称呼必须在此表内」
+  // 是语义判断：第三句里提到某人名字未必是当面称呼。机械判会大量误报，
+  // 所以改判 model 通道（见 src/gate/voice-channel.ts 头的说明）。
+  { field: "addressForms", channel: "model", action: "warn" },
   { field: "sentenceLength", channel: "code", action: "warn" },
   { field: "signatureLexicon", channel: "code", action: "warn" },
   { field: "verbalTics", channel: "code", action: "warn" },

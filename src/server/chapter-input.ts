@@ -209,7 +209,9 @@ export function buildChapterRunInput(
     },
     promisedResolutions: beat.plan.resolves.map((r) => ({ foreshadowId: r.foreshadowId, completeness: r.completeness })),
     ...(options.maxOutputTokens === undefined ? {} : { maxOutputTokens: options.maxOutputTokens }),
-    gate: { profile: ctx.meta.profile, rules: session.rules },
+    // 声音检查用的人物卡与 L3 装配的是同一批（节拍点名）—— 检查范围与模型看到的
+    // 上下文保持一致，不会出现「模型没被告知这个人物，却被按他的声音表打分」。
+    gate: { profile: ctx.meta.profile, rules: session.rules, characters },
   };
 }
 

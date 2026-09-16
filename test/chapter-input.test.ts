@@ -39,7 +39,12 @@ describe("buildChapterRunInput", () => {
     expect(volatile.previous).toEqual({ chapter: 2, headSummary: null, tailText: CH2 });
     expect(volatile.task).toBe(C4_TASK);
     expect(volatile.beat.budget).toEqual(deriveBudget(WRITE_BEAT.plan, snapshot.profile, session.rules, { now: WRITE_BEAT.updatedAt }));
-    expect(input.gate).toEqual({ profile: snapshot.profile, rules: session.rules });
+    // 声音检查拿到的人物卡必须与 L3 装配的是同一批（节拍点名），
+    // 否则会出现「模型没被告知这个人物，却被按他的声音表打分」。
+    expect(input.gate?.profile).toEqual(snapshot.profile);
+    expect(input.gate?.rules).toBe(session.rules);
+    expect(input.gate?.characters?.map((c) => c.id)).toEqual(l3.characters.map((c) => c.card.id));
+    expect(input.gate?.characters?.find((c) => c.id === "C01")?.speech).toEqual(snapshot.characters[0]?.speech);
     expect(input.maxOutputTokens).toBe(9000);
   });
 

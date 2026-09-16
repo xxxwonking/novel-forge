@@ -19,6 +19,7 @@ import { checkPromisedResolutions, crossCheckC5 } from "./c5-crosscheck.js";
 import { recordCacheMetrics, type CacheRecord } from "../metrics/cache.js";
 import { commitDeclaration, EventStream } from "../store/event-stream.js";
 import { gateChapter, type ChapterGateResult } from "../gate/code-channel.js";
+import type { VoiceCharacter } from "../gate/voice-channel.js";
 import { canAccept, routeChapter, unresolvedFromFindings, type RouteResult } from "../gate/route.js";
 import type { Rules } from "../rules/schema.js";
 import type { GateFinding, WorkProfile } from "../types/beat.js";
@@ -77,6 +78,11 @@ export interface ChapterRunInput {
   readonly gate?: {
     readonly profile: WorkProfile;
     readonly rules: Rules;
+    /**
+     * 本章出场人物的完整卡（含 `speech`）。缺省即跳过声音一致性检查 ——
+     * 与整个 gate 缺省同一语义：工装不需要闸门，也不该收到假人物卡。
+     */
+    readonly characters?: readonly VoiceCharacter[];
   };
 }
 

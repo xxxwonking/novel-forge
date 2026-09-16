@@ -19,6 +19,7 @@ import type { EventWeight } from "../types/events.js";
 import type { Rules, ZeroToleranceRule } from "../rules/schema.js";
 import { THRESHOLD_KEYS } from "../rules/schema.js";
 import { measuredDensity, thresholdsForWords } from "../beat/derive.js";
+import { gateVoice, type VoiceCharacter } from "./voice-channel.js";
 import {
   countEach,
   countTotal,
@@ -36,6 +37,12 @@ export interface ChapterGateInput {
   readonly profile: WorkProfile;
   /** C5 声明的事件权重。密度用声明值而非计划值 —— 校验的是写出来的东西。 */
   readonly declaredEventWeights: readonly EventWeight[];
+  /**
+   * 本章出场人物的完整卡（含 `speech`），供声音一致性检查用。
+   * 缺省即跳过声音检查 —— 与 `ChapterRunInput.gate` 缺省跳过整个质量闸门同一语义，
+   * 不给缓存实测工装塞假人物卡。
+   */
+  readonly characters?: readonly VoiceCharacter[];
 }
 
 export interface ChapterGateResult {
@@ -63,6 +70,9 @@ export function gateChapter(input: ChapterGateInput, rules: Rules): ChapterGateR
     ...checkInterjections(input.chapterText, thresholds, rules),
     ...checkZeroTolerance(input.chapterText, rules),
     ...checkRepetition(input.chapterText, rules),
+    // 声音检查放在既有检查之后：findings 顺序直接决定体检面板的展示顺序，
+    // 字数与密度是作者最先想看的，不该被人物级提示挤下去。
+    ...(input.characters === undefined ? [] : gateVoice({ chapterText: input.chapterText, characters: input.characters }, rules)),
   ];
   return { findings, words, thresholds, density };
 }

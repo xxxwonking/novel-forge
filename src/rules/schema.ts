@@ -63,6 +63,21 @@ export interface RepetitionRules {
   };
 }
 
+/**
+ * §12.3 C6 人物声音一致性（code 通道）。
+ *
+ * `speechVerbs` 是**归属**用的，不是检查用的：没有它就无法把台词绑到人身上，
+ * 后面几项检查全都无从谈起（见 `src/text/speaker.ts`）。
+ */
+export interface VoiceRules {
+  readonly speechVerbs: readonly string[];
+  readonly sentenceLengthTolerance: number;
+  readonly verbalTicMinLines: number;
+  readonly syntaxBiasTolerance: number;
+  /** 问句收尾的语气词（问号之外的判据）。 */
+  readonly questionMarkers: readonly string[];
+}
+
 export interface CrossChapterRules {
   readonly noStageFeedbackBlock: number;
   readonly noStageFeedbackPlanBlock: number;
@@ -197,6 +212,7 @@ export interface Rules {
     readonly endingCliche: ZeroToleranceRule;
   };
   readonly repetition: RepetitionRules;
+  readonly voice: VoiceRules;
   readonly crossChapter: CrossChapterRules;
   readonly beatValidation: BeatValidationRules;
   readonly patchPriority: PatchPriority;

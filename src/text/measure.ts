@@ -45,7 +45,8 @@ export function lastParagraphs(text: string, n: number): readonly string[] {
 // ── 对白与内心活动的抽取（§10.7 的 scope 限定，判定口径见 §10.13）────────
 
 /** 中文小说的引号形式。直角引号与弯引号都要认。 */
-const QUOTED = /[「『“"]([^」』”"]*)[」』”"]/gu;
+/** 引号内的对白。`speaker.ts` 按它切台词，所以导出复用，不另写一份会走样的正则。 */
+export const QUOTED = /[「『“"]([^」』”"]*)[」』”"]/gu;
 
 /**
  * 心理活动的标记词。命中后取到句末。
