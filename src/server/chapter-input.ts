@@ -203,7 +203,7 @@ export function buildChapterRunInput(
       knownCharacters: new Set(ctx.characters.map((c) => c.id)),
       knownSettings: new Set(ctx.meta.settings.map(setting => setting.id)),
       knownForeshadows: new Set(ctx.projections.foreshadows.filter((f) => f.status === "open").map((f) => f.id)),
-      foreshadows: ctx.projections.foreshadows.map(f => ({ id: f.id, label: f.label, status: f.status })),
+      foreshadows: ctx.projections.foreshadows.map(f => ({ id: f.id, label: f.label, status: f.status, intent: f.intent })),
       knownPlotLines: new Set(ctx.meta.plotLines.map((p) => p.id)),
       allocateForeshadowId: foreshadowAllocator(session),
     },

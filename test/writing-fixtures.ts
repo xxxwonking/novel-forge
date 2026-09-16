@@ -12,7 +12,19 @@ import { loadRules } from "../src/rules/load.js";
 // 协议及单次故障恢复用例关闭额外修订；所有正文质量闸门仍使用原规则。
 // 自动修订额度与恢复在 automatic-revision.test.ts 单独走完整业务服务验证。
 const baseRules = loadRules();
-export const SINGLE_PASS_RULES = { ...baseRules, task: { ...baseRules.task, maxAutoRevisions: 0 } };
+
+/**
+ * 关掉两个 model 通道（声音判定 / 语义核对）的规则基线。
+ *
+ * 它们每章各发一次模型调用，而脚本化用例都是按固定次序排好的应答 ——
+ * 开着只会白白多消耗一次脚本应答。这两个通道的行为由
+ * `test/voice-model.test.ts`、`test/semantics-channel.test.ts` 与浏览器端到端
+ * 单独覆盖，这里不重复。
+ */
+export const NO_MODEL_REVIEW = { ...baseRules, review: { voice: false, semantics: false as const } };
+
+/** 协议及单次故障恢复用例：关闭额外修订与两个 model 通道；正文质量闸门仍用原规则。 */
+export const SINGLE_PASS_RULES = { ...NO_MODEL_REVIEW, task: { ...baseRules.task, maxAutoRevisions: 0 } };
 
 export const NOW = "2026-09-10T00:00:00.000Z";
 export const CH1 = "守夜人将一枚青铜钥匙放在桌上。钥匙的齿缝沾着红泥。李长风收起钥匙，记住了守夜人的面容。";
@@ -96,6 +108,16 @@ export function modelMessage(content: Anthropic.ContentBlock[], stopReason = "en
     usage: { input_tokens: 100, output_tokens: 100, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
   } as unknown as Anthropic.Message;
 }
+
+/**
+ * 语义审查 model 通道的「没有问题」应答。
+ *
+ * C6 现在会在每章检查末尾追加两次模型调用（声音判定、语义核对），脚本化用例
+ * 必须为它们安排应答。统一放在这里，免得每个文件各写一份。
+ */
+export const SEMANTIC_OK: CallResult = modelText(JSON.stringify({ issues: [] }));
+/** 声音判定 model 通道的「没有问题」应答。 */
+export const VOICE_OK: CallResult = modelText(JSON.stringify({ characters: [] }));
 
 export function modelText(text: string): CallResult {
   return { kind: "ok", message: modelMessage([{ type: "text", text, citations: [] }]) };

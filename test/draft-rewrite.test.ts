@@ -12,7 +12,7 @@ import { buildChapterReadSource } from "../src/server/chapter-input.js";
 import type { ChapterDraft } from "../src/task/types.js";
 import type { ModelClient } from "../src/client/model.js";
 import type { CallResult } from "../src/client/claude.js";
-import { C5_JSON, PROSE, WRITE_BEAT, fakeClient, modelMessage, modelText, savedDraft, writingSnapshot } from "./writing-fixtures.js";
+import { C5_JSON, NO_MODEL_REVIEW, PROSE, WRITE_BEAT, fakeClient, modelMessage, modelText, savedDraft, writingSnapshot } from "./writing-fixtures.js";
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
@@ -25,7 +25,7 @@ const rewritten = (text = replacement): CallResult => modelText(JSON.stringify({
 function fixture(client: ModelClient) {
   const root = mkdtempSync(join(tmpdir(), "nf-rewrite-")); roots.push(root);
   new ProjectStore(root).save(writingSnapshot());
-  const session = new ProjectSession(root, undefined, { client });
+  const session = new ProjectSession(root, NO_MODEL_REVIEW, { client });
   const store = new DraftStore(root);
   const words = deriveBudget(WRITE_BEAT.plan, session.meta.profile, session.rules).words.sweet;
   const passage = `${PROSE}\n开头仍然保留。${selected}结尾仍然保留。\n`;
@@ -98,7 +98,7 @@ describe("模型局部修订与片段续写", () => {
     const input = payload(session, { scope: { quote: selected, occurrence: 0 } });
     const draft = await start(session, input);
     await finish(session, draft);
-    const reopened = new ProjectSession(root);
+    const reopened = new ProjectSession(root, NO_MODEL_REVIEW);
     expect((await start(reopened, { ...input, scope: { occurrence: 0, quote: selected } })).draftId).toBe(draft.draftId);
     expect((await handleAsync(reopened, request({ ...input, instruction: "改成直接交战" }))).status).toBe(409);
     expect(reopened.listDrafts(3)).toHaveLength(2);
@@ -111,7 +111,7 @@ describe("模型局部修订与片段续写", () => {
     const draft = await start(session, payload(session));
     expect((await finish(session, draft)).error?.step).toBe("C5");
     const next = fakeClient([modelText(C5_JSON)]);
-    const reopened = new ProjectSession(root, undefined, { client: next.client });
+    const reopened = new ProjectSession(root, NO_MODEL_REVIEW, { client: next.client });
     const result = await finish(reopened, draft);
     expect(result).toMatchObject({ status: "ready", body: body.replace(selected, replacement) });
     expect(next.calls).toHaveLength(1);
@@ -125,7 +125,7 @@ describe("模型局部修订与片段续写", () => {
     const failed = await finish(session, draft);
     expect(failed).toMatchObject({ status: "failed", body, error: { step: "C4" } });
     const next = fakeClient([rewritten(), modelText(C5_JSON)]);
-    const reopened = new ProjectSession(root, undefined, { client: next.client });
+    const reopened = new ProjectSession(root, NO_MODEL_REVIEW, { client: next.client });
     expect((await finish(reopened, failed)).body).toBe(body.replace(selected, replacement));
     expect(JSON.stringify(next.calls[0]?.messages)).toContain(selected);
     expect(reopened.listDrafts(3)).toHaveLength(2);
@@ -172,7 +172,7 @@ describe("模型局部修订与片段续写", () => {
     const paused = await finish(session, draft);
     expect(paused).toMatchObject({ body: body.replace(selected, replacement), execution: { status: "paused" } });
     const next = fakeClient([modelText(C5_JSON)]);
-    const reopened = new ProjectSession(root, undefined, { client: next.client });
+    const reopened = new ProjectSession(root, NO_MODEL_REVIEW, { client: next.client });
     expect((await finish(reopened, paused)).status).toBe("ready");
     expect(next.calls).toHaveLength(1);
   });
@@ -204,7 +204,7 @@ describe("模型局部修订与片段续写", () => {
     expect(first.calls).toHaveLength(1);
     const suffix = "院门便被推开了。" + "风".repeat(2900);
     const next = fakeClient([modelText(suffix), modelText(C5_JSON)]);
-    const reopened = new ProjectSession(root, undefined, { client: next.client });
+    const reopened = new ProjectSession(root, NO_MODEL_REVIEW, { client: next.client });
     const continued = await start(reopened, { ...payload(reopened), draftId: incomplete.draftId, revisionToken: view(reopened, incomplete.draftId).revisionToken, mode: "continue", scope: null, instruction: "接着完成本章", requestId: "continue-next" });
     const result = await finish(reopened, continued);
     expect(result.body).toBe(partial + more + suffix);

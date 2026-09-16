@@ -64,6 +64,15 @@ export interface RepetitionRules {
 }
 
 /**
+ * 两个 model 通道的开关。它们是检查链上唯一发网络请求的部分，每章各一次调用；
+ * 长篇的成本敏感场景可以按作品关掉，代码通道不受影响。
+ */
+export interface ReviewRules {
+  readonly voice: boolean;
+  readonly semantics: boolean;
+}
+
+/**
  * §12.3 C6 人物声音一致性（code 通道）。
  *
  * `speechVerbs` 是**归属**用的，不是检查用的：没有它就无法把台词绑到人身上，
@@ -213,6 +222,7 @@ export interface Rules {
   };
   readonly repetition: RepetitionRules;
   readonly voice: VoiceRules;
+  readonly review: ReviewRules;
   readonly crossChapter: CrossChapterRules;
   readonly beatValidation: BeatValidationRules;
   readonly patchPriority: PatchPriority;

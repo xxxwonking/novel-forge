@@ -188,6 +188,8 @@ export interface ChapterDraft {
    * 真实的模型调用，不该再打一遍。正文一改，指纹对不上，就重新判。
    */
   readonly voiceCheck?: { readonly forBody: string; readonly findings: readonly GateFinding[] };
+  /** 语义审查（视角越界 / 伏笔兑现）的判定，同样按正文指纹缓存。 */
+  readonly semanticCheck?: { readonly forBody: string; readonly findings: readonly GateFinding[] };
   /**
    * 生成时的作品版本号（每次采用 +1，见 DraftStore.workVersion）。
    * 采用更早章后，`baseVersion` 落后的后续章草稿被标 `stale`。

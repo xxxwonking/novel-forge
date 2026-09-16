@@ -22,6 +22,7 @@ import type {
   Range,
   RepetitionRules,
   VoiceRules,
+  ReviewRules,
   Rules,
   ZeroToleranceRule,
   ZeroToleranceScope,
@@ -72,6 +73,13 @@ function str(root: unknown, path: string): string {
     throw new RulesError(path, `必须是非空字符串，实际是 ${JSON.stringify(v)}`);
   }
   return v;
+}
+
+/** 布尔开关。YAML 里写 true/false；非布尔值明确报错，不静默按默认值走。 */
+function bool(root: unknown, path: string): boolean {
+  const value = at(root, path);
+  if (typeof value !== "boolean") throw new RulesError(path, "必须是布尔值");
+  return value;
 }
 
 function strList(root: unknown, path: string): readonly string[] {
@@ -167,6 +175,10 @@ function readRepetition(root: unknown): RepetitionRules {
       message: str(root, "repetition.interjectionRepeat.message"),
     }),
   });
+}
+
+function readReview(root: unknown): ReviewRules {
+  return Object.freeze({ voice: bool(root, "review.voice"), semantics: bool(root, "review.semantics") });
 }
 
 /** §12.3 C6 声音一致性的 code 通道参数。 */
@@ -349,6 +361,7 @@ export function buildRules(root: unknown): Rules {
     }),
     repetition: readRepetition(root),
     voice: readVoice(root),
+    review: readReview(root),
     crossChapter: readCrossChapter(root),
     beatValidation: readBeatValidation(root),
     patchPriority: readPatchPriority(root),

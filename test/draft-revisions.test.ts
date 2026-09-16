@@ -13,7 +13,7 @@ import { parseC5 } from "../src/chapter/c5-schema.js";
 import type { ChapterDraft } from "../src/task/types.js";
 import type { ModelClient } from "../src/client/model.js";
 import type { CallResult } from "../src/client/claude.js";
-import { C5_JSON, PROSE, WRITE_BEAT, fakeClient, modelMessage, modelText, savedDraft, writingSnapshot } from "./writing-fixtures.js";
+import { C5_JSON, NO_MODEL_REVIEW, PROSE, WRITE_BEAT, fakeClient, modelMessage, modelText, savedDraft, writingSnapshot } from "./writing-fixtures.js";
 
 const roots: string[] = [];
 afterEach(() => { vi.unstubAllEnvs(); for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
@@ -24,7 +24,7 @@ function fixture(client: ModelClient = fakeClient([]).client) {
   new ProjectStore(root).save(writingSnapshot());
   const store = new DraftStore(root);
   store.saveDraft(savedDraft());
-  return { root, store, session: new ProjectSession(root, undefined, { client }) };
+  return { root, store, session: new ProjectSession(root, NO_MODEL_REVIEW, { client }) };
 }
 function view(session: ProjectSession, draftId = "ch3d1", chapter = 3): View {
   const response = handle(session, { method: "GET", path: "/api/chapter/draft", body: undefined, query: new URLSearchParams({ n: String(chapter), id: draftId }) });
@@ -64,7 +64,7 @@ describe("稿件编辑、重检与正式版本", () => {
     expect(store.loadDraft(3, "ch3d1")).toEqual(before);
     expect(session.chapterText(3)).toBeUndefined();
     expect(model.calls).toHaveLength(0);
-    const reopened = new ProjectSession(root);
+    const reopened = new ProjectSession(root, NO_MODEL_REVIEW);
     expect(reopened.getDraft(3, draft.draftId)?.body).toBe(draft.body);
     expect(reopened.chapterTasks().find(task => task.draftId === draft.draftId)?.status).toBe("waiting");
     expect(reopened.chapterTasks().find(task => task.draftId === "ch3d1")?.isHistory).toBe(true);
@@ -150,7 +150,7 @@ describe("稿件编辑、重检与正式版本", () => {
     const changed = edit(session, bodyWithinBudget(session));
     expect((await check(session, changed, true)).status).toBe("failed");
     const next = fakeClient([modelText(C5_JSON)]);
-    const reopened = new ProjectSession(root, undefined, { client: next.client });
+    const reopened = new ProjectSession(root, NO_MODEL_REVIEW, { client: next.client });
     expect(reopened.chapterText(3)).toBeUndefined();
     const resumed = await reopened.writeChapter({ chapter: 3, draftId: changed.draftId });
     expect(resumed).toMatchObject({ status: "adopted", body: changed.body });
@@ -246,7 +246,7 @@ describe("正文保持、纠正候选结构", () => {
     const payload = { chapter: 3, draftId: "ch3d1", revisionToken: view(session).revisionToken, summary: "昏倒不是死亡", changes: [correction], requestId: "correct-once" };
     const first = handle(session, request("/api/chapter/correct", payload));
     expect(first.status).toBe(200);
-    const reopened = new ProjectSession(root);
+    const reopened = new ProjectSession(root, NO_MODEL_REVIEW);
     const retried = handle(reopened, request("/api/chapter/correct", payload));
     expect((retried.body as View).draftId).toBe((first.body as View).draftId);
     expect(reopened.listDrafts(3)).toHaveLength(2);
@@ -303,7 +303,7 @@ describe("正文保持、纠正候选结构", () => {
     const { session, root } = setup();
     const changed = correct(session, [correction]).body as View;
     vi.stubEnv("NOVEL_MODEL_PROVIDER", "invalid-provider-to-detect-model-creation");
-    const reopened = new ProjectSession(root);
+    const reopened = new ProjectSession(root, NO_MODEL_REVIEW);
     expect((await check(reopened, changed)).status).toBe("ready");
   });
 
@@ -325,7 +325,7 @@ describe("正文保持、纠正候选结构", () => {
       if (round === 3) return tool("check_chapter_draft", { draftId: draft.draftId, revisionToken: draft.revisionToken, adoptOnSuccess: true });
       return modelText("已保留正文并纠正记录，按你的要求检查后采用。");
     } };
-    const session = new ProjectSession(root, undefined, { client });
+    const session = new ProjectSession(root, NO_MODEL_REVIEW, { client });
     const reply = await session.converse("ch3d1 正文里的血刀客只是昏倒，正文保持，纠正死亡记录，检查通过就采用。");
     expect(reply.effects).toContainEqual(expect.objectContaining({ kind: "chapter_revised", draftId: "ch3d2" }));
     expect(reply.effects).toContainEqual(expect.objectContaining({ kind: "task_updated", draftId: "ch3d2" }));

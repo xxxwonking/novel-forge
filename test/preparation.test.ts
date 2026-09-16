@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { ProjectStore } from "../src/store/persist.js";
 import { ProjectSession } from "../src/server/state.js";
 import { buildChapterRunInput } from "../src/server/chapter-input.js";
-import { C5_JSON, PROSE, declaration, fakeClient, modelMessage, modelText, writingSnapshot } from "./writing-fixtures.js";
+import { C5_JSON, NO_MODEL_REVIEW, PROSE, declaration, fakeClient, modelMessage, modelText, writingSnapshot } from "./writing-fixtures.js";
 import type { PreparationChanges } from "../src/preparation/types.js";
 import { beatInput, characterInput, emptyBeat, emptyCharacter, emptySetting, plotLineInput, settingInput, type BeatInput, type CharacterRecord, type PreparationChanges as FormChanges } from "../web/src/preparation-changes.js";
 import { DraftStore } from "../src/task/draft-store.js";
@@ -22,7 +22,7 @@ function fresh(client?: ReturnType<typeof fakeClient>["client"]) {
   const base = writingSnapshot();
   const store = new ProjectStore(root);
   store.save({ ...base, setting: { ...base.setting, centralConflict: "", openingSituation: "" }, characters: [], settings: [], plotLines: [], beats: [], events: [], chapters: new Map() });
-  return { root, store, session: new ProjectSession(root, undefined, client === undefined ? {} : { client }) };
+  return { root, store, session: new ProjectSession(root, NO_MODEL_REVIEW, client === undefined ? {} : { client }) };
 }
 export function firstChapterChanges(): PreparationChanges {
   const source = writingSnapshot();
@@ -45,7 +45,7 @@ describe("作品资料与章节方案", () => {
     const proposal = propose(session);
     expect(proposal.status).toBe("proposed");
     expect(store.load()).toEqual(before);
-    const reopened = new ProjectSession(root);
+    const reopened = new ProjectSession(root, NO_MODEL_REVIEW);
     expect(reopened.preparation.view().proposals[0]?.id).toBe(proposal.id);
     expect(reopened.preparation.confirm(proposal.id).changed).toBe(true);
     expect(reopened.preparation.confirm(proposal.id).changed).toBe(false);
@@ -55,7 +55,7 @@ describe("作品资料与章节方案", () => {
     expect(input.assembleInput.volatile.beat.budget?.words.min).toBeGreaterThan(0);
     expect(store.loadEvents()).toEqual([]);
     expect(reopened.currentChapter).toBe(0);
-    expect(new ProjectSession(root).meta.characters.map((c) => c.name)).toEqual(writingSnapshot().characters.map((c) => c.name));
+    expect(new ProjectSession(root, NO_MODEL_REVIEW).meta.characters.map((c) => c.name)).toEqual(writingSnapshot().characters.map((c) => c.name));
   });
 
   it("同内容同来源的重试复用方案；来源改变后不覆盖作者新选择", () => {
@@ -84,7 +84,7 @@ describe("作品资料与章节方案", () => {
   it("对已出现人物的设定变更保留候选与受影响章节，不直接改掉既有依据", () => {
     const { root, store } = fresh();
     store.save(writingSnapshot());
-    const session = new ProjectSession(root);
+    const session = new ProjectSession(root, NO_MODEL_REVIEW);
     const character = firstChapterChanges().characters![0]!;
     const proposal = propose(session, { characters: [{ ...character, profile: { ...character.profile, background: "另一个身世" } }] });
     expect(proposal.impacts.some((impact) => impact.chapters.includes(1))).toBe(true);
@@ -120,7 +120,7 @@ describe("作品资料与章节方案", () => {
     const { root, store } = fresh();
     const before = store.load();
     store.save({ ...before, characters: [{ ...writingSnapshot().characters[0]!, id: "C99", name: "未选中的人物", provenance: "proposed" }], beats: [{ ...writingSnapshot().beats[0]!, chapter: 9, provenance: "proposed" }] });
-    const session = new ProjectSession(root);
+    const session = new ProjectSession(root, NO_MODEL_REVIEW);
     const proposal = propose(session);
     session.preparation.confirm(proposal.id);
     expect(session.meta.characters.find((c) => c.id === "C99")?.provenance).toBe("proposed");
@@ -132,7 +132,7 @@ describe("作品资料与章节方案", () => {
     const { root, store } = fresh();
     const source = writingSnapshot();
     store.save({ ...source, events: source.events.filter((e) => e.payload.type !== "foreshadow_planted") });
-    const session = new ProjectSession(root);
+    const session = new ProjectSession(root, NO_MODEL_REVIEW);
     expect(session.preparation.view().readiness.ready).toBe(false);
     expect(session.preparation.view().readiness.missing.join(" ")).toContain("F01");
   });
@@ -200,7 +200,7 @@ describe("方案试写与打包采用", () => {
     const view = handle(session, { method: "GET", path: "/api/chapter/draft", query: new URLSearchParams({ n: "1", id: draft.draftId }), body: undefined });
     expect(view.body).toMatchObject({ preparationProposalId: proposal.id });
     expect(session.adopt(1, draft.draftId).changed).toBe(true);
-    const reopened = new ProjectSession(root);
+    const reopened = new ProjectSession(root, NO_MODEL_REVIEW);
     expect(reopened.preparation.get(proposal.id).status).toBe("confirmed");
     expect(reopened.chapterText(1)).toBe(draft.body);
     expect(reopened.events().some((e) => e.envelope.chapter === 1 && e.envelope.provenance === "committed")).toBe(true);
@@ -214,7 +214,7 @@ describe("方案试写与打包采用", () => {
     const failed = await session.writeChapter({ chapter: 1, proposalId: proposal.id });
     expect(failed.error?.step).toBe("C5");
     const next = fakeClient([modelText(TRIAL_C5)]);
-    const reopened = new ProjectSession(root, undefined, { client: next.client });
+    const reopened = new ProjectSession(root, NO_MODEL_REVIEW, { client: next.client });
     const resumed = await reopened.writeChapter({ chapter: 1, draftId: failed.draftId });
     expect(resumed.status).toBe("ready");
     expect(next.calls).toHaveLength(1);
@@ -263,7 +263,7 @@ describe("资料手改表单的载荷契约", () => {
   function withCharacters() {
     const { root, store } = fresh();
     store.save(writingSnapshot());
-    return { root, session: new ProjectSession(root) };
+    return { root, session: new ProjectSession(root, NO_MODEL_REVIEW) };
   }
   const author = (session: ProjectSession, changes: FormChanges) =>
     session.preparation.recordAuthor({ summary: "作者手改资料", changes, baseFingerprint: session.preparation.view().fingerprint });

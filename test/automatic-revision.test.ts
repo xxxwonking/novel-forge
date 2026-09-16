@@ -11,11 +11,11 @@ import { deriveBudget } from "../src/beat/derive.js";
 import { countWords } from "../src/text/measure.js";
 import type { ModelClient } from "../src/client/model.js";
 import type { CallResult } from "../src/client/claude.js";
-import { C5_JSON, PROSE, WRITE_BEAT, fakeClient, modelText, savedDraft, writingSnapshot } from "./writing-fixtures.js";
+import { C5_JSON, NO_MODEL_REVIEW, PROSE, WRITE_BEAT, fakeClient, modelText, savedDraft, writingSnapshot } from "./writing-fixtures.js";
 
 const roots: string[] = [];
 afterEach(() => { vi.restoreAllMocks(); for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
-const rules = loadRules();
+const rules = NO_MODEL_REVIEW;
 const withLimit = (limit: number) => ({ ...rules, task: { ...rules.task, maxAutoRevisions: limit } });
 const target = deriveBudget(WRITE_BEAT.plan, writingSnapshot().profile, rules).words.sweet;
 const completeBody = PROSE + "\n" + "风".repeat(target - countWords(PROSE));

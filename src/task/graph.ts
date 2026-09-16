@@ -16,7 +16,7 @@
 import { Annotation, END, MemorySaver, START, StateGraph } from "@langchain/langgraph";
 import type { ModelClient } from "../client/model.js";
 import type { ChapterRunInput } from "../chapter/pipeline.js";
-import { checkChapter, checkVoiceWithModel, declareStructure, writeChapterBody, type WriteResult } from "./steps.js";
+import { checkChapter, checkSemanticsWithModel, checkVoiceWithModel, declareStructure, writeChapterBody, type WriteResult } from "./steps.js";
 import { rewriteChapterBody } from "./rewrite.js";
 import { automaticRevisionLimit, canAutomaticallyRevise } from "./automatic-revision.js";
 import { canAccept } from "../gate/route.js";
@@ -57,6 +57,8 @@ const StateSpec = Annotation.Root({
   /** 已判定过声音的正文指纹（`stableFingerprint(body)`）。同一稿不重复花钱。 */
   voiceForBody: Annotation<string | null>,
   voiceFindings: Annotation<readonly GateFinding[]>,
+  semanticsForBody: Annotation<string | null>,
+  semanticsFindings: Annotation<readonly GateFinding[]>,
   autoRevisionsUsed: Annotation<number>,
   outcome: Annotation<ChapterTaskOutcome | null>,
   error: Annotation<DraftError | null>,
@@ -80,6 +82,8 @@ export function initialGraphState(runInput: ChapterRunInput): ChapterGraphState 
     revision: null,
     voiceForBody: null,
     voiceFindings: [],
+    semanticsForBody: null,
+    semanticsFindings: [],
     autoRevisionsUsed: 0,
     outcome: null,
     error: null,
@@ -149,6 +153,8 @@ export function buildChapterGraph(deps: ChapterGraphDeps) {
     const stop = stopped(); if (stop !== null) return stop;
     // 只有正常收尾的章才判声音；失败/被拒的章连正文都不完整。
     if (s.outcome !== "ready" && s.outcome !== "needs_revision") return {};
+    // 按作品关掉时连调用都不发（rules.review.voice）。
+    if (s.runInput.gate?.rules.review.voice !== true) return {};
     const characters = s.runInput.gate?.characters ?? [];
     const fingerprint = stableFingerprint(s.body);
     const judged = s.voiceForBody === fingerprint || characters.length === 0
@@ -160,6 +166,29 @@ export function buildChapterGraph(deps: ChapterGraphDeps) {
     const acceptable = canAccept(findings);
     return {
       voiceForBody: fingerprint, voiceFindings: judged, findings, acceptable,
+      ...(s.outcome === "ready" || s.outcome === "needs_revision" ? { outcome: acceptable ? "ready" as const : "needs_revision" as const } : {}),
+    };
+  };
+
+  /**
+   * 语义审查（POV 越界 / 伏笔兑现）。与声音判定并列的第二步模型调用，
+   * 同样按正文指纹缓存：同一稿重入不重复花钱。
+   *
+   * 排在声音之后、判定能否采用之前 —— 两项都是 warn，不影响 acceptable，
+   * 但作者要在同一份结论里看到它们。
+   */
+  const semantics = async (s: ChapterGraphState): Promise<Partial<ChapterGraphState>> => {
+    const stop = stopped(); if (stop !== null) return stop;
+    if (s.outcome !== "ready" && s.outcome !== "needs_revision") return {};
+    if (s.runInput.gate?.rules.review.semantics !== true) return {};
+    const fingerprint = stableFingerprint(s.body);
+    const judged = s.semanticsForBody === fingerprint || s.declaration === null
+      ? s.semanticsFindings
+      : await checkSemanticsWithModel(deps.client, s.runInput, s.body, s.declaration);
+    const findings = [...s.findings, ...judged];
+    const acceptable = canAccept(findings);
+    return {
+      semanticsForBody: fingerprint, semanticsFindings: judged, findings, acceptable,
       ...(s.outcome === "ready" || s.outcome === "needs_revision" ? { outcome: acceptable ? "ready" as const : "needs_revision" as const } : {}),
     };
   };
@@ -197,10 +226,12 @@ export function buildChapterGraph(deps: ChapterGraphDeps) {
     .addConditionalEdges("step_write", gate("step_declare"), ["step_declare", END])
     .addConditionalEdges("step_declare", gate("step_check"), ["step_check", END])
     .addNode("step_voice", persist(voice))
+    .addNode("step_semantics", persist(semantics))
     // 先决定要不要自动修订，再判声音：正文马上要被重写时判它纯属白花钱，
     // 而且修订后的正文本来就要重判一次。
     .addConditionalEdges("step_check", s => shouldRevise(s) ? "step_revise" : "step_voice", ["step_revise", "step_voice"])
-    .addEdge("step_voice", END)
+    .addEdge("step_voice", "step_semantics")
+    .addEdge("step_semantics", END)
     .addConditionalEdges("step_revise", s => s.outcome === null ? "step_write" : END, ["step_write", END])
     .compile({ checkpointer: new MemorySaver() });
 }

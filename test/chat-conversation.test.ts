@@ -10,7 +10,7 @@ import { ProjectSession } from "../src/server/state.js";
 import { ProjectStore } from "../src/store/persist.js";
 import { ConversationStore } from "../src/agent/conversation-store.js";
 import { loadRules } from "../src/rules/load.js";
-import { C5_JSON, PROSE, WRITE_BEAT, writingSnapshot } from "./writing-fixtures.js";
+import { C5_JSON, NO_MODEL_REVIEW, PROSE, WRITE_BEAT, writingSnapshot } from "./writing-fixtures.js";
 import { deriveBudget } from "../src/beat/derive.js";
 import { countWords } from "../src/text/measure.js";
 
@@ -55,7 +55,7 @@ async function setup(replies: Reply[] | ((body: Body) => Reply), maxRounds = 8) 
   const root = mkdtempSync(join(tmpdir(), "nf-chat-conversation-"));
   roots.push(root);
   new ProjectStore(root).save(writingSnapshot());
-  const rules = loadRules();
+  const rules = NO_MODEL_REVIEW;
   const session = () => new ProjectSession(root, { ...rules, agent: { ...rules.agent, maxConversationRounds: maxRounds } });
   return { root, requests, session, store: new ConversationStore(root) };
 }

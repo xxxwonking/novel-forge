@@ -152,7 +152,8 @@ export interface ParseContext {
   readonly knownSettings?: ReadonlySet<string>;
   readonly knownForeshadows: ReadonlySet<string>;
   /** 正式清单含规划与结束项，用于识别原规划、同名冲突；不代表它们都可以兑现。 */
-  readonly foreshadows?: readonly Pick<ForeshadowTimelineItem, "id" | "label" | "status">[];
+  /** `intent` 供语义审查判「声明已收的伏笔有没有真交代」——判定要拿它当基准。 */
+  readonly foreshadows?: readonly Pick<ForeshadowTimelineItem, "id" | "label" | "status" | "intent">[];
   readonly knownPlotLines: ReadonlySet<string>;
   /** 新伏笔 ID 的分配器。由存储层提供，保证 F 序号不冲突。 */
   readonly allocateForeshadowId: () => ForeshadowId;

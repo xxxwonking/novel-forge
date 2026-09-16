@@ -313,7 +313,9 @@ describe("运行中的请求与状态", () => {
     const list = await response.json() as ChapterDraft[];
     expect(list).toHaveLength(1);
     expect(list[0]?.body).toBe(complete);
-    expect(model.calls).toHaveLength(2);
+    // 走真实 HTTP 服务时用默认规则，两个 model 通道是开的：写章 + 声明 + 语义核对。
+    // 代码通道的结论不受它们影响，这里只钉住"断开后没有重跑 C4"。
+    expect(model.calls).toHaveLength(3);
   });
 });
 

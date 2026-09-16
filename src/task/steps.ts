@@ -21,6 +21,7 @@ import { checkPromisedResolutions, crossCheckC5 } from "../chapter/c5-crosscheck
 import { gateChapter, type ChapterGateResult } from "../gate/code-channel.js";
 import { groupSpeech, type VoiceCharacter } from "../gate/voice-channel.js";
 import { buildVoiceTask, parseVoiceVerdict, VOICE_VERDICT_SCHEMA } from "../gate/voice-model.js";
+import { buildSemanticTask, parseSemanticVerdict, SEMANTIC_VERDICT_SCHEMA } from "../gate/semantics-channel.js";
 import { canAccept, routeChapter, unresolvedFromFindings, type RouteResult } from "../gate/route.js";
 import { runToolLoop, type ToolContext } from "./tool-exec.js";
 import type { GateFinding } from "../types/beat.js";
@@ -34,6 +35,8 @@ export const C4_MAX_TOKENS = 16_000;
 const C5_MAX_TOKENS = 4_000;
 /** 声音判定只报不一致项，输出很短；这是上限而非目标。 */
 const VOICE_MAX_TOKENS = 4_000;
+/** 语义核对要带原文与理由，比声音判定长一些。 */
+const SEMANTIC_MAX_TOKENS = 4_000;
 
 // ── C4：写正文（带工具循环）─────────────────────────────────────────────
 
@@ -223,6 +226,74 @@ function voiceUnavailable(detail: string): GateFinding {
     rule: "voice_verdict_unavailable",
     level: "info",
     message: `语域、情绪表达与称呼表这三项本轮未查：${detail}。正文与其余检查结论不受影响。`,
+  };
+}
+
+/**
+ * 语义审查的 model 通道：POV 越界与伏笔兑现。
+ *
+ * 与 `checkVoiceWithModel` 同一条纪律 —— **降级而不是失败**：模型没配、调用失败、
+ * 输出不合格式，都只出一句 info，其余检查结论照常成立。
+ *
+ * 三项前置条件缺一就跳过，不花这次调用：没有正文 / 没有声明 / 既没有视角人物
+ * 也没有声明收束的伏笔。
+ */
+export async function checkSemanticsWithModel(
+  client: ModelClient,
+  input: ChapterRunInput,
+  body: string,
+  declaration: C5Declaration,
+): Promise<readonly GateFinding[]> {
+  if (body.trim() === "") return [];
+  const characters = input.gate?.characters ?? [];
+  const povId = declaration.characterPresence.find((item) => item.role === "pov")?.characterId ?? null;
+  const povCard = povId === null ? undefined : characters.find((character) => character.id === povId);
+  const timeline = new Map((input.parseContextBase.foreshadows ?? []).map((item) => [item.id, item]));
+  const resolutions = declaration.foreshadowResolved.flatMap((item) => {
+    const known = timeline.get(item.foreshadowId);
+    return known === undefined ? [] : [{ foreshadowId: item.foreshadowId, label: known.label, intent: known.intent, quote: item.anchor.quote }];
+  });
+  if (povCard === undefined && resolutions.length === 0) return [];
+
+  let call: Awaited<ReturnType<ModelClient["call"]>>;
+  try {
+    call = await client.call({
+      role: "judge",
+      maxTokens: SEMANTIC_MAX_TOKENS,
+      system: [{ type: "text", text: SEMANTIC_JUDGE_SYSTEM }],
+      messages: [{ role: "user", content: [{ type: "text", text: buildSemanticTask({
+        chapterText: body,
+        pov: povCard === undefined ? null : { id: povCard.id, name: povCard.name },
+        resolutions,
+      }) }] }],
+      outputSchema: SEMANTIC_VERDICT_SCHEMA,
+    });
+  } catch (error) {
+    return [semanticsUnavailable(error instanceof Error ? error.message : String(error))];
+  }
+
+  if (call.kind === "error") return [semanticsUnavailable(call.error.message)];
+  if (call.kind === "refusal") return [semanticsUnavailable(`模型拒绝了这次核对：${call.userMessage}`)];
+  if (call.kind === "max_tokens") return [semanticsUnavailable("核对达到模型输出上限，未完成")];
+  if (call.message.stop_reason !== "end_turn" && call.message.stop_reason !== "stop_sequence") {
+    return [semanticsUnavailable("核对响应尚未完整结束")];
+  }
+  const json = parseJson(textOf(call.message));
+  if (json === null) return [semanticsUnavailable("核对输出不是合法 JSON")];
+  return parseSemanticVerdict(json, {
+    chapterText: body,
+    povCharacterId: povCard?.id ?? null,
+    resolutions: resolutions.map((item) => ({ foreshadowId: item.foreshadowId, label: item.label })),
+  });
+}
+
+const SEMANTIC_JUDGE_SYSTEM = "你是小说编辑，负责核对本章正文是否守住视角纪律、以及声明收束的伏笔是否真的交代清楚。只报确实有问题的项，并逐字引用原文作为依据。";
+
+function semanticsUnavailable(detail: string): GateFinding {
+  return {
+    rule: "semantic_verdict_unavailable",
+    level: "info",
+    message: `视角越界与伏笔兑现这两项本轮未查：${detail}。正文与其余检查结论不受影响。`,
   };
 }
 

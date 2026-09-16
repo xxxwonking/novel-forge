@@ -189,7 +189,9 @@ describe("章节任务控制与返回恢复", () => {
     const { root } = fixture(model.client);
     const childScript = `import { ProjectSession } from ${JSON.stringify(pathToFileURL(resolve("src/server/state.ts")).href)};
       import { loadRules } from ${JSON.stringify(pathToFileURL(resolve("src/rules/load.ts")).href)};
-      const rules = loadRules();
+      // 与父进程同一套规则（含关掉两个 model 通道）：采用前的来源指纹里含 rules，
+      // 两边不一致会被判成"作品资料发生变化"。
+      const rules = { ...loadRules(), review: { voice: false, semantics: false } };
       let calls = 0;
       const client = { official: false, call: async () => { if (++calls === 1) return ${JSON.stringify(modelText(PROSE))}; process.exit(17); } };
       await new ProjectSession(${JSON.stringify(root)}, { ...rules, task: { ...rules.task, maxAutoRevisions: 0 } }, { client }).writeChapter({ chapter: 3 });`;

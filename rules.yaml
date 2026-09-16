@@ -187,6 +187,17 @@ repetition:
     level: block
     message: 同一感叹词在相邻行重复
 
+## 两个 model 通道的开关（§12.3 的 VoiceCheck model 与语义审查）。
+##
+## 它们是整条检查链上**唯一会发网络请求**的部分：每章检查各一次调用。
+## 对长篇来说这是实打实的成本，所以留一个按作品关掉的旋钮 —— 关掉只影响
+## 这两项语义判定，代码通道（字数、密度、词表、复读、声音的机械项）照常跑。
+review:
+  ## 语域 / 情绪表达 / 称呼表的判定（src/gate/voice-model.ts）。
+  voice: true
+  ## 视角越界与伏笔兑现的核对（src/gate/semantics-channel.ts）。
+  semantics: true
+
 ## §12.3 C6 人物声音一致性（code 通道）。
 ##
 ## 这些检查值钱的前提是**知道每句台词是谁说的**（见 src/text/speaker.ts）。
