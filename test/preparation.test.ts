@@ -7,6 +7,7 @@ import { ProjectSession } from "../src/server/state.js";
 import { buildChapterRunInput } from "../src/server/chapter-input.js";
 import { C5_JSON, PROSE, declaration, fakeClient, modelMessage, modelText, writingSnapshot } from "./writing-fixtures.js";
 import type { PreparationChanges } from "../src/preparation/types.js";
+import { beatInput, characterInput, emptyBeat, emptyCharacter, emptySetting, plotLineInput, settingInput, type BeatInput, type CharacterRecord, type PreparationChanges as FormChanges } from "../web/src/preparation-changes.js";
 import { DraftStore } from "../src/task/draft-store.js";
 import { deriveBudget } from "../src/beat/derive.js";
 import { loadRules } from "../src/rules/load.js";
@@ -248,5 +249,98 @@ describe("方案试写与打包采用", () => {
     expect(session.preparation.get(proposal.id).status).toBe("proposed");
     expect(new DraftStore(root).loadDraft(1, draft.draftId)?.status).toBe("ready");
     expect(session.adopt(1, draft.draftId).changed).toBe(true);
+  });
+});
+
+/**
+ * 资料页手改表单的**出站契约**。
+ *
+ * 按钮背后走的是同一套 `recordAuthor`，所以这里逐个实体钉住「表单裁出来的对象
+ * 服务端必须收」以及「服务端读回的实体原样回传必须被拒」—— 后者才是裁剪函数
+ * 存在的理由，不是多余的防御。
+ */
+describe("资料手改表单的载荷契约", () => {
+  function withCharacters() {
+    const { root, store } = fresh();
+    store.save(writingSnapshot());
+    return { root, session: new ProjectSession(root) };
+  }
+  const author = (session: ProjectSession, changes: FormChanges) =>
+    session.preparation.recordAuthor({ summary: "作者手改资料", changes, baseFingerprint: session.preparation.view().fingerprint });
+
+  it("只改说话方式时，其余说话字段与身份字段原样保留", () => {
+    const { session } = withCharacters();
+    const before = session.meta.characters[0]!;
+    const proposal = author(session, { characters: [characterInput({ ...before, speech: { ...before.speech, register: "archaic" } })] });
+    expect(proposal.status).toBe("confirmed");
+    const after = session.meta.characters[0]!;
+    expect(after.speech.register).toBe("archaic");
+    // 表单没露面的子字段必须活下来：这正是「拿服务端对象做底稿」的意义。
+    expect(after.speech.exemplars).toEqual(before.speech.exemplars);
+    expect(after.speech.addressForms).toEqual(before.speech.addressForms);
+    expect(after.speech.syntaxBias).toEqual(before.speech.syntaxBias);
+    expect(after.profile.appearance).toEqual(before.profile.appearance);
+    expect(after.name).toBe(before.name);
+  });
+
+  it("服务端读回的人物卡必须裁掉只读字段才能提交", () => {
+    const { session } = withCharacters();
+    const card = session.meta.characters[0]!;
+    const raw = card as unknown as CharacterRecord;
+    // 原样回传会被 schema 拒 —— 裁剪不是可选项，是必需项。
+    expect(() => author(session, { characters: [raw] })).toThrow(/不允许字段 introducedAt/u);
+    expect(Object.keys(characterInput(raw)).sort()).toEqual(["aliases", "id", "name", "profile", "speech", "tier"]);
+    expect(author(session, { characters: [characterInput(raw)] }).status).toBe("confirmed");
+  });
+
+  it("新增人物：空白底稿补齐后可直接保存并参与写章装配", () => {
+    const { session } = withCharacters();
+    const draft = { ...emptyCharacter(), id: "C03", name: "苏晚", tier: "major" as const, profile: { ...emptyCharacter().profile, role: "账房学徒" }, speech: { ...emptyCharacter().speech, exemplars: ["这本账不对。"] } };
+    expect(author(session, { characters: [draft] }).status).toBe("confirmed");
+    expect(session.meta.characters.map((c) => c.id)).toContain("C03");
+    expect(session.meta.characters.find((c) => c.id === "C03")?.name).toBe("苏晚");
+  });
+
+  it("地点与情节线按同一形状提交，新增与修改都生效", () => {
+    const { session } = withCharacters();
+    const place = { ...settingInput(session.meta.settings[0]!), description: "潮气更重的后库" };
+    expect(author(session, { settings: [place] }).status).toBe("confirmed");
+    expect(session.meta.settings[0]?.description).toBe("潮气更重的后库");
+    expect(author(session, { settings: [emptySetting()].map((s) => ({ ...s, id: "S09", name: "河神庙", description: "城外破庙" })) }).status).toBe("confirmed");
+    expect(author(session, { plotLines: [{ id: "P09", label: "旧印钳的来历", weight: "sub" }] }).status).toBe("confirmed");
+    expect(session.meta.plotLines.map((p) => p.id)).toContain("P09");
+  });
+
+  it("改未采用章的计划：预算被裁掉并由代码重新派生，而非沿用客户端传来的值", () => {
+    const { session } = withCharacters();
+    const before = session.meta.beats.find((b) => b.chapter === 3)!;
+    const edited = beatInput({ ...before, plan: { ...before.plan, coreEvent: "改后的核心事件" } });
+    expect(Object.keys(edited).sort()).toEqual(["chapter", "plan", "volume"]);
+    expect(edited).not.toHaveProperty("budget");
+    expect(author(session, { beats: [edited] }).status).toBe("confirmed");
+    const after = session.meta.beats.find((b) => b.chapter === 3)!;
+    expect(after.plan.coreEvent).toBe("改后的核心事件");
+    expect(after.budget).not.toBeNull();
+    // 原样回传带 budget 的节拍被拒 —— 预算是代码派生物，不能由客户端自报。
+    expect(() => author(session, { beats: [before as unknown as BeatInput] })).toThrow(/不允许字段 budget/u);
+  });
+
+  it("改已采用章的计划只形成候选，等作者处理受影响正文", () => {
+    const { session } = withCharacters();
+    const before = session.meta.beats.find((b) => b.chapter === 2)!;
+    const proposal = author(session, { beats: [beatInput({ ...before, plan: { ...before.plan, coreEvent: "改后的核心事件" } })] });
+    expect(proposal.status).toBe("proposed");
+    expect(proposal.impacts.some((impact) => impact.chapters.includes(2))).toBe(true);
+    expect(session.meta.beats.find((b) => b.chapter === 2)?.plan.coreEvent).toBe(before.plan.coreEvent);
+  });
+
+  it("新增章计划用同一形状落库，且能通过写章装配校验", () => {
+    const { session } = withCharacters();
+    const next = session.preparation.view().nextChapter;
+    const beat = emptyBeat(next, 1, ["C01"], [session.meta.settings[0]!.id]);
+    const plan = { ...beat.plan, coreEvent: "新章核心事件", stageFeedback: "拿到旧印钳", hook: "封条被人撕过", events: [{ kind: "action" as const, summary: "在旧库找到印钳", weight: 2 as const, plotLine: "P01" }] };
+    expect(author(session, { beats: [{ ...beat, plan }] }).status).toBe("confirmed");
+    expect(session.meta.beats.some((b) => b.chapter === next)).toBe(true);
+    expect(buildChapterRunInput(session, next).assembleInput.volatile.beat.budget?.words.min).toBeGreaterThan(0);
   });
 });

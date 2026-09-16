@@ -6,6 +6,8 @@
  * 在这里重新声明一遍是诚实的：它描述的是报文，不是内存里的对象。
  */
 
+import type { CharacterRecord, PlotLineInput, SettingInput } from "./preparation-changes.js";
+
 export type ForeshadowWeight = "main" | "sub" | "detail";
 export type CharacterTier = "protagonist" | "major" | "minor" | "extra";
 export type GateLevel = "block" | "warn" | "info" | "pass";
@@ -111,7 +113,7 @@ export interface ChapterPlan {
   secondaryThread: string | null;
   stageFeedback: string;
   hook: string;
-  events: { kind: string; summary: string; weight: 1 | 2 | 3; plotLine: string | null }[];
+  events: { kind: "action" | "info" | "relation" | "resource" | "decision"; summary: string; weight: 1 | 2 | 3; plotLine: string | null }[];
   resolves: { foreshadowId: string; weight: ForeshadowWeight; completeness: "full" | "partial" }[];
   plants: { label: string; weight: ForeshadowWeight }[];
   characters: string[];
@@ -430,13 +432,20 @@ export interface AdoptResponse {
   alerts: { homepage: Alert[]; counts: { fullList: number; repairQueue: number } };
 }
 
+/**
+ * 人物卡与说话方式的形状定义在 `preparation-changes.ts` —— 那份类型同时是
+ * "编辑后要发出去的载荷" 的契约，两边共用一个定义才不会各写一份走样。
+ */
+export type { CharacterRecord, CharacterAttribute, SpeechProfile, CharacterInput, SettingInput, PlotLineInput, BeatInput, BeatRecord, ChapterPlanInput, PreparationChanges } from "./preparation-changes.js";
+export type CharacterCard = CharacterRecord;
+
 export interface PreparationContent {
-  setting: { title: string; premise: string; centralConflict: string; openingSituation: string; pov: string; tense: string; protagonistTraits: string[]; protagonistForbidden: string[]; specialAbility: string; abilityLimits: string[]; worldRules: string[]; styleKeywords: string[]; romanceLine: string; taboos: string[] };
+  setting: { title: string; genre: string; platform: string; premise: string; centralConflict: string; openingSituation: string; pov: string; tense: string; protagonistTraits: string[]; protagonistForbidden: string[]; specialAbility: string; abilityLimits: string[]; worldRules: string[]; styleKeywords: string[]; romanceLine: string; taboos: string[] };
   profile: { genre: string; platform: string; targetWords: number };
   discipline: { version: string; rules: string[] };
-  characters: { id: string; name: string; aliases: string[]; tier: string; provenance: string; profile: { role: string; wants: string; fears: string; traits: string[]; background: string; forbiddenBehaviors: string[]; appearance: { key: string; value: string }[] }; speech: { exemplars: string[]; verbalTics: string[]; forbiddenLexicon: string[]; register: string } }[];
-  settings: { id: string; name: string; kind: string; description: string; facts: string[] }[];
-  plotLines: { id: string; label: string; weight: string }[];
+  characters: CharacterRecord[];
+  settings: SettingInput[];
+  plotLines: PlotLineInput[];
   beats: (ChapterBeat & { provenance: string })[];
 }
 

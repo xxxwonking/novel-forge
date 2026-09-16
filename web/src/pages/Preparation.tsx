@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { Button, Input } from "antd";
 import { Chip } from "../components/Chip.js";
-import { api, type PreparationContent, type PreparationPayload, type PreparationProposal } from "../api.js";
+import { BeatEditor, CharacterEditor, PlotLineEditor, SettingEditor, type Editing } from "../components/PreparationEditors.js";
+import { api, type CharacterRecord, type PreparationContent, type PreparationPayload, type PreparationProposal, type SettingInput, type PlotLineInput } from "../api.js";
 import { useFetch, useRouteActive } from "../hooks.js";
 
 const discuss = (prompt: string): string => `#/chat?prompt=${encodeURIComponent(prompt)}`;
@@ -13,12 +14,21 @@ export function Preparation({ refresh, proposalId }: { refresh: () => void; prop
   const data = useFetch(() => api.preparation(), []);
   const [selected, setSelected] = useState<string | null>(proposalId);
   const [editing, setEditing] = useState(false);
+  const [entity, setEntity] = useState<Editing | null>(null);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   if (data.data === null) return <div className="empty">{data.error ?? "读取作品资料…"} <Button size="small" onClick={data.reload}>重新读取</Button></div>;
   const view = data.data;
   const candidate = view.proposals.find((p) => p.id === selected);
+
+  /** 手改与基本设定表单共用的落点：无影响直接生效，触及已采用正文则留下来让作者处理。 */
+  const saved = (proposal: PreparationProposal): void => {
+    setEntity(null); setEditing(false);
+    setSelected(proposal.status === "proposed" ? proposal.id : null);
+    setNotice(proposal.status === "confirmed" ? "作者设定已更新。" : "修改涉及已有正文，已保存为候选，请查看影响。");
+    data.reload(); refresh();
+  };
 
   const act = async (proposal: PreparationProposal, action: "confirm" | "write" | "trial" | "reject"): Promise<void> => {
     if (busy) return;
@@ -62,7 +72,7 @@ export function Preparation({ refresh, proposalId }: { refresh: () => void; prop
       <div className="prep-main">
         {candidate === undefined ? <>
           <div className="section-head"><h2>当前创作依据</h2><Button onClick={() => setEditing(!editing)}>{editing ? "返回资料" : "编辑基本设定与偏好"}</Button></div>
-          {editing ? <AuthorForm view={view} onSaved={(p) => { setEditing(false); setSelected(p.status === "proposed" ? p.id : null); setNotice(p.status === "confirmed" ? "作者设定已更新。" : "修改涉及已有正文，已保存为候选，请查看影响。" ); data.reload(); refresh(); }} /> : <Content content={view.confirmed} />}
+          {editing ? <AuthorForm view={view} onSaved={saved} /> : <Content content={view.confirmed} onEdit={setEntity} />}
           <section className="prep-section"><h2>未来伏笔计划</h2><p className="muted">这些安排已确认，尚未写成正文中的埋设或兑现。</p>{view.plannedForeshadows.length === 0 ? <p className="muted">暂时没有独立的未来伏笔规划。</p> : view.plannedForeshadows.map(plan => <div className="draft-change" key={plan.id}><strong>{plan.label}</strong><p>{plan.intent}</p><small>预期第 {plan.expectedBy} 章前兑现 · 尚未埋设</small></div>)}</section>
           <section className="prep-section"><h2>备选想法</h2>{view.ideas.length === 0 ? <p className="muted">暂时没有记录。可以在对话中说“把这个想法记为备选”。</p> : <ul>{view.ideas.map((idea) => <li key={idea.id}>{idea.text}</li>)}</ul>}</section>
         </> : <>
@@ -79,6 +89,10 @@ export function Preparation({ refresh, proposalId }: { refresh: () => void; prop
       </div>
       <aside className="prep-sidebar"><h2>方案记录</h2>{view.proposals.length === 0 ? <p className="muted">还没有方案。先和 Agent 聊聊想写的故事。</p> : view.proposals.map((p) => <button className="prep-proposal-item" data-selected={p.id === selected} key={p.id} onClick={() => { setSelected(p.id); setEditing(false); }}><Chip>{status(p)}</Chip><strong>{p.summary}</strong><small>{new Date(p.createdAt).toLocaleDateString("zh-CN")}</small></button>)}</aside>
     </div>
+    {entity?.kind === "character" && <CharacterEditor base={entity.base as CharacterRecord | null} characters={view.confirmed.characters} fingerprint={view.fingerprint} onSaved={saved} onClose={() => setEntity(null)} />}
+    {entity?.kind === "setting" && <SettingEditor base={entity.base as SettingInput | null} fingerprint={view.fingerprint} onSaved={saved} onClose={() => setEntity(null)} />}
+    {entity?.kind === "plotLine" && <PlotLineEditor base={entity.base as PlotLineInput | null} fingerprint={view.fingerprint} onSaved={saved} onClose={() => setEntity(null)} />}
+    {entity?.kind === "beat" && <BeatEditor base={entity.base as never} chapter={view.nextChapter} characters={view.confirmed.characters} settings={view.confirmed.settings} plotLines={view.confirmed.plotLines} fingerprint={view.fingerprint} onSaved={saved} onClose={() => setEntity(null)} />}
   </>;
 }
 
@@ -99,17 +113,20 @@ function AuthorForm({ view, onSaved }: { view: PreparationPayload; onSaved: (pro
   }}><fieldset disabled={busy}>{(Object.keys(labels) as (keyof typeof values)[]).map((key) => <label key={key}>{labels[key]}{key === "title" ? <Input required value={values[key]} onChange={(e) => setValues({ ...values, [key]: e.target.value })} /> : <Input.TextArea required={key === "premise"} rows={key === "writingRules" ? 6 : 3} value={values[key]} onChange={(e) => setValues({ ...values, [key]: e.target.value })} />}</label>)}{error && <p role="alert" className="finding" data-level="block">{error}</p>}<Button type="primary" htmlType="submit" loading={busy}>保存作者设定</Button></fieldset></form>;
 }
 
-function Content({ content }: { content: PreparationContent }): React.ReactElement {
+/** 只读资料视图。传入 `onEdit` 时才出现手改入口 —— 方案预览复用本组件，那里不能编辑。 */
+function Content({ content, onEdit }: { content: PreparationContent; onEdit?: (editing: Editing) => void }): React.ReactElement {
   const s = content.setting;
+  const add = (kind: Editing["kind"], label: string): React.ReactElement | null => onEdit === undefined ? null : <Button size="small" onClick={() => onEdit({ kind, base: null })}>{label}</Button>;
+  const edit = (kind: Editing["kind"], base: unknown, name: string): React.ReactElement | null => onEdit === undefined ? null : <Button size="small" type="text" onClick={() => onEdit({ kind, base })}>编辑{name}</Button>;
   return <>
     <section className="prep-section"><h2>{s.title}</h2><dl className="prep-facts">{([
       ["故事想法", s.premise], ["核心冲突", s.centralConflict], ["故事起点", s.openingSituation], ["主角特征", s.protagonistTraits], ["行为边界", s.protagonistForbidden],
       ["特殊能力", s.specialAbility], ["能力限制", s.abilityLimits], ["世界规则", s.worldRules], ["感情线", s.romanceLine], ["风格", s.styleKeywords], ["不写的内容", s.taboos],
     ] as [string, string | string[]][]).map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{(Array.isArray(value) ? value.join("；") : value) || <span className="muted">尚未指定</span>}</dd></div>)}</dl></section>
-    <section className="prep-section"><h2>人物档案 <small>{content.characters.length}</small></h2>{content.characters.length === 0 && <p className="muted">还没有人物档案。</p>}<div className="prep-card-grid">{content.characters.map((c) => <article className="prep-character" key={c.id}><div className="row"><h3>{c.name}</h3><Chip>{c.provenance === "proposed" ? "建议" : c.tier === "protagonist" ? "主角" : "已确认"}</Chip></div><p>{c.profile.role}</p><p className="muted">{c.profile.traits.join(" · ")}</p><dl className="prep-facts"><div><dt>想要什么</dt><dd>{c.profile.wants || "尚未指定"}</dd></div><div><dt>害怕什么</dt><dd>{c.profile.fears || "尚未指定"}</dd></div><div><dt>背景</dt><dd>{c.profile.background || "尚未指定"}</dd></div></dl><details><summary>外貌与说话方式</summary><p>{c.profile.appearance.map((a) => `${a.key}：${a.value}`).join("；")}</p>{c.speech.exemplars.map((line, i) => <blockquote key={i}>{line}</blockquote>)}{c.speech.forbiddenLexicon.length > 0 && <p>不使用：{c.speech.forbiddenLexicon.join("、")}</p>}</details></article>)}</div></section>
-    <section className="prep-section"><h2>地点与组织</h2>{content.settings.length === 0 && <p className="muted">还没有地点或组织设定。</p>}{content.settings.map((place) => <article className="prep-place" key={place.id}><h3>{place.name} <span className="muted">{place.kind === "organization" ? "组织" : "地点"}</span></h3><p>{place.description}</p>{place.facts.length > 0 && <ul>{place.facts.map((fact, i) => <li key={i}>{fact}</li>)}</ul>}</article>)}</section>
-    <section className="prep-section"><h2>情节方向</h2>{content.plotLines.length === 0 ? <p className="muted">还没有情节线规划。</p> : <ul>{content.plotLines.map((line) => <li key={line.id}><Chip>{line.weight === "main" ? "主线" : line.weight === "sub" ? "支线" : "细节"}</Chip> {line.label}</li>)}</ul>}</section>
-    <section className="prep-section"><h2>章节计划</h2>{content.beats.length === 0 && <p className="muted">还没有章节计划。先明确这一章的目标、冲突和结束位置。</p>}{content.beats.map((beat) => <article className="prep-beat" key={beat.chapter}><div className="row"><h3>第 {beat.chapter} 章</h3><Chip>{beat.provenance === "proposed" ? "建议计划" : "已确认计划"}</Chip>{beat.budget && <span className="muted">{beat.budget.words.min}–{beat.budget.words.max} 字</span>}</div><strong>{beat.plan.coreEvent}</strong><dl className="prep-facts"><div><dt>本章兑现</dt><dd>{beat.plan.stageFeedback}</dd></div><div><dt>结束位置</dt><dd>{beat.plan.hook}</dd></div><div><dt>出场人物</dt><dd>{beat.plan.characters.map((id) => content.characters.find((c) => c.id === id)?.name ?? id).join("、")}</dd></div><div><dt>地点</dt><dd>{beat.plan.locations.map((id) => content.settings.find((s) => s.id === id)?.name ?? id).join("、")}</dd></div>{beat.plan.secondaryThread && <div><dt>次级推进</dt><dd>{beat.plan.secondaryThread}</dd></div>}</dl>{beat.plan.resolves.length > 0 && <p>计划兑现：{beat.plan.resolves.map((r) => `${r.foreshadowId}（${r.completeness === "partial" ? "部分" : "完整"}）`).join("、")}</p>}</article>)}</section>
+    <section className="prep-section"><div className="section-head"><h2>人物档案 <small>{content.characters.length}</small></h2>{add("character", "新增人物")}</div>{content.characters.length === 0 && <p className="muted">还没有人物档案。可以先在对话里让 Agent 起草，也可以直接手填。</p>}<div className="prep-card-grid">{content.characters.map((c) => <article className="prep-character" key={c.id}><div className="row"><h3>{c.name}</h3><Chip>{c.provenance === "proposed" ? "建议" : c.tier === "protagonist" ? "主角" : "已确认"}</Chip></div><p>{c.profile.role}</p><p className="muted">{c.profile.traits.join(" · ")}</p><dl className="prep-facts"><div><dt>想要什么</dt><dd>{c.profile.wants || "尚未指定"}</dd></div><div><dt>害怕什么</dt><dd>{c.profile.fears || "尚未指定"}</dd></div><div><dt>背景</dt><dd>{c.profile.background || "尚未指定"}</dd></div></dl><details><summary>外貌与说话方式</summary><p>{c.profile.appearance.map((a) => `${a.key}：${a.value}`).join("；")}</p>{c.speech.exemplars.map((line, i) => <blockquote key={i}>{line}</blockquote>)}{c.speech.forbiddenLexicon.length > 0 && <p>不使用：{c.speech.forbiddenLexicon.join("、")}</p>}</details>{edit("character", c, `「${c.name}」`)}</article>)}</div></section>
+    <section className="prep-section"><div className="section-head"><h2>地点与组织</h2>{add("setting", "新增地点／组织")}</div>{content.settings.length === 0 && <p className="muted">还没有地点或组织设定。</p>}{content.settings.map((place) => <article className="prep-place" key={place.id}><div className="row"><h3>{place.name} <span className="muted">{place.kind === "organization" ? "组织" : "地点"}</span></h3>{edit("setting", place, "设定")}</div><p>{place.description}</p>{place.facts.length > 0 && <ul>{place.facts.map((fact, i) => <li key={i}>{fact}</li>)}</ul>}</article>)}</section>
+    <section className="prep-section"><div className="section-head"><h2>情节方向</h2>{add("plotLine", "新增情节线")}</div>{content.plotLines.length === 0 ? <p className="muted">还没有情节线规划。</p> : <ul>{content.plotLines.map((line) => <li key={line.id}><Chip>{line.weight === "main" ? "主线" : line.weight === "sub" ? "支线" : "细节"}</Chip> {line.label}{edit("plotLine", line, "情节线")}</li>)}</ul>}</section>
+    <section className="prep-section"><div className="section-head"><h2>章节计划</h2>{add("beat", "新增章计划")}</div>{content.beats.length === 0 && <p className="muted">还没有章节计划。先明确这一章的目标、冲突和结束位置。</p>}{content.beats.map((beat) => <article className="prep-beat" key={beat.chapter}><div className="row"><h3>第 {beat.chapter} 章</h3><Chip>{beat.provenance === "proposed" ? "建议计划" : "已确认计划"}</Chip>{beat.budget && <span className="muted">{beat.budget.words.min}–{beat.budget.words.max} 字</span>}<span className="push-right">{edit("beat", beat, "计划")}</span></div><strong>{beat.plan.coreEvent}</strong><dl className="prep-facts"><div><dt>本章兑现</dt><dd>{beat.plan.stageFeedback}</dd></div><div><dt>结束位置</dt><dd>{beat.plan.hook}</dd></div><div><dt>出场人物</dt><dd>{beat.plan.characters.map((id) => content.characters.find((c) => c.id === id)?.name ?? id).join("、")}</dd></div><div><dt>地点</dt><dd>{beat.plan.locations.map((id) => content.settings.find((s) => s.id === id)?.name ?? id).join("、")}</dd></div>{beat.plan.secondaryThread && <div><dt>次级推进</dt><dd>{beat.plan.secondaryThread}</dd></div>}</dl>{beat.plan.resolves.length > 0 && <p>计划兑现：{beat.plan.resolves.map((r) => `${r.foreshadowId}（${r.completeness === "partial" ? "部分" : "完整"}）`).join("、")}</p>}</article>)}</section>
     <section className="prep-section"><h2>写作规则与偏好</h2><ul>{content.discipline.rules.map((rule, i) => <li key={i}>{rule}</li>)}</ul></section>
   </>;
 }
