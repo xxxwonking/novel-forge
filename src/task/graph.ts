@@ -16,9 +16,11 @@
 import { Annotation, END, MemorySaver, START, StateGraph } from "@langchain/langgraph";
 import type { ModelClient } from "../client/model.js";
 import type { ChapterRunInput } from "../chapter/pipeline.js";
-import { checkChapter, declareStructure, writeChapterBody, type WriteResult } from "./steps.js";
+import { checkChapter, checkVoiceWithModel, declareStructure, writeChapterBody, type WriteResult } from "./steps.js";
 import { rewriteChapterBody } from "./rewrite.js";
 import { automaticRevisionLimit, canAutomaticallyRevise } from "./automatic-revision.js";
+import { canAccept } from "../gate/route.js";
+import { stableFingerprint } from "./revision.js";
 import type { ToolContext } from "./tool-exec.js";
 import type { C5Declaration } from "../types/events.js";
 import type { GateFinding } from "../types/beat.js";
@@ -52,6 +54,9 @@ const StateSpec = Annotation.Root({
   proposals: Annotation<readonly DraftProposal[]>,
   generation: Annotation<DraftGeneration | null>,
   revision: Annotation<DraftRevision | null>,
+  /** 已判定过声音的正文指纹（`stableFingerprint(body)`）。同一稿不重复花钱。 */
+  voiceForBody: Annotation<string | null>,
+  voiceFindings: Annotation<readonly GateFinding[]>,
   autoRevisionsUsed: Annotation<number>,
   outcome: Annotation<ChapterTaskOutcome | null>,
   error: Annotation<DraftError | null>,
@@ -73,6 +78,8 @@ export function initialGraphState(runInput: ChapterRunInput): ChapterGraphState 
     proposals: [],
     generation: null,
     revision: null,
+    voiceForBody: null,
+    voiceFindings: [],
     autoRevisionsUsed: 0,
     outcome: null,
     error: null,
@@ -131,6 +138,32 @@ export function buildChapterGraph(deps: ChapterGraphDeps) {
     };
   };
 
+  /**
+   * 声音 model 通道。跟在 code 检查之后单独一步，因为它要 await 模型，
+   * 而 check 是纯代码、必须同步（采用路径也在同步事务里复用它）。
+   *
+   * 判定结果按**正文指纹**缓存进 state：暂停恢复、重入同一个 body 都不再花钱。
+   * 自动修订改了正文，指纹变了，自然重新判定。
+   */
+  const voice = async (s: ChapterGraphState): Promise<Partial<ChapterGraphState>> => {
+    const stop = stopped(); if (stop !== null) return stop;
+    // 只有正常收尾的章才判声音；失败/被拒的章连正文都不完整。
+    if (s.outcome !== "ready" && s.outcome !== "needs_revision") return {};
+    const characters = s.runInput.gate?.characters ?? [];
+    const fingerprint = stableFingerprint(s.body);
+    const judged = s.voiceForBody === fingerprint || characters.length === 0
+      ? s.voiceFindings
+      : await checkVoiceWithModel(deps.client, s.runInput, s.body, characters);
+    // check 每次都会重算 findings（只有代码通道），所以这里必须重新合并一次，
+    // 否则重入后模型通道的结论会从 findings 里消失。
+    const findings = [...s.findings, ...judged];
+    const acceptable = canAccept(findings);
+    return {
+      voiceForBody: fingerprint, voiceFindings: judged, findings, acceptable,
+      ...(s.outcome === "ready" || s.outcome === "needs_revision" ? { outcome: acceptable ? "ready" as const : "needs_revision" as const } : {}),
+    };
+  };
+
   const shouldRevise = (s: ChapterGraphState): boolean => s.outcome === "needs_revision" &&
     s.autoRevisionsUsed < automaticRevisionLimit(deps.maxAutoRevisions) &&
     s.revision === null && s.generation === null && canAutomaticallyRevise(s.findings) &&
@@ -142,9 +175,10 @@ export function buildChapterGraph(deps: ChapterGraphDeps) {
 
   // outcome 非 null 即已终结（refused/failed）→ END；否则进下一步。
   // 节点名刻意加前缀，避免与状态通道名（write 等）冲突 —— LangGraph 不允许同名。
+  /** 上一步没有提前收场（失败/暂停/被拒）才继续往下走。 */
   const gate =
-    (next: "step_declare" | "step_check") =>
-    (s: ChapterGraphState): "step_declare" | "step_check" | typeof END =>
+    <T extends "step_declare" | "step_check" | "step_voice">(next: T) =>
+    (s: ChapterGraphState): T | typeof END =>
       s.outcome === null ? next : END;
 
   const persist = (node: (s: ChapterGraphState) => Partial<ChapterGraphState> | Promise<Partial<ChapterGraphState>>) =>
@@ -162,7 +196,11 @@ export function buildChapterGraph(deps: ChapterGraphDeps) {
     .addEdge(START, "step_write")
     .addConditionalEdges("step_write", gate("step_declare"), ["step_declare", END])
     .addConditionalEdges("step_declare", gate("step_check"), ["step_check", END])
-    .addConditionalEdges("step_check", s => shouldRevise(s) ? "step_revise" : END, ["step_revise", END])
+    .addNode("step_voice", persist(voice))
+    // 先决定要不要自动修订，再判声音：正文马上要被重写时判它纯属白花钱，
+    // 而且修订后的正文本来就要重判一次。
+    .addConditionalEdges("step_check", s => shouldRevise(s) ? "step_revise" : "step_voice", ["step_revise", "step_voice"])
+    .addEdge("step_voice", END)
     .addConditionalEdges("step_revise", s => s.outcome === null ? "step_write" : END, ["step_write", END])
     .compile({ checkpointer: new MemorySaver() });
 }

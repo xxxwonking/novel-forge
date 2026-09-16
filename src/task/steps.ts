@@ -19,6 +19,8 @@ import { C5_OUTPUT_SCHEMA, parseC5, type ParseResult } from "../chapter/c5-schem
 import { c5OutputIssue } from "../chapter/c5-validation.js";
 import { checkPromisedResolutions, crossCheckC5 } from "../chapter/c5-crosscheck.js";
 import { gateChapter, type ChapterGateResult } from "../gate/code-channel.js";
+import { groupSpeech, type VoiceCharacter } from "../gate/voice-channel.js";
+import { buildVoiceTask, parseVoiceVerdict, VOICE_VERDICT_SCHEMA } from "../gate/voice-model.js";
 import { canAccept, routeChapter, unresolvedFromFindings, type RouteResult } from "../gate/route.js";
 import { runToolLoop, type ToolContext } from "./tool-exec.js";
 import type { GateFinding } from "../types/beat.js";
@@ -30,6 +32,8 @@ import type { C5Declaration } from "../types/events.js";
  */
 export const C4_MAX_TOKENS = 16_000;
 const C5_MAX_TOKENS = 4_000;
+/** 声音判定只报不一致项，输出很短；这是上限而非目标。 */
+const VOICE_MAX_TOKENS = 4_000;
 
 // ── C4：写正文（带工具循环）─────────────────────────────────────────────
 
@@ -166,6 +170,62 @@ export interface CheckResult {
  * 吃 `declaration` 而非 ParseResult —— resume 时只需从草稿恢复声明即可复算，
  * 不必重建完整解析结果。
  */
+/**
+ * 声音一致性的 model 通道（§12.3 注册表里 `channel: "model"` 的三项）。
+ *
+ * **降级而不是失败**：这是整条检查链上唯一会发网络请求的一步，而它判的是语域、
+ * 情绪表达、称呼表这三项"加分项"。模型没配、调用失败、输出不合格式，都不该让
+ * 一章已经写好的正文变成"检查崩了" —— 一律降级成 info，作者看到的应是
+ * "这一项没查成"，其余检查结论照常成立。
+ *
+ * 没有可归属台词的章节直接跳过：那种情况 code 通道已经报过覆盖缺口，不重复。
+ */
+export async function checkVoiceWithModel(
+  client: ModelClient,
+  input: ChapterRunInput,
+  body: string,
+  characters: readonly VoiceCharacter[],
+): Promise<readonly GateFinding[]> {
+  const rules = input.gate?.rules;
+  if (rules === undefined) return [];
+  const { bySpeaker } = groupSpeech({ chapterText: body, characters }, rules);
+  const speaking = characters.filter((character) => (bySpeaker.get(character.id) ?? []).length > 0);
+  if (speaking.length === 0) return [];
+
+  let call: Awaited<ReturnType<ModelClient["call"]>>;
+  try {
+    call = await client.call({
+      role: "judge",
+      maxTokens: VOICE_MAX_TOKENS,
+      system: [{ type: "text", text: VOICE_JUDGE_SYSTEM }],
+      messages: [{ role: "user", content: [{ type: "text", text: buildVoiceTask(speaking, bySpeaker) }] }],
+      outputSchema: VOICE_VERDICT_SCHEMA,
+    });
+  } catch (error) {
+    return [voiceUnavailable(error instanceof Error ? error.message : String(error))];
+  }
+
+  if (call.kind === "error") return [voiceUnavailable(call.error.message)];
+  if (call.kind === "refusal") return [voiceUnavailable(`模型拒绝了这次判定：${call.userMessage}`)];
+  if (call.kind === "max_tokens") return [voiceUnavailable("判定达到模型输出上限，未完成")];
+  if (call.message.stop_reason !== "end_turn" && call.message.stop_reason !== "stop_sequence") {
+    return [voiceUnavailable("判定响应尚未完整结束")];
+  }
+  const json = parseJson(textOf(call.message));
+  if (json === null) return [voiceUnavailable("判定输出不是合法 JSON")];
+  return parseVoiceVerdict(json, { chapterText: body, characters });
+}
+
+const VOICE_JUDGE_SYSTEM = "你是小说编辑，负责核对人物说话方式是否与设定一致。只报确实不像的地方，并逐字引用原文作为依据。";
+
+function voiceUnavailable(detail: string): GateFinding {
+  return {
+    rule: "voice_verdict_unavailable",
+    level: "info",
+    message: `语域、情绪表达与称呼表这三项本轮未查：${detail}。正文与其余检查结论不受影响。`,
+  };
+}
+
 export function checkChapter(
   input: ChapterRunInput,
   chapterText: string,
