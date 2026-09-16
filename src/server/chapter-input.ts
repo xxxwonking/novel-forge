@@ -21,7 +21,8 @@ export type ChapterSource = Pick<ProjectSession, "meta" | "rules" | "events" | "
 
 /** HTTP 可展示的准备/状态错误；模型失败仍由 ChapterDraft.error 表达。 */
 export class ChapterWriteError extends Error {
-  constructor(readonly status: 400 | 404 | 409 | 503, message: string) {
+  /** 502 = 模型这一轮没交出可用的东西（如起草没产出方案）；不是作者输入的问题，也不等于服务没配好。 */
+  constructor(readonly status: 400 | 404 | 409 | 502 | 503, message: string) {
     super(message);
     this.name = "ChapterWriteError";
   }

@@ -52,6 +52,9 @@ export async function handleAsync(session: ProjectSession, req: ApiRequest): Pro
   if (req.method === "POST" && req.path === "/api/conversation") {
     return conversationSend(session, req.body);
   }
+  if (req.method === "POST" && req.path === "/api/preparation/draft") {
+    return preparationDraft(session, req.body);
+  }
   return handle(session, req);
 }
 
@@ -444,6 +447,29 @@ async function chapterWrite(session: ProjectSession, body: unknown, start = fals
   };
   try {
     return ok(toDraftView(start ? session.startChapter(options) : await session.writeChapter(options), session));
+  } catch (error) {
+    if (error instanceof ChapterWriteError) return { status: error.status, body: { error: error.message } };
+    throw error;
+  }
+}
+
+/**
+ * 资料页的「让 AI 起草」。放在 handleAsync：它 await 模型。
+ *
+ * `apply: false` 是表单里的试填 —— 只把草稿人物交回去，不落任何文件，
+ * 所以同一个端点既能产出候选方案，也能只当一次「问 AI 要个草稿」。
+ */
+async function preparationDraft(session: ProjectSession, body: unknown): Promise<ApiResponse> {
+  if (!isRecord(body)) return bad("请求体必须是对象");
+  const focus = body["focus"] ?? "characters";
+  if (focus !== "characters" && focus !== "full") return bad("focus 只能是 characters 或 full");
+  const apply = body["apply"] ?? true;
+  if (typeof apply !== "boolean") return bad("apply 必须是布尔值");
+  const brief = body["brief"];
+  if (brief !== undefined && typeof brief !== "string") return bad("brief 必须是字符串");
+  try {
+    // exactOptionalPropertyTypes：brief 缺省与显式 undefined 不同，缺省时不传这个键。
+    return ok(await session.draftPreparation({ focus, apply, ...(brief === undefined ? {} : { brief }) }));
   } catch (error) {
     if (error instanceof ChapterWriteError) return { status: error.status, body: { error: error.message } };
     throw error;

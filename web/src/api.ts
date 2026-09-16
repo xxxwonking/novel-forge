@@ -6,7 +6,7 @@
  * 在这里重新声明一遍是诚实的：它描述的是报文，不是内存里的对象。
  */
 
-import type { CharacterRecord, PlotLineInput, SettingInput } from "./preparation-changes.js";
+import type { CharacterInput, CharacterRecord, PlotLineInput, SettingInput } from "./preparation-changes.js";
 
 export type ForeshadowWeight = "main" | "sub" | "detail";
 export type CharacterTier = "protagonist" | "major" | "minor" | "extra";
@@ -457,6 +457,16 @@ export interface PreparationProposal {
   findings: GateFinding[];
 }
 
+export interface PreparationDraftResult {
+  /** 起草回合的说明：补了什么、哪里还需要作者拿主意。 */
+  reply: string;
+  /** apply: true 时的候选方案编号。 */
+  proposalId?: string;
+  summary?: string;
+  /** apply: false 时的草稿人物，供表单填入。 */
+  characters: CharacterInput[];
+}
+
 export interface PreparationPayload {
   plannedForeshadows: { id: string; label: string; intent: string; weight: string; expectedBy: number }[];
   taskPolicy: { autoRevisionLimit: number };
@@ -504,6 +514,9 @@ export const api = {
   confirmPreparation: (proposalId: string) => post<{ changed: boolean; proposal: PreparationProposal }>("/api/preparation/confirm", { proposalId }),
   rejectPreparation: (proposalId: string) => post<PreparationProposal>("/api/preparation/reject", { proposalId }),
   recordAuthorDetails: (input: { summary: string; baseFingerprint: string; changes: unknown }) => post<PreparationProposal>("/api/preparation/author", input),
+  /** 让 AI 起草资料。apply=false 只交回草稿供表单试填，不落任何文件。 */
+  draftPreparation: (input: { focus: "characters" | "full"; apply: boolean; brief?: string }) =>
+    post<PreparationDraftResult>("/api/preparation/draft", input),
   writeChapter: (input: { chapter: number; proposalId?: string; draftId?: string; newDraft?: boolean; requestId?: string }) => post<DraftView>("/api/chapter/start", { ...input, requestId: input.requestId ?? crypto.randomUUID() }),
   chapterTasks: () => request<ChapterTaskView[]>("/api/tasks"),
   controlTask: (chapter: number, draftId: string, action: "pause" | "end") => post<ChapterTaskView>("/api/chapter/control", { chapter, draftId, action }),

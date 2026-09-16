@@ -32,15 +32,17 @@ import { ChapterWriter, type ChapterWriteOptions, type ChapterWriterOptions } fr
 import { ChapterWriteError, buildChapterReadSource, buildChapterRunInput, type ChapterSource } from "./chapter-input.js";
 import { ConversationStore } from "../agent/conversation-store.js";
 import { MainAgentService } from "../agent/service.js";
-import type { AgentActionOutcome, MainAgentToolContext, PlanAddInput } from "../agent/tool-exec.js";
-import type { MainAgentContextInfo } from "../agent/system-prompt.js";
+import { runAgentLoop, type AgentActionOutcome, type MainAgentToolContext, type PlanAddInput } from "../agent/tool-exec.js";
+import { buildMainAgentSystem, type MainAgentContextInfo } from "../agent/system-prompt.js";
 import type { AlternativeIdea, ConversationObserver, ConversationReply, ConversationTurn } from "../agent/types.js";
 import { createModelClient } from "../client/create.js";
 import type { ModelClient } from "../client/model.js";
 import { countWords } from "../text/measure.js";
 import { withFileTransaction } from "../store/transaction.js";
 import { PreparationService, preparationContent } from "../preparation/service.js";
-import type { PreparationContent } from "../preparation/types.js";
+import type { CharacterInput, PreparationContent, PreparationInput } from "../preparation/types.js";
+import { parsePreparationInput } from "../preparation/schema.js";
+import { PREPARATION_DRAFT_TOOLS } from "../agent/tools.js";
 import { DraftRevisions, validateDraftReference, type DraftEditOptions, type DraftCheckOptions, type DraftCorrectionOptions } from "./draft-revisions.js";
 import { toDraftView } from "./draft-view.js";
 import type { DraftRewriteOptions } from "./draft-rewrite.js";
@@ -58,6 +60,28 @@ export interface SessionDerived {
   readonly candidates: readonly AlertCandidate[];
   readonly selection: AlertSelection;
   readonly views: ViewModel;
+}
+
+/** 起草一次要容纳完整人物档案与首章规划；短回复仍要求简洁。 */
+const PREPARATION_DRAFT_MAX_TOKENS = 8192;
+
+export interface PreparationDraftOptions {
+  /** 作者的一句话补充要求，可空 —— 空了就只按作品想法推断。 */
+  readonly brief?: string;
+  /** characters 只起草人物；full 连地点、情节线与下一章计划一起。 */
+  readonly focus: "characters" | "full";
+  /** true 落成候选方案；false 只把草稿交回来（表单试填），不写任何文件。 */
+  readonly apply: boolean;
+}
+
+export interface PreparationDraftResult {
+  /** 起草回合的说明文字：补了什么、哪里还需要作者拿主意。 */
+  readonly reply: string;
+  /** apply: true 时的候选方案编号。 */
+  readonly proposalId?: string;
+  readonly summary?: string;
+  /** apply: false 时的草稿人物，供表单填入。 */
+  readonly characters: readonly CharacterInput[];
 }
 
 export class ProjectSession {
@@ -422,6 +446,74 @@ export class ProjectSession {
       maxRounds: this.rules.agent.maxConversationRounds,
     });
     return service.send(text, observe);
+  }
+
+  /**
+   * 资料页的「让 AI 起草」：跑一次**没有人坐在旁边**的起草回合。
+   *
+   * 三处刻意的取舍：
+   *   - **不落对话历史。** 按钮不是作者打的字；写进 turns 会让对话里出现一条作者
+   *     从未说过的 user 发言，那是伪造。起草只落候选方案（真实产品产物）。
+   *   - **受限工具集**（`PREPARATION_DRAFT_TOOLS`）。起草过程无人盯着，不能让它
+   *     顺手确认方案或写章 —— 用工具集从能力上杜绝，而不是靠提示词祈祷。
+   *   - **复用主 Agent 的提示与工具循环**，所以 schema 不合规时校验错误会作为
+   *     tool_result 回喂，模型自己改到过；这次的输出还会被 prepare 的业务校验兜住。
+   *
+   * `apply: false` 是「试填」：只把草稿交回来给表单，不落任何文件。它靠包装
+   * `proposePreparation` 捕获输入实现 —— 校验照常发生（错误仍回喂），只是不保存。
+   */
+  async draftPreparation(options: PreparationDraftOptions, observe?: ConversationObserver): Promise<PreparationDraftResult> {
+    const client = this.getModelClient();
+    const focus = options.focus === "characters"
+      ? "这次**只**起草人物档案（changes.characters）。地点、情节线、章节计划一律不要动。"
+      : "起草这份作品现在还缺的资料：人物档案、必要的地点/组织、情节线，以及下一章的章计划。已经确认的内容不要重复提交。";
+    const brief = (options.brief ?? "").trim();
+    // 提示词仍然写明边界，与受限工具集互补：工具集管"做不到"，提示词管"该怎么用"。
+    const ask = [
+      "（这条请求来自资料页的「让 AI 起草」按钮，不是作者在对话里打的字，请直接执行，不要反问。）",
+      "先 get_preparation 读取作者已指定的想法与现有正式资料，再据此推断并补齐：",
+      focus,
+      "人物 profile 与 speech 必须是完整的：定位、外貌、性格标签、想要什么、害怕什么、背景，以及说话方式（语域、情绪表达、句长区间、句式偏好、至少一条正例台词）。作者的设定常常只有一句想法 —— 人物具体是什么样由你判断，不要回过头去问作者。",
+      "用 propose_preparation 保存为一份方案供作者审阅。不要确认方案，不要写章，不要采用任何稿件。",
+      ...(brief === "" ? [] : [`作者这次的补充要求：${brief}`]),
+      "最后用一段话说明你补了哪些人物、各自的关键设定，以及哪里还需要作者拿主意。",
+    ].join("\n");
+
+    let captured: PreparationInput | null = null;
+    const base = this.buildAgentContext(ask);
+    const ctx: MainAgentToolContext = options.apply ? base : {
+      ...base,
+      proposePreparation: async (input: unknown): Promise<AgentActionOutcome> => {
+        try {
+          // 试填只校验形状（schema），不跑需要正式资料配合的业务校验 —— 那些等作者
+          // 在表单里定稿后保存时再跑，否则一个还没埋设的伏笔引用会让整个试填报废。
+          captured = parsePreparationInput(input);
+          return { message: "（草稿已收下，尚未保存为方案。内容已完整时不要再重复提交。）" };
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          return { message, effect: { kind: "action_failed", tool: "propose_preparation", message } };
+        }
+      },
+    };
+
+    const loop = await runAgentLoop(client, {
+      role: "judge",
+      maxTokens: PREPARATION_DRAFT_MAX_TOKENS,
+      tools: PREPARATION_DRAFT_TOOLS,
+      system: buildMainAgentSystem(this.agentContextInfo()),
+      messages: [{ role: "user", content: ask }],
+    }, ctx, this.rules.agent.maxConversationRounds, observe);
+
+    const reply = loop.text.trim();
+    if (!options.apply) {
+      if (captured === null) throw new ChapterWriteError(502, `起草没有产出可用的资料${reply === "" ? "" : `：${reply}`}`);
+      return { reply, characters: (captured as PreparationInput).changes.characters ?? [] };
+    }
+    const proposed = loop.effects.find((effect) => effect.kind === "preparation_proposed");
+    if (proposed === undefined || proposed.kind !== "preparation_proposed") {
+      throw new ChapterWriteError(502, `起草没有保存出方案${reply === "" ? "" : `：${reply}`}`);
+    }
+    return { reply, proposalId: proposed.proposalId, summary: proposed.summary, characters: [] };
   }
 
   conversationTurns(): readonly ConversationTurn[] {

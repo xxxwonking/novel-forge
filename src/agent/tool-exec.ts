@@ -36,7 +36,12 @@ export interface PlanAddInput {
 /** 一次动作类工具的结果：回传给模型的文案 + 记给 UI 的 effect。 */
 export interface AgentActionOutcome {
   readonly message: string;
-  readonly effect: AgentEffect;
+  /**
+   * 这次动作产生的状态变化。**缺省表示没有状态变化** —— 例如资料起草的试填模式
+   * 只把草稿交给调用方，不落任何文件。硬塞一个不相干的 effect 会在 UI 上画出
+   * 并不存在的操作记录，所以宁可不挂。
+   */
+  readonly effect?: AgentEffect;
 }
 
 /**
@@ -95,10 +100,11 @@ export async function executeMainTool(
     content: text,
     is_error: true,
   });
-  /** 动作类工具的统一收尾：is_error 由 effect 是否为 action_failed 决定。 */
-  const action = (o: AgentActionOutcome): { result: Anthropic.ToolResultBlockParam; effect: AgentEffect } => ({
-    result: o.effect.kind === "action_failed" ? err(o.message) : ok(o.message),
-    effect: o.effect,
+  /** 动作类工具的统一收尾：is_error 由 effect 是否为 action_failed 决定；无 effect 即无状态变化。 */
+  const action = (o: AgentActionOutcome): { result: Anthropic.ToolResultBlockParam; effect?: AgentEffect } => ({
+    result: o.effect?.kind === "action_failed" ? err(o.message) : ok(o.message),
+    // exactOptionalPropertyTypes：缺省与显式 undefined 不同，只能条件展开。
+    ...(o.effect === undefined ? {} : { effect: o.effect }),
   });
 
   switch (block.name) {

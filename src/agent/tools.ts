@@ -210,6 +210,38 @@ export const MAIN_AGENT_TOOLS: readonly Anthropic.Tool[] = [
   },
 ] as const;
 
+/**
+ * 资料起草专用的**受限**工具集（资料页「让 AI 起草」按钮）。
+ *
+ * 起草是一次没有人坐在旁边的自动回合：作者只按了一个按钮，没盯着过程。用完整的
+ * `MAIN_AGENT_TOOLS` 意味着模型可能顺手 `confirm_preparation`（替作者拍板）或
+ * `write_next_chapter`（作者没让写）。**从工具层面杜绝，而不是靠提示词祈祷** ——
+ * 提示词是"该怎么用工具"，工具集是"越界做不到"，两者互补（同 system-prompt 头的分层）。
+ *
+ * 只留：读类（了解现有资料）+ `propose_preparation`（唯一的产出方式）。
+ * 顺序与 `MAIN_AGENT_TOOLS` 中的相对顺序一致，便于对照。
+ */
+export const PREPARATION_DRAFT_TOOLS: readonly Anthropic.Tool[] = [
+  ...MAIN_AGENT_TOOLS.filter((tool) => ([
+    "get_preparation",
+    "propose_preparation",
+    "get_overview",
+    "get_chapter_text",
+    "get_character",
+    "list_open_foreshadows",
+  ] as readonly string[]).includes(tool.name)),
+] as const;
+
+/** 同上，供回归测试逐位核对。 */
+export const EXPECTED_PREPARATION_DRAFT_TOOL_ORDER: readonly string[] = [
+  "get_preparation",
+  "propose_preparation",
+  "get_overview",
+  "get_chapter_text",
+  "get_character",
+  "list_open_foreshadows",
+] as const;
+
 /** 回归测试的期望顺序。改动工具集必须同步改这里，让测试逼你确认一次（§13.8 同款纪律）。 */
 export const EXPECTED_MAIN_AGENT_TOOL_ORDER: readonly string[] = [
   "prepare_text_export",
