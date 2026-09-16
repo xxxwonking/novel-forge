@@ -1,15 +1,16 @@
 /**
  * 正文页 —— 「点击看原文」的落点（§12.9 M3）。
  *
- * 这一页刻意做得朴素：结构视图是主界面，正文是**被跳读的对象**。用户来这里
- * 只为看那 5%（决策 #4："点击图上元素跳读关键 5%"），所以进来就滚到高亮处。
+ * 阅读区与体检栏各自滚动：读长章时右侧的检查结论不会跟着跑掉，回到结构视图
+ * 也不必先把正文滚回去。正文列在可用宽度里居中，不贴着左边。
  *
  * 高亮用后端解析出的 offset 切分，不在前端再搜一遍 quote —— 两处搜索的
  * occurrence 处理一旦有分歧，用户点的点和跳到的位置就不是一处。
  */
 
-import { useEffect, useRef } from "react";
-import { Select } from "antd";
+import { useEffect, useRef, useState } from "react";
+import { Button, Select, Tooltip } from "antd";
+import { LeftOutlined, RightOutlined } from "@ant-design/icons";
 import { api, type GateFinding, type HealthPayload } from "../api.js";
 import { useFetch } from "../hooks.js";
 
@@ -39,9 +40,25 @@ export function Reader({ chapter, quote }: ReaderProps): React.ReactElement {
   );
 
   const markRef = useRef<HTMLElement | null>(null);
+  const scroller = useRef<HTMLDivElement | null>(null);
+  const [progress, setProgress] = useState(0);
+
   useEffect(() => {
     markRef.current?.scrollIntoView({ block: "center" });
   }, [anchor.data, text.data]);
+
+  // 换章从头读起；滚动进度写进本地 state，供顶部细条显示读到哪了。
+  useEffect(() => {
+    if (quote === null && scroller.current !== null) scroller.current.scrollTop = 0;
+    setProgress(0);
+  }, [chapter, quote]);
+
+  const onScroll = (): void => {
+    const el = scroller.current;
+    if (el === null) return;
+    const total = el.scrollHeight - el.clientHeight;
+    setProgress(total <= 0 ? 1 : Math.min(1, el.scrollTop / total));
+  };
 
   if (text.error !== null) return <div className="empty">{text.error}</div>;
   if (text.data === null) return <div className="empty">载入中</div>;
@@ -52,56 +69,78 @@ export function Reader({ chapter, quote }: ReaderProps): React.ReactElement {
       ? { offset: resolution.offset, length: resolution.length }
       : null;
 
+  const chapters = list.data ?? [];
+  const index = chapters.findIndex((c) => c.chapter === chapter);
+  const prev = index > 0 ? chapters[index - 1] : undefined;
+  const next = index >= 0 && index < chapters.length - 1 ? chapters[index + 1] : undefined;
+  const go = (n: number): void => { window.location.hash = `/chapter/${n}`; };
+
   return (
-    <>
-      <div className="page-head">
-        <h1>第 {chapter} 章</h1>
-        {resolution?.status === "stale" && (
-          <p style={{ color: "var(--warn)" }}>
-            原文已变动，无法定位那一段（{resolution.reason === "chapter_missing" ? "章节不存在" : "引文已被改写"}）。
-            锚点用原文片段做主键，作者改写后就失效 —— 这是正常状态，不是错误。
-          </p>
-        )}
-        {resolution?.status === "shifted" && (
-          <p className="muted">位置比记录的偏移了 {resolution.shiftedBy} 字（前面增删过内容），已按引文重新定位。</p>
-        )}
-      </div>
-
-      <div className="reader">
-        <article className="prose">
-          {paragraphsOf(text.data.text, hit).map((p, i) => (
-            <p key={i}>
-              {p.map((seg, j) =>
-                seg.marked ? (
-                  <mark key={j} ref={markRef}>
-                    {seg.text}
-                  </mark>
-                ) : (
-                  <span key={j}>{seg.text}</span>
-                ),
-              )}
-            </p>
-          ))}
-        </article>
-
-        <aside className="side">
-          <a className="export-link" href="#/export">导出已采用正文</a>
-          <h3>章节</h3>
+    <div className="reader-page">
+      <div className="reader-bar">
+        <div className="reader-bar-main">
+          <h1>第 {chapter} 章</h1>
           <Select
             aria-label="选择章节"
             value={chapter}
-            style={{ width: "100%", marginBottom: 18 }}
-            onChange={(value) => { window.location.hash = `/chapter/${value}`; }}
-            options={(list.data ?? []).map((c) => ({
+            className="reader-picker"
+            popupMatchSelectWidth={false}
+            onChange={go}
+            options={chapters.map((c) => ({
               value: c.chapter,
               label: `第 ${c.chapter} 章${c.beat === null ? "" : ` · ${c.beat.slice(0, 14)}`}`,
             }))}
           />
+        </div>
+        <div className="reader-bar-side">
+          <Tooltip title={prev === undefined ? "已是最前一章" : `第 ${prev.chapter} 章`}>
+            <Button type="text" icon={<LeftOutlined />} disabled={prev === undefined} onClick={() => prev && go(prev.chapter)} aria-label="上一章" />
+          </Tooltip>
+          <Tooltip title={next === undefined ? "已是最后一章" : `第 ${next.chapter} 章`}>
+            <Button type="text" icon={<RightOutlined />} disabled={next === undefined} onClick={() => next && go(next.chapter)} aria-label="下一章" />
+          </Tooltip>
+          <a className="export-link" href="#/export">导出已采用正文</a>
+        </div>
+        <div className="reader-progress" aria-hidden="true"><i style={{ transform: `scaleX(${progress})` }} /></div>
+      </div>
 
+      {resolution?.status === "stale" && (
+        <p className="reader-notice" data-tone="warn">
+          原文已变动，无法定位那一段（{resolution.reason === "chapter_missing" ? "章节不存在" : "引文已被改写"}）。
+          锚点用原文片段做主键，作者改写后就失效 —— 这是正常状态，不是错误。
+        </p>
+      )}
+      {resolution?.status === "shifted" && (
+        <p className="reader-notice">位置比记录的偏移了 {resolution.shiftedBy} 字（前面增删过内容），已按引文重新定位。</p>
+      )}
+
+      <div className="reader-body">
+        <div className="reader-scroll" ref={scroller} onScroll={onScroll}>
+          <article className="prose">
+            {paragraphsOf(text.data.text, hit).map((p, i) => (
+              <p key={i}>
+                {p.map((seg, j) =>
+                  seg.marked ? (
+                    <mark key={j} ref={markRef}>
+                      {seg.text}
+                    </mark>
+                  ) : (
+                    <span key={j}>{seg.text}</span>
+                  ),
+                )}
+              </p>
+            ))}
+            <div className="reader-end">
+              {next === undefined ? <span className="muted">已是最后一章</span> : <Button onClick={() => go(next.chapter)}>继续读第 {next.chapter} 章 →</Button>}
+            </div>
+          </article>
+        </div>
+
+        <aside className="reader-side">
           <Health health={health.data} />
         </aside>
       </div>
-    </>
+    </div>
   );
 }
 
@@ -125,27 +164,22 @@ function Health({ health }: { health: HealthPayload | null }): React.ReactElemen
     <>
       <h3>体检</h3>
       {health.chapterGate !== null && (
-        <dl>
-          <dt>字数（只计汉字与西文词）</dt>
-          <dd>{health.chapterGate.words}</dd>
-          <dt>加权事件密度</dt>
-          <dd>{health.chapterGate.density.toFixed(2)} / 千字</dd>
-          <dt>按实际字数复算的阈值</dt>
-          <dd className="muted" style={{ fontSize: 12 }}>
+        <div className="reader-metrics">
+          <div><span>{health.chapterGate.words}</span><small>字（只计汉字与西文词）</small></div>
+          <div><span>{health.chapterGate.density.toFixed(2)}</span><small>加权事件密度 / 千字</small></div>
+          <p className="muted reader-thresholds">
             {Object.entries(health.chapterGate.thresholds)
               .map(([k, v]) => `${k} ≤ ${v}`)
               .join("　")}
-          </dd>
-        </dl>
+          </p>
+        </div>
       )}
 
       {groups.map((g) => (
-        <div key={g.title} style={{ marginBottom: 16 }}>
+        <div key={g.title} className="reader-group">
           <h3>{g.title}</h3>
           {g.findings.length === 0 ? (
-            <p className="muted" style={{ fontSize: 12 }}>
-              无
-            </p>
+            <p className="muted reader-none">无</p>
           ) : (
             <div className="findings">
               {g.findings.map((f, i) => (
