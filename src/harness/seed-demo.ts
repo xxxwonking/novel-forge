@@ -80,12 +80,30 @@ function speech(over: Partial<SpeechProfile> = {}): SpeechProfile {
   };
 }
 
+/**
+ * 每个人物的专属设定。
+ *
+ * 早先这里所有人物共用一个模板，六张卡的「外貌与说话方式」点开是同一份 ——
+ * 演示数据可以被简化，但不能**看起来像坏了**。这里按角色身份各写一份，也顺带
+ * 让 L3 上下文里的外貌与台词样例真的有区别（§13.5 台词正例是要给模型看的）。
+ */
+interface CardSpec {
+  readonly role: string;
+  readonly appearance: readonly { readonly key: string; readonly value: string; readonly immutable?: boolean }[];
+  readonly traits: readonly string[];
+  readonly forbiddenBehaviors: readonly string[];
+  readonly wants: string;
+  readonly fears: string;
+  readonly background: string;
+  readonly speech: Partial<SpeechProfile>;
+}
+
 function card(
   id: CharacterId,
   name: string,
   tier: CharacterCard["tier"],
-  role: string,
   introducedAt: ChapterNo,
+  spec: CardSpec,
 ): Omit<CharacterCard, "state"> {
   return {
     id,
@@ -94,27 +112,159 @@ function card(
     tier,
     introducedAt,
     profile: {
-      role,
-      appearance: [{ key: "眼睛颜色", value: "浅褐", establishedAt: introducedAt, immutable: true }],
-      traits: ["记仇", "谨慎"],
-      forbiddenBehaviors: ["不在人前示弱"],
-      wants: "查清师父死因",
-      fears: "自己也是帮凶",
-      background: "自幼被三叔抚养。",
+      role: spec.role,
+      appearance: spec.appearance.map((a) => ({ key: a.key, value: a.value, establishedAt: introducedAt, immutable: a.immutable ?? true })),
+      traits: [...spec.traits],
+      forbiddenBehaviors: [...spec.forbiddenBehaviors],
+      wants: spec.wants,
+      fears: spec.fears,
+      background: spec.background,
     },
-    speech: speech(),
+    speech: speech(spec.speech),
     provenance: "authored",
     updatedAt: NOW,
   };
 }
 
 const characters: readonly Omit<CharacterCard, "state">[] = [
-  card("C01", "李长风", "protagonist", "主角，被逐出师门的少年", 1),
-  card("C02", "血刀客", "major", "刀谱线的对手", 8),
-  card("C03", "三叔", "major", "抚养主角长大的人，真凶", 1),
-  card("C05", "苏晚晴", "major", "同门旧识，并肩者", 3),
-  card("C06", "茶摊老丈", "minor", "青州城的消息来源", 6),
-  card("C09", "守山弟子", "extra", "山门口的龙套", 20),
+  card("C01", "李长风", "protagonist", 1, {
+    role: "主角，被逐出师门的少年",
+    appearance: [
+      { key: "身形", value: "十七八岁，瘦而结实，左手虎口有一道旧疤" },
+      { key: "衣着", value: "洗得发白的青布短打，外罩一件不合身的旧直裰" },
+      { key: "随身物", value: "腰间挂一枚缺口铜牌，是师门除名时没交回去的" },
+    ],
+    traits: ["记仇", "谨慎", "嘴上不认输"],
+    forbiddenBehaviors: ["不在人前示弱", "不主动解释自己的打算"],
+    wants: "查清师父死因，拿回被逐出师门的清白",
+    fears: "自己也是师门那桩旧案的一部分",
+    background: "自幼被三叔抚养，师父死后被指认私通外敌而逐出山门。",
+    speech: {
+      sentenceLength: { min: 3, max: 12 },
+      register: "colloquial",
+      emotionalExpression: "suppressed",
+      syntaxBias: { question: 0.3, imperative: 0.15, elliptical: 0.45 },
+      signatureLexicon: ["三叔", "那晚", "账"],
+      forbiddenLexicon: ["OK", "没问题", "我发誓"],
+      exemplars: ["三叔那晚在哪。", "我只问一次。", "这话你自己信吗。"],
+      counterExemplars: ["我必将以雷霆之势讨回公道！"],
+    },
+  }),
+  card("C02", "血刀客", "major", 8, {
+    role: "刀谱线的对手，替人办事的老手",
+    appearance: [
+      { key: "身形", value: "四十上下，肩背极宽，右臂比左臂粗一圈" },
+      { key: "兵器", value: "一柄无鞘厚背刀，刀身有洗不掉的黑渍" },
+      { key: "标记", value: "左脸自颧骨到下颌有一道缝合过的旧伤" },
+    ],
+    traits: ["拿钱办事", "话少", "守自己的规矩"],
+    forbiddenBehaviors: ["不杀已经放下兵器的人"],
+    wants: "凑够给女儿赎身的银子",
+    fears: "刀谱落到雇主手里，自己也就没用了",
+    background: "北地流民出身，靠一把刀替青州几家大户做见不得光的事。",
+    speech: {
+      sentenceLength: { min: 2, max: 9 },
+      register: "vulgar",
+      emotionalExpression: "suppressed",
+      syntaxBias: { question: 0.05, imperative: 0.4, elliptical: 0.5 },
+      signatureLexicon: ["刀", "价", "银"],
+      forbiddenLexicon: ["请", "抱歉", "在下"],
+      exemplars: ["三句话。", "银子先摆上桌。", "我不问为什么。"],
+      counterExemplars: ["烦请阁下高抬贵手，在下感激不尽。"],
+    },
+  }),
+  card("C03", "三叔", "major", 1, {
+    role: "抚养主角长大的人，真凶",
+    appearance: [
+      { key: "身形", value: "五十余岁，背有些驼，走路却极稳" },
+      { key: "衣着", value: "常年一身深褐布衣，袖口磨出毛边" },
+      { key: "习惯动作", value: "说话前先摩挲右手拇指上的旧玉扳指" },
+    ],
+    traits: ["周到", "和缓", "从不说满话"],
+    forbiddenBehaviors: ["不发火", "不在人前提及师兄的死"],
+    wants: "让旧案永远沉下去，护住李长风",
+    fears: "养大的孩子最终查到自已头上",
+    background: "李长风师父的师弟，当年那桩旧案的经手人，此后一手把李长风带大。",
+    speech: {
+      sentenceLength: { min: 6, max: 24 },
+      register: "colloquial",
+      emotionalExpression: "oblique",
+      syntaxBias: { question: 0.25, imperative: 0.05, elliptical: 0.15 },
+      signatureLexicon: ["回头再说", "不碍事", "你还小"],
+      forbiddenLexicon: ["绝不可能", "我保证"],
+      addressForms: [{ target: "C01", form: "长风", condition: "日常称呼" }],
+      exemplars: ["先把饭吃了，事慢慢查。", "你师父当年，也爱这么问。", "有些事不知道，比知道好过。"],
+      counterExemplars: ["此事与我无关，休要再提！"],
+    },
+  }),
+  card("C05", "苏晚晴", "major", 3, {
+    role: "同门旧识，并肩者",
+    appearance: [
+      { key: "身形", value: "二十出头，身量高挑，惯用左手" },
+      { key: "衣着", value: "素白窄袖劲装，袖口束得极紧" },
+      { key: "随身物", value: "腰间一柄短剑，剑穗是师门统一发的青色" },
+    ],
+    traits: ["直率", "护短", "认死理"],
+    forbiddenBehaviors: ["不背后议论同门"],
+    wants: "重查师门旧案，替被除名的师兄讨个说法",
+    fears: "查到最后，动手的是自己的长辈",
+    background: "与李长风同门，李被逐后留在山中，暗中查访旧案卷宗。",
+    speech: {
+      sentenceLength: { min: 5, max: 20 },
+      register: "neutral",
+      emotionalExpression: "direct",
+      syntaxBias: { question: 0.35, imperative: 0.25, elliptical: 0.1 },
+      signatureLexicon: ["卷宗", "师门", "说不通"],
+      forbiddenLexicon: ["随便吧", "算了"],
+      addressForms: [{ target: "C01", form: "师兄", condition: "日常称呼" }],
+      exemplars: ["卷宗第三页被人换过，你看这里。", "说不通。", "你要查，我就陪你查到底。"],
+      counterExemplars: ["此事与我无干，你自己看着办吧。"],
+    },
+  }),
+  card("C06", "茶摊老丈", "minor", 6, {
+    role: "青州城的消息来源",
+    appearance: [
+      { key: "身形", value: "六十来岁，矮胖，一双手被茶水烫得通红" },
+      { key: "衣着", value: "油腻的灰白围裙，肩上常年搭一条抹布" },
+    ],
+    traits: ["爱打听", "嘴碎", "见人下菜"],
+    forbiddenBehaviors: ["不白送消息"],
+    wants: "茶摊安稳开下去，别被哪家大户盯上",
+    fears: "说错话惹上血刀客那样的人",
+    background: "在青州城门内摆茶摊三十年，城里的事没有他不知道一半的。",
+    speech: {
+      sentenceLength: { min: 8, max: 30 },
+      register: "colloquial",
+      emotionalExpression: "direct",
+      syntaxBias: { question: 0.4, imperative: 0.1, elliptical: 0.2 },
+      signatureLexicon: ["客官", "听人说", "两文钱"],
+      forbiddenLexicon: ["不知", "无可奉告"],
+      exemplars: ["客官要打听人？先添两文茶钱。", "听人说，那晚城门开过一次。", "这话我可没说过。"],
+      counterExemplars: ["此事实难奉告，还请见谅。"],
+    },
+  }),
+  card("C09", "守山弟子", "extra", 20, {
+    role: "山门口的龙套，执行门规的人",
+    appearance: [
+      { key: "身形", value: "十六七岁，脸上还有未褪的稚气" },
+      { key: "衣着", value: "师门制式灰袍，腰间别一柄没开刃的练习用剑" },
+    ],
+    traits: ["守规矩", "紧张时结巴"],
+    forbiddenBehaviors: ["不擅自放人上山"],
+    wants: "安安稳稳当完这一年值，别出岔子",
+    fears: "被上面追责",
+    background: "入门外门弟子，轮值在守山岗上。",
+    speech: {
+      sentenceLength: { min: 4, max: 14 },
+      register: "formal",
+      emotionalExpression: "suppressed",
+      syntaxBias: { question: 0.15, imperative: 0.3, elliptical: 0.1 },
+      signatureLexicon: ["门规", "腰牌", "通传"],
+      forbiddenLexicon: ["随便", "算了"],
+      exemplars: ["腰牌。", "没有通传，不能上山。", "这……这不合门规。"],
+      counterExemplars: ["行吧行吧，你上去吧。"],
+    },
+  }),
 ];
 
 // ── 伏笔与事件 ──────────────────────────────────────────────────────────
