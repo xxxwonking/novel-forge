@@ -6,7 +6,8 @@
  * 什么写到哪一章去 —— `[加入第 53 章回收]` 而不是 `[处理]`。
  */
 
-import { Button, Tag } from "antd";
+import { Button } from "antd";
+import { Chip } from "./Chip.js";
 import type { Alert, AlertAction } from "../api.js";
 
 const CATEGORY_LABEL: Record<string, string> = {
@@ -68,9 +69,7 @@ export function AlertCard({ alert, rank, busy = false, onAction, onIgnore }: Ale
       <div className="alert-head">
         {rank !== undefined && <span className="alert-rank">{rank}</span>}
         <span className="alert-title">{alert.title}</span>
-        {alert.migratedTo !== null
-          ? <Tag>{CATEGORY_LABEL[alert.category] ?? alert.category}</Tag>
-          : <Tag color="orange">{CATEGORY_LABEL[alert.category] ?? alert.category}</Tag>}
+        <Chip color={alert.migratedTo === null ? "orange" : undefined}>{CATEGORY_LABEL[alert.category] ?? alert.category}</Chip>
         {/* score 平时没用，但校准期要能一眼看到排序依据（§12.6.9）。 */}
         <span className="alert-score" title={`impact ${alert.impact} × decay ${alert.decay.toFixed(2)}`}>
           {alert.score.toFixed(2)}

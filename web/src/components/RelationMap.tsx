@@ -8,6 +8,7 @@
  * 布局按 degree 降序排在圆周上：连边多的角色彼此靠近，视觉上自然成簇。
  */
 
+import { Chip } from "./Chip.js";
 import { useState } from "react";
 import type { RelationGraph } from "../api.js";
 import { relationLabel, tierLabel } from "../chart.js";
@@ -127,7 +128,7 @@ export function RelationMap({ graph, onJump, highlight }: RelationMapProps): Rea
                   {nameOf(graph, e.from)} → {nameOf(graph, e.to)}
                 </td>
                 <td>
-                  <span className="tag">{relationLabel(e.kind)}</span>{" "}
+                  <Chip>{relationLabel(e.kind)}</Chip>
                   <span className="muted">{e.note}</span>
                   {e.historyCount > 1 && (
                     <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>

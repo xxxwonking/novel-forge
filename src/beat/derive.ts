@@ -21,7 +21,7 @@ import type {
 } from "../types/beat.js";
 import type { Derived, IsoTimestamp } from "../types/primitives.js";
 import type { EventWeight } from "../types/events.js";
-import type { Rules } from "../rules/schema.js";
+import type { Range, Rules } from "../rules/schema.js";
 
 /** 派生值的唯一构造入口。除本模块与投影器外没有别处能造。 */
 function derived<T>(value: T): Derived<T> {
@@ -35,6 +35,20 @@ function countsResolutions(type: ChapterType): boolean {
 
 function roundTo(value: number, unit: number): number {
   return Math.round(value / unit) * unit;
+}
+
+/**
+ * 取规则表里的成本区间。
+ *
+ * 类型上权重是必填的，但节拍表是用户目录下的 JSON —— 手改过或损坏的文件可能
+ * 缺字段。直接解构会抛 "undefined is not iterable"，用户只看到一个 500，不知道
+ * 是哪一章的哪一项坏了。这里换成能指出位置的错误，与「坏文件要看得见」一致。
+ */
+function cost(table: Readonly<Record<string, Range>>, weight: string | number, what: string): Range {
+  // 事件权重是 1|2|3，伏笔权重是 main|sub|detail —— 两种表都按同一个键查。
+  const found = table[weight];
+  if (found === undefined) throw new Error(`节拍表里的${what}无效：${String(weight)}（可选项：${Object.keys(table).join("、")}）`);
+  return found;
 }
 
 // ── 字数预算（§10.4）────────────────────────────────────────────────────
@@ -63,7 +77,7 @@ export function deriveWordBudget(
 
   // 首个事件的成本已含在类型基线里，从第二个起计入。
   for (const e of plan.events.slice(1)) {
-    const [eLo, eHi] = rules.eventCost[e.weight];
+    const [eLo, eHi] = cost(rules.eventCost, e.weight, `计划事件「${e.summary}」的权重`);
     min += eLo;
     max += eHi;
   }
@@ -76,7 +90,7 @@ export function deriveWordBudget(
 
   if (countsResolutions(plan.chapterType)) {
     for (const r of plan.resolves) {
-      const [cLo, cHi] = rules.resolveCost[r.weight];
+      const [cLo, cHi] = cost(rules.resolveCost, r.weight, `伏笔收束「${r.foreshadowId}」的权重`);
       const ratio = r.completeness === "partial" ? rules.partialRatio : 1;
       min += cLo * ratio;
       max += cHi * ratio;

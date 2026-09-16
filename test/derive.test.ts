@@ -108,6 +108,14 @@ describe("§10.4 派生规则的边界", () => {
     expect(two.max - one.max).toBe(400);
   });
 
+  it("权重字段缺失时报出可定位的错误，而不是 undefined 解构异常", () => {
+    // 节拍表是用户目录下的 JSON，手改或损坏时字段可能缺失；此时应说明是哪一项坏了。
+    const broken = plan({ chapterType: "payoff", resolves: [{ foreshadowId: "F01", completeness: "full" } as never] });
+    expect(() => deriveWordBudget(broken, workProfile, rules)).toThrowError(/伏笔收束「F01」的权重无效：undefined/);
+    const brokenEvent = plan({ events: [ev(1), { kind: "action", summary: "核对库门", weight: 9 as never, plotLine: null }] });
+    expect(() => deriveWordBudget(brokenEvent, workProfile, rules)).toThrowError(/计划事件「核对库门」的权重无效/);
+  });
+
   it("部分收束按 60% 计入", () => {
     const full = deriveWordBudget(
       plan({ chapterType: "payoff", resolves: [res("F03", "main", "full")] }),

@@ -7,6 +7,7 @@ import { DraftEditor, RevisionComparison } from "../components/DraftEditing.js";
 import { StructureEditor } from "../components/StructureEditor.js";
 import { DraftRewriteEditor } from "../components/DraftRewriteEditor.js";
 import { DraftProposals } from "../components/DraftProposals.js";
+import { Chip } from "../components/Chip.js";
 
 const states: Record<string, string> = { writing: "正文未完成", pending_check: "待检查", declaring: "结构核对未完成", checking: "检查未完成", failed: "执行未完成", needs_revision: "需要修改", ready: "待采用", adopted: "已采用", stale: "依据已变化，需重新核对", discarded: "已丢弃" };
 
@@ -71,7 +72,7 @@ export function Drafts({ chapter, draftId, refresh, task, reloadTasks }: { chapt
     {task && <TaskCard task={task} reload={reload} detailed />}
     {draft.automaticResultDraftId && <div className="prep-readiness"><div><strong>这份初稿已保留</strong><p>本次任务已创建自动修订版。请查看新版本的进度与检查结果。</p></div><a className="prep-link" href={`#/draft/${chapter}/${draft.automaticResultDraftId}`}>查看自动修订稿 →</a></div>}
     {draft.revision?.kind === "automatic" && <p className="muted">这是本次任务的第 1 次自动修订，初稿及原检查保留在版本列表中。当前用量包含初稿与本次修订。</p>}
-    <div className="draft-toolbar"><span className="tag" data-tone={draft.status === "needs_revision" ? "warn" : "calm"}>{draft.status === "adopted" ? draft.isCurrentAdopted ? "当前正式版本" : "历史采用版本" : states[draft.status] ?? draft.status}</span><span>{draft.words} 字</span><label>版本 <Select aria-label="稿件版本" value={draftId} popupMatchSelectWidth={false} onChange={(value) => goDraft(chapter, value)}
+    <div className="draft-toolbar"><Chip color={draft.status === "needs_revision" ? "orange" : draft.status === "ready" ? "cyan" : undefined}>{draft.status === "adopted" ? draft.isCurrentAdopted ? "当前正式版本" : "历史采用版本" : states[draft.status] ?? draft.status}</Chip><span>{draft.words} 字</span><label>版本 <Select aria-label="稿件版本" value={draftId} popupMatchSelectWidth={false} onChange={(value) => goDraft(chapter, value)}
       options={(versions.data ?? [draft]).map((d) => ({ value: d.draftId, label: `${d.draftId} · ${d.isCurrentAdopted ? "当前正式版本" : states[d.status] ?? d.status}` }))} /></label><a href="#/preparation">作品资料</a></div>
     {draft.preparationProposalId !== null && <div className="prep-readiness"><div><strong>依赖方案：{dependency?.summary ?? "正在读取"}</strong><p>{dependency?.status === "confirmed" ? "此方案已确认。" : "这份草稿使用了尚未确认的建议设定。采用章节时会一并确认该方案。"}</p></div><a href={`#/preparation?proposal=${encodeURIComponent(draft.preparationProposalId)}`}>查看依赖</a></div>}
     {(error ?? query.error) && <div className="finding" data-level="block" role="alert">{error ?? query.error}</div>}

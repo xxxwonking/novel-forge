@@ -7,6 +7,7 @@
  */
 
 import { api, type Views } from "../api.js";
+import { Chip } from "../components/Chip.js";
 import { useFetch } from "../hooks.js";
 import { weightLabel, tierLabel } from "../chart.js";
 import { Timeline } from "../components/Timeline.js";
@@ -80,6 +81,7 @@ function ForeshadowBody({ views, onJump, highlight }: BodyProps): React.ReactEle
   return (
     <>
       <div className="legend">
+        <span className="legend-label">图例</span>
         <span>
           <i className="swatch" style={{ background: "var(--main)" }} /> 主线
         </span>
@@ -100,6 +102,7 @@ function ForeshadowBody({ views, onJump, highlight }: BodyProps): React.ReactEle
 
       <Timeline axis={views.axis} lanes={views.foreshadows.filter(f => f.status !== "planned" && f.planted.anchor.quote.trim())} onJump={onJump} highlight={highlight} />
 
+      <div className="table-panel">
       <table>
         <thead>
           <tr>
@@ -116,9 +119,7 @@ function ForeshadowBody({ views, onJump, highlight }: BodyProps): React.ReactEle
             return (
               <tr key={f.id}>
                 <td>
-                  <span className="tag" data-w={f.weight}>
-                    {weightLabel(f.weight)}
-                  </span>{" "}
+                  <Chip color="gold" className="tag-weight">{weightLabel(f.weight)}</Chip>
                   {f.label}
                   <div className="muted" style={{ fontSize: 11 }}>
                     {f.id} · {f.visibility === "overt" ? "明线" : "暗线"}
@@ -128,20 +129,17 @@ function ForeshadowBody({ views, onJump, highlight }: BodyProps): React.ReactEle
                 <td className="num">{f.planted.anchor.quote.trim() ? f.planted.chapter : "尚未埋设"}</td>
                 <td className="num">{f.expectedBy}</td>
                 <td>
-                  <span className="tag" data-tone={f.status === "open" ? undefined : "done"}>
+                  <Chip color={f.status === "open" ? "processing" : undefined}>
                     {f.status === "open" && f.resolutions.some(r => r.completeness === "partial") ? "部分兑现" : STATUS_LABEL[f.status] ?? f.status}
-                  </span>
-                  {overdue > 0 && (
-                    <span className="tag" data-tone="alarm" style={{ marginLeft: 4 }}>
-                      逾期 {overdue}
-                    </span>
-                  )}
+                  </Chip>
+                  {overdue > 0 && <Chip color="volcano">逾期 {overdue}</Chip>}
                 </td>
               </tr>
             );
           })}
         </tbody>
       </table>
+      </div>
     </>
   );
 }
@@ -153,6 +151,7 @@ function PlotBody({ views, onJump, highlight }: BodyProps): React.ReactElement {
     <>
       <PlotTracks axis={views.axis} tracks={views.plotTracks} onJump={onJump} highlight={highlight} />
 
+      <div className="table-panel">
       <table>
         <thead>
           <tr>
@@ -168,9 +167,7 @@ function PlotBody({ views, onJump, highlight }: BodyProps): React.ReactElement {
           {views.plotTracks.map((t) => (
             <tr key={t.id}>
               <td>
-                <span className="tag" data-w={t.weight}>
-                  {weightLabel(t.weight)}
-                </span>{" "}
+                <Chip color="gold" className="tag-weight">{weightLabel(t.weight)}</Chip>
                 {t.label}
               </td>
               <td className="num">{t.nodes.length}</td>
@@ -184,6 +181,7 @@ function PlotBody({ views, onJump, highlight }: BodyProps): React.ReactElement {
           ))}
         </tbody>
       </table>
+      </div>
     </>
   );
 }
@@ -195,6 +193,7 @@ function ArcBody({ views, onJump, highlight }: BodyProps): React.ReactElement {
     <>
       <ArcLanes axis={views.axis} arcs={views.arcs} onJump={onJump} highlight={highlight} />
 
+      <div className="table-panel">
       <table>
         <thead>
           <tr>
@@ -209,7 +208,7 @@ function ArcBody({ views, onJump, highlight }: BodyProps): React.ReactElement {
           {views.arcs.map((a) => (
             <tr key={a.characterId}>
               <td>
-                <span className="tag">{tierLabel(a.tier)}</span> {a.name}
+                <Chip className="tag-weight">{tierLabel(a.tier)}</Chip>{a.name}
                 <div className="muted" style={{ fontSize: 11 }}>
                   {a.characterId}
                 </div>
@@ -234,6 +233,7 @@ function ArcBody({ views, onJump, highlight }: BodyProps): React.ReactElement {
           ))}
         </tbody>
       </table>
+      </div>
     </>
   );
 }

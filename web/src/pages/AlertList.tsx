@@ -7,6 +7,7 @@
  */
 
 import { Button } from "antd";
+import { Chip } from "../components/Chip.js";
 import { api, type Alert, type AlertAction, type PlanningAction } from "../api.js";
 import { useFetch } from "../hooks.js";
 import { AlertCard } from "../components/AlertCard.js";
@@ -87,6 +88,7 @@ export function AlertList({ onAction, onIgnore, refreshKey, onPlanningAction }: 
         {data.suppressed.length === 0 ? (
           <div className="empty">没有暂时移出的提示。</div>
         ) : (
+          <div className="table-panel">
           <table>
             <thead>
               <tr>
@@ -101,9 +103,7 @@ export function AlertList({ onAction, onIgnore, refreshKey, onPlanningAction }: 
                 <tr key={alert.id}>
                   <td>{alert.title}</td>
                   <td>
-                    <span className="tag" data-tone={reason === "scheduled" ? "warn" : "done"}>
-                      {REASON_LABEL[reason] ?? reason}
-                    </span>
+                    <Chip color={reason === "scheduled" ? "orange" : undefined}>{REASON_LABEL[reason] ?? reason}</Chip>
                   </td>
                   <td className="num">{alert.score.toFixed(2)}</td>
                   <td>
@@ -117,6 +117,7 @@ export function AlertList({ onAction, onIgnore, refreshKey, onPlanningAction }: 
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </section>
     </>

@@ -3,13 +3,7 @@ import { Button, Form, Input, InputNumber, Select } from "antd";
 import { ArrowRightOutlined, ReloadOutlined } from "@ant-design/icons";
 import { api, workUrl, type WorkSummary } from "../api.js";
 import { useFetch } from "../hooks.js";
-
-export const GENRE_LABELS: Readonly<Record<string, string>> = {
-  xuanhuan: "玄幻", xianxia: "仙侠", urban: "都市", scifi: "科幻", mystery: "悬疑", rulehorror: "规则怪谈",
-};
-export const PLATFORM_LABELS: Readonly<Record<string, string>> = {
-  unpublished: "暂不确定", qidian: "起点", fanqie: "番茄", feilu: "飞卢",
-};
+import { GENRE_LABELS, PLATFORM_LABELS, genreLabel, toOptions } from "../labels.js";
 
 interface NewWorkForm {
   title: string;
@@ -18,8 +12,6 @@ interface NewWorkForm {
   platform: string;
   targetWords: number;
 }
-
-const toOptions = (labels: Readonly<Record<string, string>>) => Object.entries(labels).map(([value, label]) => ({ value, label }));
 
 export function Works(): React.ReactElement {
   const workspace = useFetch(() => api.workspace(), []);
@@ -120,7 +112,7 @@ export function Works(): React.ReactElement {
 function Book({ work, index }: { work: WorkSummary; index: number }): React.ReactElement {
   const content = (
     <>
-      <div className="book-spine" aria-hidden="true"><span>{String(index + 1).padStart(2, "0")}</span><span>{GENRE_LABELS[work.genre] ?? "待检查"}</span></div>
+      <div className="book-spine" aria-hidden="true"><span>{String(index + 1).padStart(2, "0")}</span><span>{genreLabel(work.genre)}</span></div>
       <div className="book-body">
         <h3>{work.title}</h3>
         <p className="book-premise">{work.error ?? work.premise}</p>

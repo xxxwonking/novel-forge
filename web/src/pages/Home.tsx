@@ -6,8 +6,11 @@
  * 而这两个时机在界面上就是这一页的上半和下半。
  */
 
+import { Tag } from "antd";
+import { ArrowRightOutlined } from "@ant-design/icons";
 import type { Alert, AlertAction, Overview } from "../api.js";
 import { AlertCard } from "../components/AlertCard.js";
+import { genreLabel, platformLabel } from "../labels.js";
 
 export interface HomeProps {
   overview: Overview;
@@ -39,11 +42,9 @@ export function Home({ overview, onAction, onIgnore }: HomeProps): React.ReactEl
         </div>
       )}
 
-      <div className="row" style={{ marginBottom: 26 }}>
-        <a href="#/alerts" className="muted">
-          另有 {Math.max(0, counts.fullList - homepage.length)} 条提示
-        </a>
-        {counts.repairQueue > 0 && <span className="muted">· 待返修 {counts.repairQueue} 条</span>}
+      <div className="alerts-more">
+        <a href="#/alerts">另有 {Math.max(0, counts.fullList - homepage.length)} 条提示 <ArrowRightOutlined /></a>
+        {counts.repairQueue > 0 && <span className="muted">待返修 {counts.repairQueue} 条</span>}
       </div>
 
       <div className="stats">
@@ -51,7 +52,7 @@ export function Home({ overview, onAction, onIgnore }: HomeProps): React.ReactEl
         <Stat label="未收伏笔" value={counts.openForeshadows} />
         <Stat label="其中逾期" value={counts.overdueForeshadows} tone={counts.overdueForeshadows > 0 ? "warn" : undefined} />
         <Stat label="断线情节" value={counts.brokenPlotLines} tone={counts.brokenPlotLines > 0 ? "alarm" : undefined} />
-        <Stat label="题材／平台" value={`${overview.genre} / ${overview.platform}`} />
+        <Stat label="题材／平台" value={`${genreLabel(overview.genre)} · ${platformLabel(overview.platform)}`} wide />
       </div>
 
       <section className="section">
@@ -70,13 +71,15 @@ function Stat({
   label,
   value,
   tone,
+  wide = false,
 }: {
   label: string;
   value: string | number;
   tone?: "warn" | "alarm" | undefined;
+  wide?: boolean;
 }): React.ReactElement {
   return (
-    <div className="stat" data-tone={tone}>
+    <div className="stat" data-tone={tone} data-wide={wide}>
       <div className="stat-label">{label}</div>
       <div className="stat-value">{value}</div>
     </div>
@@ -95,62 +98,57 @@ function NextBeat({ beat }: { beat: NonNullable<Overview["nextBeat"]> }): React.
   const { plan, budget } = beat;
 
   return (
-    <div className="chart" style={{ padding: "16px 18px" }}>
-      <div className="row" style={{ marginBottom: 10 }}>
-        <span className="tag">{TYPE_LABEL[plan.chapterType] ?? plan.chapterType}</span>
+    <div className="panel next-beat">
+      <header className="next-beat-head">
+        <Tag color="gold">{TYPE_LABEL[plan.chapterType] ?? plan.chapterType}</Tag>
         {budget !== null && (
-          <>
+          <div className="next-beat-budget">
             {/* 字数预算是派生的（§10.2 必须在写作前算出来），所以这里显示的是
                 V3 的产物 —— 一键动作改了节拍表，这个数会跟着变。 */}
-            <span className="muted">
-              预算 {budget.words.min}–{budget.words.max} 字（甜点 {budget.words.sweet}）
-            </span>
-            <span className="muted">
-              · 密度 {budget.density.min}–{budget.density.max}/千字
-            </span>
-            <span className="muted">· 流程档 {budget.tier}</span>
-          </>
+            <span><b>{budget.words.min}–{budget.words.max}</b> 字（甜点 {budget.words.sweet}）</span>
+            <span><b>{budget.density.min}–{budget.density.max}</b> 密度 / 千字</span>
+            <span>流程档 <b>{budget.tier}</b></span>
+          </div>
         )}
-      </div>
+      </header>
 
-      <table>
-        <tbody>
-          <Row label="核心事件">{plan.coreEvent}</Row>
-          {plan.secondaryThread !== null && <Row label="次级线">{plan.secondaryThread}</Row>}
-          <Row label="阶段反馈">{plan.stageFeedback}</Row>
-          <Row label="章末钩子">{plan.hook}</Row>
-          <Row label="计划事件">
-            {plan.events.length === 0 ? (
-              <span className="muted">无</span>
-            ) : (
-              plan.events.map((e, i) => (
-                <div key={i}>
-                  <span className="tag">权重 {e.weight}</span> {e.summary}
+      <dl className="next-beat-list">
+        <Item label="核心事件">{plan.coreEvent}</Item>
+        {plan.secondaryThread !== null && <Item label="次级线">{plan.secondaryThread}</Item>}
+        <Item label="阶段反馈">{plan.stageFeedback}</Item>
+        <Item label="章末钩子">{plan.hook}</Item>
+        <Item label="计划事件">
+          {plan.events.length === 0 ? (
+            <span className="muted">无</span>
+          ) : (
+            <ul className="next-beat-events">
+              {plan.events.map((e, i) => (
+                <li key={i}>
+                  <Tag>权重 {e.weight}</Tag> {e.summary}
                   {e.plotLine !== null && <span className="muted"> · {e.plotLine}</span>}
-                </div>
-              ))
-            )}
-          </Row>
-          <Row label="计划收束">
-            {plan.resolves.length === 0 ? (
-              <span className="muted">无 —— 首页告警的「加入回收」会写到这里</span>
-            ) : (
-              plan.resolves.map((r) => (
-                <div key={r.foreshadowId}>
-                  <span className="tag" data-w={r.weight}>
-                    {r.foreshadowId}
-                  </span>{" "}
-                  {r.completeness === "full" ? "完全收束" : "部分收束"}
-                </div>
-              ))
-            )}
-          </Row>
-          <Row label="出场人物">{plan.characters.join("、") || <span className="muted">无</span>}</Row>
-        </tbody>
-      </table>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Item>
+        <Item label="计划收束">
+          {plan.resolves.length === 0 ? (
+            <span className="muted">无 —— 首页告警的「加入回收」会写到这里</span>
+          ) : (
+            <ul className="next-beat-events">
+              {plan.resolves.map((r) => (
+                <li key={r.foreshadowId}>
+                  <Tag color="gold">{r.foreshadowId}</Tag> {r.completeness === "full" ? "完全收束" : "部分收束"}
+                </li>
+              ))}
+            </ul>
+          )}
+        </Item>
+        <Item label="出场人物">{plan.characters.join("、") || <span className="muted">无</span>}</Item>
+      </dl>
 
       {budget?.splitAdvice != null && (
-        <div className="finding" data-level="warn" style={{ marginTop: 12 }}>
+        <div className="finding" data-level="warn" style={{ marginTop: 6 }}>
           <div className="finding-rule">拆章建议</div>
           <div className="finding-msg">{budget.splitAdvice.note}</div>
         </div>
@@ -159,13 +157,11 @@ function NextBeat({ beat }: { beat: NonNullable<Overview["nextBeat"]> }): React.
   );
 }
 
-function Row({ label, children }: { label: string; children: React.ReactNode }): React.ReactElement {
+function Item({ label, children }: { label: string; children: React.ReactNode }): React.ReactElement {
   return (
-    <tr>
-      <td className="muted" style={{ width: 92, whiteSpace: "nowrap" }}>
-        {label}
-      </td>
-      <td>{children}</td>
-    </tr>
+    <div className="next-beat-item">
+      <dt>{label}</dt>
+      <dd>{children}</dd>
+    </div>
   );
 }
