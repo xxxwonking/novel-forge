@@ -34,7 +34,7 @@ import { ConversationStore } from "../agent/conversation-store.js";
 import { MainAgentService } from "../agent/service.js";
 import { runAgentLoop, type AgentActionOutcome, type MainAgentToolContext, type PlanAddInput } from "../agent/tool-exec.js";
 import { buildMainAgentSystem, type MainAgentContextInfo } from "../agent/system-prompt.js";
-import type { AlternativeIdea, ConversationObserver, ConversationReply, ConversationTurn } from "../agent/types.js";
+import type { AlternativeIdea, ConversationMode, ConversationObserver, ConversationReply, ConversationTurn } from "../agent/types.js";
 import { createModelClient } from "../client/create.js";
 import type { ModelClient } from "../client/model.js";
 import { countWords } from "../text/measure.js";
@@ -458,8 +458,19 @@ export class ProjectSession {
       ctx: () => this.buildAgentContext(text.trim()),
       contextInfo: () => this.agentContextInfo(),
       maxRounds: this.rules.agent.maxConversationRounds,
+      maxPlanningRounds: this.rules.agent.maxPlanningRounds,
     });
     return service.send(text, observe);
+  }
+
+  conversationMode(): ConversationMode {
+    return this.conversation.mode();
+  }
+
+  /** 模式是对话的属性，存在会话文件里 —— 它决定这一轮能不能写入，必须与工具集是同一份真相。 */
+  setConversationMode(mode: ConversationMode): ConversationMode {
+    this.conversation.setMode(mode);
+    return mode;
   }
 
   /**
@@ -587,6 +598,7 @@ export class ProjectSession {
       nextPlanReady,
       pendingDrafts,
       autoRevisionLimit: automaticRevisionLimit(this.rules.task.maxAutoRevisions),
+      readinessMissing: this.preparation.view().readiness.missing,
     };
   }
 

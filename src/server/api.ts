@@ -109,7 +109,7 @@ export function handle(session: ProjectSession, req: ApiRequest): ApiResponse {
       case "/api/tasks":
         return ok(session.chapterTasks());
       case "/api/conversation":
-        return ok({ turns: session.conversationTurns(), ideas: session.listIdeas() });
+        return ok({ turns: session.conversationTurns(), ideas: session.listIdeas(), mode: session.conversationMode() });
       case "/api/views":
         return ok(session.derived.views);
       case "/api/alerts":
@@ -147,6 +147,8 @@ export function handle(session: ProjectSession, req: ApiRequest): ApiResponse {
         return alertStateChange(session, req.body, unacknowledgeAlert);
       case "/api/chapter/adopt":
         return chapterAdopt(session, req.body);
+      case "/api/conversation/mode":
+        return conversationMode(session, req.body);
       case "/api/chapter/discard":
         return chapterDiscard(session, req.body);
       case "/api/chapter/edit":
@@ -495,6 +497,14 @@ async function preparationDraft(session: ProjectSession, body: unknown): Promise
     if (error instanceof ChapterWriteError) return { status: error.status, body: { error: error.message } };
     throw error;
   }
+}
+
+/** 切换对话模式。纯状态切换，不调模型，所以留在同步 handle 里。 */
+function conversationMode(session: ProjectSession, body: unknown): ApiResponse {
+  if (!isRecord(body)) return bad("请求体必须是对象");
+  const mode = body["mode"];
+  if (mode !== "normal" && mode !== "planning") return bad("mode 必须是 normal 或 planning");
+  return ok({ mode: session.setConversationMode(mode) });
 }
 
 /**
