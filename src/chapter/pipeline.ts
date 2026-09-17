@@ -51,14 +51,23 @@ export const C5_TASK = [
   "每条声明的 quote 必须从本章正文逐字复制一个连续片段，8-40 字，用于定位。保留原标点，不改写、不拼接不同位置的句子。",
 ].join("\n");
 
-/** 引用 ID 与字段范围随作品传入，避免模型把人名或未支持字段当作结构记录。 */
-export function buildC5Task(context: Omit<ParseContext, "chapterText">): string {
-  return [C5_TASK,
+/**
+ * 引用 ID 与字段范围随作品传入，避免模型把人名或未支持字段当作结构记录。
+ *
+ * 单独导出是因为旧稿反推（`src/import/infer.ts`）与 C5 共用同一套 ID 约束 ——
+ * 两处各写一份，改了人物 ID 规则只改一处就会静默分歧。
+ */
+export function idConstraints(context: Omit<ParseContext, "chapterText">): readonly string[] {
+  return [
     `人物引用必须使用这些 ID，不能填写姓名：${JSON.stringify([...context.knownCharacters])}`,
     `情节线引用只能使用这些 ID 或 null：${JSON.stringify([...context.knownPlotLines])}`,
     ...(context.knownSettings === undefined ? [] : [`地点 ID：${JSON.stringify([...context.knownSettings])}`]),
     "character_states 的 field 只支持 condition、location、vital。持有物或处境变化写在 condition 的完整现状中；location 的 from/to 用地点 ID；vital 的值只用 alive/dead/missing/unknown；无原值用 null。",
-  ].join("\n");
+  ];
+}
+
+export function buildC5Task(context: Omit<ParseContext, "chapterText">): string {
+  return [C5_TASK, ...idConstraints(context)].join("\n");
 }
 
 export interface ChapterRunInput {

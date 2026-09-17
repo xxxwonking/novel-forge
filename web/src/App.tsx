@@ -23,6 +23,7 @@ import { Works } from "./pages/Works.js";
 import { Preparation } from "./pages/Preparation.js";
 import { Drafts } from "./pages/Drafts.js";
 import { Export } from "./pages/Export.js";
+import { Inference } from "./pages/Inference.js";
 import { PlanningActionDialog, type EditablePlanningAction } from "./components/PlanningActionDialog.js";
 
 const VIEWS = [
@@ -215,6 +216,7 @@ function Routed({ route, overview, onAction, onIgnore, onJump, refresh, tasks, r
     return <Preparation key={query.get("proposal") ?? "confirmed"} refresh={refresh} proposalId={query.get("proposal")} />;
   }
   if (path === "/export") return <Export exportId={query.get("id")} />;
+  if (path === "/inference") return <Inference refresh={refresh} />;
   if (path?.startsWith("/draft/")) {
     const [, , chapter, draftId] = path.split("/");
     return <Drafts key={`${chapter}/${draftId}`} chapter={Number(chapter)} draftId={draftId ?? ""} refresh={refresh} task={tasks.find((t) => t.draftId === draftId)} reloadTasks={reloadTasks} />;
