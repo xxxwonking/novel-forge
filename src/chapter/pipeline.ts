@@ -19,7 +19,7 @@ import { checkPromisedResolutions, crossCheckC5 } from "./c5-crosscheck.js";
 import { recordCacheMetrics, type CacheRecord } from "../metrics/cache.js";
 import { commitDeclaration, EventStream } from "../store/event-stream.js";
 import { gateChapter, type ChapterGateResult } from "../gate/code-channel.js";
-import type { VoiceCharacter } from "../gate/voice-channel.js";
+import type { CanonFact, ReviewCharacter } from "../gate/semantics-channel.js";
 import { canAccept, routeChapter, unresolvedFromFindings, type RouteResult } from "../gate/route.js";
 import type { ReviewRules, Rules } from "../rules/schema.js";
 import type { GateFinding, WorkProfile } from "../types/beat.js";
@@ -82,13 +82,15 @@ export interface ChapterRunInput {
      * 本章出场人物的完整卡（含 `speech`）。缺省即跳过声音一致性检查 ——
      * 与整个 gate 缺省同一语义：工装不需要闸门，也不该收到假人物卡。
      */
-    readonly characters?: readonly VoiceCharacter[];
+    readonly characters?: readonly ReviewCharacter[];
     /**
      * 两个 model 审查通道的开关，**按作品**取（`ProjectSession.reviewSettings`），
      * 不从 `rules` 取 —— 来源指纹含整个 rules，走那条路会让作者改个开关就作废
      * 所有未采用草稿。缺省视为都开。
      */
     readonly review?: ReviewRules;
+    /** 判"与已确认设定矛盾"的既定事实：地点/组织 facts、世界规则、能力限制等。 */
+    readonly canon?: readonly CanonFact[];
   };
 }
 

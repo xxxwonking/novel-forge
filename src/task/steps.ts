@@ -253,7 +253,17 @@ export async function checkSemanticsWithModel(
     const known = timeline.get(item.foreshadowId);
     return known === undefined ? [] : [{ foreshadowId: item.foreshadowId, label: known.label, intent: known.intent, quote: item.anchor.quote }];
   });
-  if (povCard === undefined && resolutions.length === 0) return [];
+  // 动机与矛盾的基准：只取作者明确写下的硬约束，不拿正面标签当判据。
+  const baselines = characters
+    .filter((character) => character.profile !== undefined)
+    .map((character) => ({
+      id: character.id, name: character.name,
+      forbiddenBehaviors: character.profile!.forbiddenBehaviors,
+      wants: character.profile!.wants, fears: character.profile!.fears,
+    }))
+    .filter((item) => item.forbiddenBehaviors.length > 0 || item.wants !== "" || item.fears !== "");
+  const canon = input.gate?.canon ?? [];
+  if (povCard === undefined && resolutions.length === 0 && baselines.length === 0 && canon.length === 0) return [];
 
   let call: Awaited<ReturnType<ModelClient["call"]>>;
   try {
@@ -264,7 +274,7 @@ export async function checkSemanticsWithModel(
       messages: [{ role: "user", content: [{ type: "text", text: buildSemanticTask({
         chapterText: body,
         pov: povCard === undefined ? null : { id: povCard.id, name: povCard.name },
-        resolutions,
+        resolutions, characters: baselines, canon,
       }) }] }],
       outputSchema: SEMANTIC_VERDICT_SCHEMA,
     });
@@ -284,6 +294,7 @@ export async function checkSemanticsWithModel(
     chapterText: body,
     povCharacterId: povCard?.id ?? null,
     resolutions: resolutions.map((item) => ({ foreshadowId: item.foreshadowId, label: item.label })),
+    characters: baselines, canon,
   });
 }
 

@@ -14,6 +14,8 @@ import type { CharacterCard } from "../types/character.js";
 import type { VolumeBoundary } from "../types/l2.js";
 import type { ChapterNo, ForeshadowId } from "../types/primitives.js";
 import type { ForeshadowTimelineItem } from "../types/projections.js";
+import type { CanonFact } from "../gate/semantics-channel.js";
+import type { SettingCard } from "../context/select-l3.js";
 import type { ProjectSession } from "./state.js";
 
 /** 只读写作资料。试写可提供独立视图，复用相同的装配、引用检查和读工具。 */
@@ -211,8 +213,31 @@ export function buildChapterRunInput(
     ...(options.maxOutputTokens === undefined ? {} : { maxOutputTokens: options.maxOutputTokens }),
     // 声音检查用的人物卡与 L3 装配的是同一批（节拍点名）—— 检查范围与模型看到的
     // 上下文保持一致，不会出现「模型没被告知这个人物，却被按他的声音表打分」。
-    gate: { profile: ctx.meta.profile, rules: session.rules, characters, review: session.reviewSettings },
+    gate: { profile: ctx.meta.profile, rules: session.rules, characters, review: session.reviewSettings,
+      canon: canonFacts(ctx.meta.setting, settings, characters) },
   };
+}
+
+/**
+ * 判「与已确认设定矛盾」的基准。
+ *
+ * 只收**已确认的硬事实**：世界规则、能力限制、地点/组织的 facts，以及标了
+ * `immutable` 的外貌属性。风格关键词、性格标签这类主观描述不进来 ——
+ * 拿它们当矛盾判据只会产生一堆无法辩驳也无法修的提示。
+ */
+function canonFacts(
+  setting: ChapterContext["meta"]["setting"],
+  settings: readonly SettingCard[],
+  characters: readonly CharacterCard[],
+): readonly CanonFact[] {
+  return [
+    ...setting.worldRules.map((fact) => ({ source: "世界规则", fact })),
+    ...setting.abilityLimits.map((fact) => ({ source: "能力限制", fact })),
+    ...settings.flatMap((card) => card.facts.map((fact) => ({ source: card.name, fact }))),
+    ...characters.flatMap((card) => card.profile.appearance
+      .filter((attribute) => attribute.immutable)
+      .map((attribute) => ({ source: card.name, fact: `${attribute.key}＝${attribute.value}（不可变）` }))),
+  ];
 }
 
 function plantedExcerpt(session: ChapterSource, ctx: ChapterContext, f: ForeshadowTimelineItem): PlantedExcerpt {
