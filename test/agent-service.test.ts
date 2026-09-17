@@ -75,7 +75,7 @@ afterEach(() => {
 
 function service(results: Parameters<typeof fakeClient>[0], ctx: MainAgentToolContext = ctxWith()): MainAgentService {
   const { client } = fakeClient(results);
-  return new MainAgentService({ client, store, ctx, contextInfo: () => INFO, maxRounds: 8, clock: () => "2026-09-11T00:00:00.000Z" });
+  return new MainAgentService({ client, store, ctx, contextInfo: () => INFO, maxRounds: 8, maxPlanningRounds: 12, clock: () => "2026-09-11T00:00:00.000Z" });
 }
 
 describe("MainAgentService.send", () => {
@@ -126,7 +126,7 @@ describe("MainAgentService.send", () => {
   it("第二轮把历史作为消息带给模型", async () => {
     await service([modelText("好的。")]).send("第一句");
     const { client, calls } = fakeClient([modelText("收到。")]);
-    const svc = new MainAgentService({ client, store, ctx: ctxWith(), contextInfo: () => INFO, maxRounds: 8 });
+    const svc = new MainAgentService({ client, store, ctx: ctxWith(), contextInfo: () => INFO, maxRounds: 8, maxPlanningRounds: 12 });
     await svc.send("第二句");
     // 历史两条 + 本轮一条
     const messages = calls[0]?.messages ?? [];
@@ -140,8 +140,8 @@ describe("MainAgentService.send", () => {
 
   it("同一个 store 的并发回合有序执行，后发消息包含先前已完成的回复", async () => {
     const { client, calls } = fakeClient([modelText("第一轮完成"), modelText("第二轮完成")]);
-    const first = new MainAgentService({ client, store, ctx: ctxWith(), contextInfo: () => INFO, maxRounds: 8 });
-    const second = new MainAgentService({ client, store, ctx: ctxWith(), contextInfo: () => INFO, maxRounds: 8 });
+    const first = new MainAgentService({ client, store, ctx: ctxWith(), contextInfo: () => INFO, maxRounds: 8, maxPlanningRounds: 12 });
+    const second = new MainAgentService({ client, store, ctx: ctxWith(), contextInfo: () => INFO, maxRounds: 8, maxPlanningRounds: 12 });
     await Promise.all([first.send("第一条"), second.send("第二条")]);
     expect(calls[1]?.messages).toEqual([
       { role: "user", content: "第一条" }, { role: "assistant", content: "第一轮完成" }, { role: "user", content: "第二条" },

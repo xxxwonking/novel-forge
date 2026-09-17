@@ -242,6 +242,40 @@ export const EXPECTED_PREPARATION_DRAFT_TOOL_ORDER: readonly string[] = [
   "list_open_foreshadows",
 ] as const;
 
+/**
+ * 谋篇模式（作者在对话栏切进去的只读讨论态）的工具集。
+ *
+ * 与 `PREPARATION_DRAFT_TOOLS` 同一条纪律 —— 写类工具**不在数组里**，模型无从调用，
+ * 只读锁是结构性的，不靠提示词。留下的三类：
+ *   读类 —— 摸清现状（新手冷启动要读资料缺项，中途灵感要读伏笔与正文）。
+ *   `record_alternative_idea` —— 写对话域的备选清单，不碰作品；讨论中冒出的岔路当场记下。
+ *   `propose_preparation` —— 唯一出口：讨论收敛成一份有编号的候选方案，作者到资料页拍板。
+ * `confirm_preparation` / `record_author_details` / 写章 / 采用 / `plan_*` 都不在：
+ * 采纳是作者在方案页的动作；计划态动作退出谋篇再做。
+ */
+const PLANNING_KEPT_TOOLS: readonly string[] = [
+  "get_story_progress",
+  "get_chapter_draft",
+  "list_chapter_tasks",
+  "get_preparation",
+  "propose_preparation",
+  "get_overview",
+  "list_chapter_drafts",
+  "get_chapter_text",
+  "get_character",
+  "list_open_foreshadows",
+  "get_next_plan",
+  "record_alternative_idea",
+];
+
+export const PLANNING_MODE_TOOLS: readonly Anthropic.Tool[] = MAIN_AGENT_TOOLS.filter((tool) => PLANNING_KEPT_TOOLS.includes(tool.name));
+
+/** 谋篇模式下允许执行的工具名。tool-exec 的兜底照它判 —— 工具集之外的第二道。 */
+export const PLANNING_ALLOWED_TOOLS: ReadonlySet<string> = new Set(PLANNING_KEPT_TOOLS);
+
+/** 同上，供回归测试逐位核对。 */
+export const EXPECTED_PLANNING_MODE_TOOL_ORDER: readonly string[] = [...PLANNING_KEPT_TOOLS];
+
 /** 回归测试的期望顺序。改动工具集必须同步改这里，让测试逼你确认一次（§13.8 同款纪律）。 */
 export const EXPECTED_MAIN_AGENT_TOOL_ORDER: readonly string[] = [
   "prepare_text_export",

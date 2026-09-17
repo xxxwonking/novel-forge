@@ -1,6 +1,6 @@
 # novel-forge 工作记忆
 
-更新时间：2026-09-17（Asia/Shanghai；本轮做差距第 2 项「导入旧作」的第一批——正文入库，逐章结构反推留下一批；“继续完成项目”总目标保持暂停，最新进展见第 29 节）
+更新时间：2026-09-17（Asia/Shanghai；Mac 会话在 master 之上补了**谋篇模式**，见第 30 节，**PR #5 待合**；PR #3/#4 作废；差距第 2 项下半场「逐章结构反推」仍是队列头；**接手先读第 28 节的「当前进展快照」**；“继续完成项目”总目标保持暂停）
 
 记录范围：本文件汇总项目调研、用户流程设计、能力映射和开发进展。Stage 1 见第 12 节，写章 API 见第 13 节，Gemini 真实单章见第 14 节，对话式主 Agent 见第 15 节，国内模型兼容见第 16 节。**接手先读第 28 节（接手指南：当前队列、用户「排着做」的持续授权、工作节奏；队列头是差距第 2 项的下半场「逐章反推结构」），再读第 29 节（导入旧作第一批：正文入库；含 antd 6 弹窗选择器改名、GBK 回落、覆盖三档），第 27 节（语义审查补齐，差距第 4 项已完成），第 26 节（审查开关的界面入口；含"开关不能进来源指纹"的坑），第 25 节（语义审查与 model 通道开关），第 24 节（声音一致性 model 通道；含图接线踩的坑），第 23 节（code 通道），第 22 节（AI 起草资料、作者只审；含一次覆盖 data/demo 的事故记录），第 21 节的手改表单**已被用户校正为「纠正入口」而非主路径**，产品差距盘点仍见第 20 节（第 1 项已闭合、第 3 项已做 code 一半，余待指定），再按需读第 19 节、第 18 节、第 17 节末尾和 `docs/superpowers/plans/2026-09-14-project-completion.md`。界面已引入 antd 6 重做并支持对话流式输出；最新 58 文件 / 1054 项测试、两个类型检查与 Web 构建通过，提交状态以 Git 历史核对。Gemini 真实验收《雾港封签》三章（ch1d3 / ch2d4 / ch3d4，共 9745 字）已逐章采用并完成 1–3 章固定版本 TXT 导出，累计 62 次真实调用。尚未完成：作者要求传递修复后的真实 C4 复测、三章正文人工核对、用户流程 §10 全项审计与最终验收报告。沿用 LangGraph、当前代理独立实施与复核；不擅自恢复暂停的总目标或调用 Claude。**
 
@@ -1224,6 +1224,7 @@ review:
 | --- | --- | --- |
 | 1 | 手改资料 | ✅ 第 21 节；后被用户校正为「AI 起草、作者只审」，见第 22 节 |
 | 2 | 导入旧作 | 🔵 **正文入库已完成（第 29 节）；逐章结构反推仍未做 —— 队列头** |
+| — | 谋篇模式（用户另提，不在差距清单内） | ✅ 第 30 节（Mac 会话，2026-09-17） |
 | 3 | VoiceCheck | ✅ code 通道第 23 节、model 通道第 24 节 |
 | 4 | 语义一致性审查 | ✅ 视角+伏笔第 25 节、动机+矛盾第 27 节 |
 | 5 | 批量/连续创作 与 跨多章返修 | ⬜ |
@@ -1251,6 +1252,34 @@ review:
   由作者确认才 committed。不要因为"这是作者自己的旧稿"就直接 authored ——
   正文是作者的，但**对正文的结构判断是模型的**。
 
+
+### 当前进展快照（2026-09-17，Mac 会话收尾时）
+
+**分支与 PR**
+- `master` = `c65a314`（Windows 侧最新：导入旧作第一批）。
+- `planning-mode-on-master` = `e961eb1`（谋篇模式，**PR #5 open**，base master，待 review 合入）。
+- PR #3 / #4（Mac 旧线：多作品工作区、自动修订、三栏对话、稿本仪器样式、旧版谋篇）**已关闭作废**，其功能已由 master 等价实现覆盖或被 antd 界面取代；分支留在远端不删。
+- 工程状态：59 文件 / 1068 测试过；typecheck（根+web）、web:build、`git diff --check` 干净。
+
+**跨会话已定的决策（勿再讨论，出处见对应节）**
+- 不用 Codex/Gemini 做开发协作、不 spawn 子代理，主代理独立实施并自审（§3）。这与「用 Gemini chat 作产品写章模型」是两码事。
+- 编排层用 LangGraph JS，模型调用保持原生 SDK，不引 LangChain；事件流是小说事实唯一真源（§3、§12）。
+- 创作节奏 = 逐章采用；模型产出先 proposed，作者确认才 committed。**方案、草稿都在正式资料/事件流之外，确认/采用时才展开**（§12、§16、§30）。
+- 所有数值约束派生自 `rules.yaml`，代码里没有数字，靠 `test/rules.test.ts` 扫描守住。
+- 作者是导演不是录入员：资料由 AI 起草、作者只审，手改是纠正入口不是主路径（§22）。
+- 谋篇模式：只读锁由工具集 + 执行器兜底两道代码保证，不靠提示词；模式存后端；方案的确认留在资料页，对话里不确认；计划态动作退出谋篇再做（§30）。
+- 界面已定为 antd 6 + `styles.css` 骨架（§20）；Mac 旧线的手写材质系统不再回来。
+
+**待办（按序）**
+1. **review 并合入 PR #5**；合后删远端 `planning-mode-on-master`。
+2. **差距第 2 项下半场「逐章反推结构」** —— 队列头，起手点见上一小节。
+3. 谋篇模式真机 live（Gemini 配置在 Windows 机；Mac 无 `.env.local`）。
+4. 差距第 5–10 项按队列顺序（批量/跨章返修 → 卷结构 → 删除备份 → 导出格式 → 全文检索 → 成本账）。
+5. 第 19 节三项验收仍未做：作者要求传递修复后的真实 C4 复测、三章正文人工核对、用户流程 §10 的 16 项审计。
+6. 对外暴露前加登录（服务端无鉴权，只绑 127.0.0.1）。
+7. M1 缓存命中率实测仍卡官方直连 key。
+
+**环境提醒（Mac 侧）**：GitHub 走 Clash fake-ip，git 推拉用 SSH 直连 IP 且必须显式 `-i ~/.ssh/id_ed25519_github_openclaw -o IdentitiesOnly=yes`（Host 规则对 IP 不生效）；gh 必须带 `HTTPS_PROXY=http://127.0.0.1:7897`。详见本机记忆 `github-gh-proxy-env`。
 
 ### 这几批固定下来的工作节奏（照做即可）
 
@@ -1330,3 +1359,32 @@ review:
 - [ ] 第 19 节三项验收仍未做（C4 复测、三章人工核对、§10 审计）。
 - [ ] 本批未动 `data/demo`、未动《雾港封签》验收目录。
 
+## 30. 2026-09-17 谋篇模式：作者可切入的只读讨论态（Mac 会话）
+
+**当前接续入口之一。** 分支 `planning-mode-on-master`，基线 master `c65a314`。独立实现自审、先写失败测试（沿第 28 节节奏）。实施计划 `docs/superpowers/plans/2026-09-17-planning-mode.md`。
+
+### 起因与一段弯路
+用户提出借鉴开源编码工具的 plan 模式：新手不知道写什么，要先和 AI 规划再定方案；熟手中途冒出灵感也要先讨论再定。Mac 会话 9-14 曾在旧分支 `stage2-chat-dock` 上做过一版（自带 `proposals.json` 方案层 + 手写 CSS 界面，PR #4），**但 master 同期被 Windows 会话推进了 42 个提交**（antd 6 重做界面、`PreparationService` 方案层等），两边 33 个文件冲突。用户拍板**以 master 为准重做**：方案层复用 master 现成的 `PreparationService`（有编号方案、版本指纹、代码算的 impacts、资料页确认流程 —— 比旧版靠模型自述 impact 更可信），只补它缺的三样。PR #3 / #4 两条旧线**作废**，不再合。
+
+### 补了什么（只补 master 缺的）
+- **作者能切进去的只读模式**：`ConversationState.mode`（`normal | planning`，存 `conversation.json`，旧文件缺省 normal）；`PLANNING_MODE_TOOLS` = 读类 + `record_alternative_idea` + `propose_preparation`（`confirm_preparation` / `record_author_details` / 写章 / 采用 / `plan_*` 都不在）；`executeMainTool(block, ctx, mode)` 按 mode 兜底第二道；`MODE_PROFILE`：planning 用 creative 角色、`rules.agent.maxPlanningRounds: 12`。
+- **新手冷启动的带法**：`MainAgentContextInfo.readinessMissing`（来自 `PreparationView.readiness.missing`），缺项非空 → 提示走「一句话冲动 → 主角 → 冲突 → 起点 → 人物场景情节线 → 首章计划」，不追问核心冲突；由 `planningScopeOf` 判定，不让模型选。
+- **中途灵感先读再提**：缺项为空 → 提示要求先 `get_preparation` / `list_open_foreshadows` / `get_chapter_text` 再提，判断与既成事实是否相容；impacts 由系统算、资料页拦，模型不必自述。
+- 端点：`POST /api/conversation/mode`；`GET /api/conversation` 与 `ConversationReply` 带 `mode`。
+- Web：`Chat.tsx` 栏头 antd `Segmented`「对话 / 谋篇」（先落库成功再改本地态，失败停原模式）；谋篇态栏头下缘与输入框换 `--calm` 青灰、状态行换文案、起手句换一套；`preparation_proposed` 卡片的「查看方案」链接直接复用。常规提示加一条「想不清楚就建议切谋篇，Agent 自己切不了」。
+
+### 决策
+- **模式存后端**：它决定这一轮能不能写入，必须与工具集是同一份真相；刷新不能把锁打开。
+- **方案的确认/丢弃留在资料页**，对话里不确认 —— 采纳是作者的动作。
+- **计划态动作（伏笔改期/废弃、章节安排）不进方案**，退出谋篇再做。
+- chat provider 单模型时 creative / judge 无区别，角色分流只在 Claude provider 生效（已知取舍）。
+
+### 验证
+- 先写 `test/agent-planning-mode.test.ts` **15 项**：工具集与允许名单、兜底、提示分支、服务按模式换角色/工具集/轮数、模式持久化、谋篇回合出方案但正式资料一字不动、模型直接确认被挡。**1068 测试过**（1053 基线 + 15）。typecheck（根+web）、web:build、`git diff --check` 通过。
+- 浏览器端到端（进程内 `serve({ client })` 脚本化客户端，**0 次真实调用**，工装 `~/.claude/jobs/*/tmp/nf-plan-browser/harness.mts`）：空作品 → Segmented 切谋篇（`data-mode="planning"`、栏头变「谋篇」、服务端 `mode` 落盘）→ 起手句发送 → 模型读资料、出方案、回复 → 资料页出现待确认方案 → 确认后 C01/C02/S01/P01 与第 1 章计划落成 committed，readiness 归空。调用日志核对：谋篇回合 role=creative、12 个工具；切回后 judge、24 个工具。无 console 报错。
+- 排障留痕：chrome-devtools MCP 对 antd `Segmented` 的 radio 节点 `click` 会超时（元素被判不可交互），用 `evaluate_script` 点 `.ant-segmented-item` 即可；工作区 API 的 `requestId` 必须是 UUID 形态。
+
+### 未做 / 下一轮
+- [ ] 推送本分支并开 PR（base master）；关掉作废的 PR #3 / #4。
+- [ ] 差距第 2 项下半场「逐章反推结构」仍是队列头（起手点见第 28 节）。
+- [ ] 谋篇模式的真机 live（Gemini 配置在 Windows 机）。

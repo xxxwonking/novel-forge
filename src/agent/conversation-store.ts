@@ -11,10 +11,10 @@
 
 import { readProjectFile, writeProjectFile } from "../store/transaction.js";
 import type { IsoTimestamp } from "../types/primitives.js";
-import type { AlternativeIdea, ConversationModelHistory, ConversationState, ConversationTurn } from "./types.js";
+import type { AlternativeIdea, ConversationMode, ConversationModelHistory, ConversationState, ConversationTurn } from "./types.js";
 
 const FILE = "conversation.json";
-const EMPTY: ConversationState = { turns: [], ideas: [] };
+const EMPTY: ConversationState = { turns: [], ideas: [], mode: "normal" };
 
 export class ConversationStore {
   private turnQueue: Promise<void> = Promise.resolve();
@@ -32,6 +32,8 @@ export class ConversationStore {
       return {
         turns: raw.turns,
         ideas: raw.ideas,
+        // 旧文件没有 mode：默认常规模式，锁是要显式打开的。
+        mode: raw.mode === "planning" ? "planning" : "normal",
         ...(modelHistory === undefined ? {} : { modelHistory }),
       };
     } catch (error) {
@@ -57,6 +59,7 @@ export class ConversationStore {
     this.save({
       turns,
       ideas: state.ideas,
+      mode: state.mode,
       ...(model === undefined ? {} : { modelHistory: { ...model, turnCount: turns.length } }),
     });
   }
@@ -78,6 +81,15 @@ export class ConversationStore {
 
   listIdeas(): readonly AlternativeIdea[] {
     return this.load().ideas;
+  }
+
+  mode(): ConversationMode {
+    return this.load().mode;
+  }
+
+  setMode(mode: ConversationMode): void {
+    const state = this.load();
+    if (state.mode !== mode) this.save({ ...state, mode });
   }
 }
 

@@ -314,15 +314,20 @@ export interface AlternativeIdea {
   at: string;
 }
 
+/** 对话模式。planning（谋篇）下后端把工具集裁成只读，写入只能经候选方案。 */
+export type ConversationMode = "normal" | "planning";
+
 export interface ConversationReply {
   text: string;
   effects: AgentEffect[];
   toolRounds: number;
+  mode: ConversationMode;
 }
 
 export interface ConversationHistory {
   turns: ConversationTurn[];
   ideas: AlternativeIdea[];
+  mode: ConversationMode;
 }
 
 /** 流式对话事件，与服务端 ConversationStreamEvent 一一对应。 */
@@ -572,6 +577,7 @@ export const api = {
   conversationHistory: () => request<ConversationHistory>("/api/conversation"),
   converse: (text: string) => post<ConversationReply>("/api/conversation", { text }),
   converseStream: (text: string, onEvent: (event: ConversationStreamEvent) => void) => streamRequest("/api/conversation/stream", { text }, onEvent),
+  setConversationMode: (mode: ConversationMode) => post<{ mode: ConversationMode }>("/api/conversation/mode", { mode }),
   chapterDrafts: (n: number) => request<DraftView[]>(`/api/chapter/drafts?n=${n}`),
   chapterDraft: (n: number, id: string) => request<DraftView>(`/api/chapter/draft?n=${n}&id=${encodeURIComponent(id)}`),
   editDraft: (input: { chapter: number; draftId: string; revisionToken: string; body: string; summary: string; requestId: string }) => post<DraftView>("/api/chapter/edit", input),

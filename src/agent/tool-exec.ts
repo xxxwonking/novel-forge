@@ -11,13 +11,16 @@
  *     （成功或 action_failed）。Agent 永不直接写正式事实（§12.0）。
  *   - executeMainTool 层的输入校验错误（枚举非法/缺必填）回 is_error 但不产 effect
  *     —— 那是模型用错工具，会自我纠正，不该变成给用户的动作 chip。
+ *   - 谋篇模式（mode="planning"）只放行 PLANNING_ALLOWED_TOOLS。工具集本就裁过一遍，
+ *     这里是第二道 —— 只读锁要由代码保证，不能只靠提示词。
  */
 
 import type Anthropic from "@anthropic-ai/sdk";
 import { appendTurn, type CallOptions } from "../client/claude.js";
 import type { ModelClient } from "../client/model.js";
 import type { ChapterExcerpt, ForeshadowFilter } from "../task/tool-exec.js";
-import type { AgentEffect, ConversationObserver } from "./types.js";
+import type { AgentEffect, ConversationMode, ConversationObserver } from "./types.js";
+import { PLANNING_ALLOWED_TOOLS } from "./tools.js";
 import type { StructureCorrection } from "../chapter/c5-correction.js";
 import type { DraftRewriteOptions } from "../server/draft-rewrite.js";
 import type { DraftAdoptOptions } from "../task/types.js";
@@ -84,6 +87,7 @@ function asRecord(input: unknown): Record<string, unknown> {
 export async function executeMainTool(
   block: Anthropic.ToolUseBlock,
   ctx: MainAgentToolContext,
+  mode: ConversationMode = "normal",
 ): Promise<{ readonly result: Anthropic.ToolResultBlockParam; readonly effect?: AgentEffect }> {
   const input = asRecord(block.input);
   const readStr = (k: string): string => (typeof input[k] === "string" ? (input[k] as string) : "");
@@ -106,6 +110,10 @@ export async function executeMainTool(
     // exactOptionalPropertyTypes：缺省与显式 undefined 不同，只能条件展开。
     ...(o.effect === undefined ? {} : { effect: o.effect }),
   });
+
+  if (mode === "planning" && !PLANNING_ALLOWED_TOOLS.has(block.name)) {
+    return { result: err(`谋篇模式下不能直接改动作品或启动任务（${block.name}）。把这一步写进 propose_preparation 的方案里，由作者到资料页拍板；计划安排与写章请作者退出谋篇后再做。`) };
+  }
 
   switch (block.name) {
     case "prepare_text_export":
@@ -267,6 +275,7 @@ export async function runAgentLoop(
   ctx: MainAgentToolContext,
   maxRounds: number,
   observe?: ConversationObserver,
+  mode: ConversationMode = "normal",
 ): Promise<AgentLoopResult> {
   let messages: readonly Anthropic.MessageParam[] = callOpts.messages;
   let toolRounds = 0;
@@ -305,7 +314,7 @@ export async function runAgentLoop(
     for (const b of result.message.content) {
       if (b.type !== "tool_use") continue;
       observe?.({ type: "tool", name: b.name, status: "started", ok: true });
-      const { result: tr, effect } = await executeMainTool(b, ctx);
+      const { result: tr, effect } = await executeMainTool(b, ctx, mode);
       observe?.({ type: "tool", name: b.name, status: "finished", ok: tr.is_error !== true });
       toolResults.push(tr);
       if (effect !== undefined) effects.push(effect);

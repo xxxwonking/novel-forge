@@ -60,10 +60,21 @@ export interface AlternativeIdea {
   readonly at: IsoTimestamp;
 }
 
+/**
+ * 对话模式。planning（谋篇）下工具集在代码层裁成只读，唯一的产出是 propose_preparation
+ * 保存的候选方案，作者到资料页拍板 —— 与「草稿在事件流之外、采用时才展开」同构。
+ */
+export type ConversationMode = "normal" | "planning";
+
 /** 持久化到 conversation.json 的整体形态。 */
 export interface ConversationState {
   readonly turns: readonly ConversationTurn[];
   readonly ideas: readonly AlternativeIdea[];
+  /**
+   * 当前对话模式。存后端而非前端 localStorage：它决定这一轮能不能写入，必须与
+   * 工具集是同一份真相；刷新页面、换个标签页都不该把锁打开。旧文件缺省 normal。
+   */
+  readonly mode: ConversationMode;
   /** 内部模型会话，不随 turns/ideas 返回到 Web。 */
   readonly modelHistory?: ConversationModelHistory;
 }
@@ -80,6 +91,7 @@ export interface ConversationReply {
   readonly text: string;
   readonly effects: readonly AgentEffect[];
   readonly toolRounds: number;
+  readonly mode: ConversationMode;
 }
 
 /**

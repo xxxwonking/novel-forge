@@ -7,12 +7,16 @@
  *
  * 回复经 SSE 逐字到达：`round` 事件表示模型开始新一次调用（此前的文字只是中间
  * 思路，清空重来），`tool` 事件显示工具进度，最终以 `done` 携带的完整回复替换。
+ *
+ * 栏头的「对话 / 谋篇」切换：谋篇是只读讨论态，后端把工具集裁掉写类，谈拢后出一份
+ * 候选方案到资料页拍板。模式存在后端（它与工具集必须是同一份真相），这里先落库
+ * 成功再改本地状态，失败就停在原模式。
  */
 
 import { useEffect, useRef, useState } from "react";
-import { Button, Drawer, Input, Tag, Tooltip } from "antd";
+import { Button, Drawer, Input, Segmented, Tag, Tooltip } from "antd";
 import { ArrowUpOutlined, CheckOutlined, CloseOutlined, LoadingOutlined } from "@ant-design/icons";
-import { api, type AgentEffect, type ConversationStreamEvent, type ConversationTurn, type DraftView } from "../api.js";
+import { api, type AgentEffect, type ConversationMode, type ConversationStreamEvent, type ConversationTurn, type DraftView } from "../api.js";
 import { useFetch } from "../hooks.js";
 
 export interface ChatProps {
@@ -35,6 +39,8 @@ const TOOL_LABELS: Readonly<Record<string, string>> = {
 };
 
 const SUGGESTIONS = ["看看现在写到哪了，下一章该做什么", "按计划写下一章", "先讨论一下下一章的方向", "有哪些伏笔还没收"];
+/** 谋篇模式的起手句：新手最卡的就是不知道第一句说什么，给他一句能直接发的。 */
+const PLANNING_SUGGESTIONS = ["我还没想好写什么，脑子里只有一个画面：一个人半夜被敲门声吵醒", "先聊聊主角是谁", "我想给主角加一条旧伤的线，但不知道往哪放", "看看还欠着哪些伏笔，帮我想想怎么收"];
 
 export function Chat({ onJump, refresh, initialPrompt = "" }: ChatProps): React.ReactElement {
   const history = useFetch(() => api.conversationHistory(), []);
@@ -43,11 +49,32 @@ export function Chat({ onJump, refresh, initialPrompt = "" }: ChatProps): React.
   const [pending, setPending] = useState<Pending | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState<DraftView | null>(null);
+  const [mode, setMode] = useState<ConversationMode>("normal");
+  const [switching, setSwitching] = useState(false);
   const streamRef = useRef<HTMLDivElement | null>(null);
   const stickToBottom = useRef(true);
 
   const turns: ConversationTurn[] = [...(history.data?.turns ?? []), ...live];
   const sending = pending !== null;
+  const planning = mode === "planning";
+
+  // 历史载入后对齐后端的模式；之后以本地状态为准（每次切换都落过库）。
+  useEffect(() => {
+    if (history.data !== null) setMode(history.data.mode);
+  }, [history.data]);
+
+  const switchMode = async (next: ConversationMode): Promise<void> => {
+    if (switching || sending || next === mode) return;
+    setSwitching(true);
+    setError(null);
+    try {
+      setMode((await api.setConversationMode(next)).mode);
+    } catch (e) {
+      setError(`切换模式失败：${(e as Error).message}`);
+    } finally {
+      setSwitching(false);
+    }
+  };
 
   // 作者往上翻看旧消息时不再强制拉到底；回到底部附近后恢复跟随。
   const onScroll = (): void => {
@@ -94,6 +121,7 @@ export function Chat({ onJump, refresh, initialPrompt = "" }: ChatProps): React.
         ...prev,
         { role: "agent", text: reply.text, at: new Date().toISOString(), ...(reply.effects.length === 0 ? {} : { effects: reply.effects }) },
       ]);
+      setMode(reply.mode);
       refresh();
     } catch (e) {
       setError((e as Error).message);
@@ -125,12 +153,23 @@ export function Chat({ onJump, refresh, initialPrompt = "" }: ChatProps): React.
   const empty = !history.loading && turns.length === 0 && pending === null;
 
   return (
-    <div className="chat-page">
+    <div className="chat-page" data-mode={mode}>
       <div className="chat-head">
         <div>
-          <h1>对话</h1>
-          <p>讨论方向、查资料、把安排写进计划，或“按计划写下一章”。写出的章节是<strong>待采用草稿</strong>，你确认后才成为正式进度。</p>
+          <h1>{planning ? "谋篇" : "对话"}</h1>
+          <p>{planning
+            ? <>只讨论，不改动作品。谈拢后 Agent 出一份<strong>候选方案</strong>，你到作品资料页确认才生效。</>
+            : <>讨论方向、查资料、把安排写进计划，或“按计划写下一章”。写出的章节是<strong>待采用草稿</strong>，你确认后才成为正式进度。</>}</p>
         </div>
+        <Tooltip title={planning ? "回到常规对话：说了就做" : "谋篇：只讨论、不改动，谈拢后出方案拍板"}>
+          <Segmented<ConversationMode>
+            className="chat-mode"
+            value={mode}
+            disabled={switching || sending}
+            options={[{ label: "对话", value: "normal" }, { label: "谋篇", value: "planning" }]}
+            onChange={(value) => void switchMode(value)}
+          />
+        </Tooltip>
       </div>
 
       <div className="chat-stream" ref={streamRef} onScroll={onScroll}>
@@ -138,10 +177,10 @@ export function Chat({ onJump, refresh, initialPrompt = "" }: ChatProps): React.
         {empty && (
           <div className="chat-empty">
             <div className="chat-empty-mark" aria-hidden="true">✦</div>
-            <h2>从一句话开始。</h2>
-            <p>可以直接下达任务，也可以先聊聊。</p>
+            <h2>{planning ? "不知道写什么也没关系。" : "从一句话开始。"}</h2>
+            <p>{planning ? "先说一句脑子里有的画面，我陪你一步步把书想出来；想好之前什么都不会改。" : "可以直接下达任务，也可以先聊聊；想不清楚就切到「谋篇」。"}</p>
             <div className="chat-suggestions">
-              {SUGGESTIONS.map((s) => <Button key={s} shape="round" onClick={() => void send(s)}>{s}</Button>)}
+              {(planning ? PLANNING_SUGGESTIONS : SUGGESTIONS).map((s) => <Button key={s} shape="round" onClick={() => void send(s)}>{s}</Button>)}
             </div>
           </div>
         )}
@@ -158,7 +197,7 @@ export function Chat({ onJump, refresh, initialPrompt = "" }: ChatProps): React.
         <Input.TextArea
           className="composer-input"
           value={input}
-          placeholder="说点什么… Enter 发送，Shift+Enter 换行"
+          placeholder={planning ? "谋篇中，只讨论不改动。想到什么就说… Enter 发送，Shift+Enter 换行" : "说点什么… Enter 发送，Shift+Enter 换行"}
           autoSize={{ minRows: 1, maxRows: 8 }}
           variant="borderless"
           onChange={(e) => setInput(e.target.value)}
@@ -170,7 +209,7 @@ export function Chat({ onJump, refresh, initialPrompt = "" }: ChatProps): React.
           }}
         />
         <div className="composer-bar">
-          <span className="composer-status">{sending ? <><LoadingOutlined /> {pending?.tools.length ? "正在处理" : "正在回复"}</> : "Agent 会自行选择工具；正式采用始终由你决定"}</span>
+          <span className="composer-status">{sending ? <><LoadingOutlined /> {pending?.tools.length ? "正在处理" : "正在回复"}</> : planning ? "谋篇模式：Agent 改不动作品，方案在资料页拍板" : "Agent 会自行选择工具；正式采用始终由你决定"}</span>
           <Tooltip title={sending ? "上一条还在回复" : "发送（Enter）"}>
             <Button type="primary" shape="circle" icon={<ArrowUpOutlined />} disabled={sending || input.trim() === ""} onClick={() => void send()} aria-label="发送" />
           </Tooltip>

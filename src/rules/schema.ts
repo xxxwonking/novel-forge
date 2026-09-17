@@ -190,6 +190,8 @@ export interface TaskRules {
 export interface AgentRules {
   /** 一次对话回合里工具调用的轮数上限。 */
   readonly maxConversationRounds: number;
+  /** 谋篇模式的同款上限。先读后提，轮数比常规对话宽。 */
+  readonly maxPlanningRounds: number;
 }
 
 /**
