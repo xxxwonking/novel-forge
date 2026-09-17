@@ -493,6 +493,24 @@ export interface TextExportPreview {
   totalWords: number; createdAt: string; sha256: string | null; message: string;
 }
 
+export interface ImportChapter { chapter: number; title: string; heading: string; body: string; words: number }
+export interface ImportConflict { chapter: number; existingWords: number; identical: boolean; locked: boolean; reason: string }
+export interface ImportPreview {
+  marker: string | null;
+  chapters: ImportChapter[];
+  preface: { words: number; excerpt: string } | null;
+  problems: string[];
+  notes: string[];
+  conflicts: ImportConflict[];
+  totalWords: number;
+  ready: boolean;
+  readyWithOverwrite: boolean;
+}
+export interface ImportResult {
+  imported: number[]; replaced: number[]; unchanged: number[];
+  totalWords: number; nextChapter: number;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   // 地址属于当前页面，每次请求捕获自己的作品；另一个标签页切换不会改变它。
   const projectId = selectedProjectId();
@@ -512,6 +530,9 @@ function isRecord(v: unknown): v is Record<string, unknown> {
 }
 
 export const api = {
+  /** 导入旧作：只入正文，不反推结构。预览与落盘用同一份文本，服务端不暂存。 */
+  importPreview: (input: { text: string }) => post<ImportPreview>("/api/import/preview", input),
+  importApply: (input: { text: string; overwrite?: boolean }) => post<ImportResult>("/api/import/apply", input),
   exportPreview: (selection: ExportSelection) => post<TextExportPreview>("/api/export/preview", selection),
   getExport: (id: string) => request<TextExportPreview>(`/api/export?id=${encodeURIComponent(id)}`),
   downloadExport: (id: string) => request<{ filename: string; text: string; sha256: string }>(`/api/export/file?id=${encodeURIComponent(id)}`),

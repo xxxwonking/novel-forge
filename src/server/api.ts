@@ -79,8 +79,16 @@ export function handle(session: ProjectSession, req: ApiRequest): ApiResponse {
     }
   }
 
-  if (path === "/api/preparation" && method === "GET") return ok({ ...session.preparation.view(), ideas: session.listIdeas() });
-  if (path.startsWith("/api/preparation/") && method === "POST") {
+  // 导入旧作：只入正文，不反推结构。预览与落盘都不调模型，所以走同步入口。
+  if (method === "POST" && (path === "/api/import/preview" || path === "/api/import/apply")) {
+    try { return ok(path === "/api/import/preview" ? session.imports.preview(req.body) : session.imports.apply(req.body)); }
+    catch (error) {
+      if (error instanceof ChapterWriteError) return { status: error.status, body: { error: error.message } };
+      throw error;
+    }
+  }
+
+  if (path === "/api/preparation" && method === "GET") return ok({ ...session.preparation.view(), ideas: session.listIdeas() });  if (path.startsWith("/api/preparation/") && method === "POST") {
     try {
       if (path === "/api/preparation/propose") return ok(session.preparation.propose(req.body));
       if (path === "/api/preparation/author") return ok(session.preparation.recordAuthor(req.body));

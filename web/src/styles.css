@@ -271,6 +271,15 @@ a.book-card:hover .book-cta { color: var(--main); }
 .review-toggle > span { display: block; min-width: 0; }
 .review-toggle strong { display: block; font-weight: 500; }
 .review-toggle small { display: block; margin-top: 4px; color: var(--ink-dim); font-size: 12px; line-height: 1.7; }
+/* 导入旧作：选文件与粘贴框并列，预览表限高避免几十章把弹窗撑穿。 */
+.import-source { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin: 16px 0 14px; }
+.import-source .muted { font-size: 12px; }
+.import-paste { display: block; margin-bottom: 6px; font-size: 13px; }
+.import-paste .ant-input { margin-top: 7px; font-family: var(--mono, monospace); font-size: 12px; }
+.import-preview { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); }
+.import-preview .table-panel { max-height: 260px; overflow-y: auto; margin: 12px 0; }
+.import-preview .finding { margin-bottom: 8px; }
+.import-excerpt { color: var(--ink-dim); max-width: 22em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .push-right { margin-left: auto; }
 .draft-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 12px 18px; margin: 22px 0; padding: 12px 16px; border: 1px solid var(--line); border-radius: 10px; background: rgba(255, 255, 255, 0.02); font-size: 12px; }
 .draft-toolbar label { display: inline-flex; align-items: center; gap: 8px; color: var(--ink-dim); }

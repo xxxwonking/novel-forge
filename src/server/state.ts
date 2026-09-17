@@ -54,6 +54,7 @@ import { crossCheckC5, checkPromisedResolutions } from "../chapter/c5-crosscheck
 import { PlanningService } from "../planning/service.js";
 import { buildStoryProgress } from "../alerts/progress.js";
 import { TextExportService } from "../export/service.js";
+import { ImportService } from "../import/service.js";
 
 export interface SessionDerived {
   readonly projections: Projections;
@@ -88,6 +89,7 @@ export class ProjectSession {
   readonly preparation: PreparationService;
   readonly planning: PlanningService;
   readonly exports: TextExportService;
+  readonly imports: ImportService;
   private readonly store: ProjectStore;
   private readonly drafts: DraftStore;
   private readonly writer: ChapterWriter;
@@ -135,6 +137,7 @@ export class ProjectSession {
     });
     this.planning = new PlanningService(this, operation => this.transact(operation));
     this.exports = new TextExportService(root, this);
+    this.imports = new ImportService(this);
   }
 
   // ── 读 ────────────────────────────────────────────────────────────────
@@ -265,6 +268,16 @@ export class ProjectSession {
     this.store.writeChapter(chapter, text);
     this.chapters = new Map(this.chapters).set(chapter, text);
     this.invalidate();
+  }
+
+  /**
+   * 一次事务写入多章正文（导入旧作）。
+   *
+   * 逐章调 `putChapter` 也能写成，但那样中途失败会留下半本书 —— 导入一次动几十章，
+   * 部分落盘比整批失败难收拾得多。
+   */
+  putChapters(entries: readonly { readonly chapter: ChapterNo; readonly text: string }[]): void {
+    this.transact(() => { for (const entry of entries) this.putChapter(entry.chapter, entry.text); });
   }
 
   /**

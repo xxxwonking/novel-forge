@@ -1,0 +1,235 @@
+/**
+ * 导入旧作·第一批：正文入库（差距盘点第 2 项）。
+ *
+ * 本批**只做正文**，不反推结构 —— 逐章 C5 式反推与跨章伏笔累积留作下一批。
+ * 因此这里最要紧的两条断言是：
+ *   ① 导入**不产生任何事件**。伏笔时间线为空是诚实状态，不能假装有结构。
+ *   ② 导入**不覆盖已有正文**。`data/` 不入库、无 git 可恢复（第 22 节的事故），
+ *      所以覆盖必须是作者显式勾选的动作，且带结构事件的章一律拒绝 —— 那些章的
+ *      锚点指向现有正文，换掉正文等于让事件流指向不存在的原文。
+ */
+
+import { afterEach, describe, expect, it } from "vitest";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { ProjectStore } from "../src/store/persist.js";
+import { ProjectSession } from "../src/server/state.js";
+import { handleAsync } from "../src/server/api.js";
+import { splitChapters } from "../src/import/split.js";
+import { countWords } from "../src/text/measure.js";
+import { writingSnapshot } from "./writing-fixtures.js";
+
+const roots: string[] = [];
+afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
+
+/** 空作品：没有正文也没有事件，导入旧稿的常规场景。 */
+function empty(): string {
+  const root = mkdtempSync(join(tmpdir(), "nf-import-"));
+  roots.push(root);
+  const base = writingSnapshot();
+  new ProjectStore(root).save({ ...base, events: [], chapters: new Map(), beats: [] });
+  return root;
+}
+
+/** 已写过两章的作品：第 1、2 章带 committed 结构事件（见 writingSnapshot）。 */
+function written(): string {
+  const root = mkdtempSync(join(tmpdir(), "nf-import-written-"));
+  roots.push(root);
+  new ProjectStore(root).save(writingSnapshot());
+  return root;
+}
+
+const api = (session: ProjectSession, path: string, body: unknown) =>
+  handleAsync(session, { method: "POST", path, query: new URLSearchParams(), body });
+
+describe("导入旧作·章节切分", () => {
+  it("章号取自标记本身，不按出现顺序重新编号", () => {
+    const result = splitChapters("第三章 破庙\n少年在破庙里醒来。\n\n第四章 断剑\n他捡起那把断剑。");
+    expect(result.problems).toEqual([]);
+    expect(result.chapters.map((c) => c.chapter)).toEqual([3, 4]);
+    expect(result.chapters[0]).toMatchObject({ chapter: 3, title: "破庙", body: "少年在破庙里醒来。" });
+    // 标记行本身不进正文 —— 它是目录信息，不是作者写的句子。
+    expect(result.chapters[0]!.body).not.toContain("第三章");
+    expect(result.chapters[0]!.words).toBe(countWords("少年在破庙里醒来。"));
+  });
+
+  it("中文数字、全角数字、阿拉伯数字都能解析", () => {
+    const text = ["第一章 甲", "子。", "", "第十五章 乙", "丑。", "", "第一百零八章 丙", "寅。", "", "第２０９章 丁", "卯。", "", "第1024章 戊", "辰。"].join("\n");
+    const result = splitChapters(text);
+    expect(result.problems).toEqual([]);
+    expect(result.chapters.map((c) => c.chapter)).toEqual([1, 15, 108, 209, 1024]);
+  });
+
+  it("只用一种标记层级：章里的「第N节」不会被二次切分", () => {
+    const text = ["第一章 入门", "第一节", "少年拜师。", "第二节", "少年下山。", "", "第二章 离山", "他走了很远。"].join("\n");
+    const result = splitChapters(text);
+    expect(result.marker).toBe("章");
+    expect(result.chapters.map((c) => c.chapter)).toEqual([1, 2]);
+    // 小节标记留在正文里，由作者自己决定要不要删；切分器不擅自丢内容。
+    expect(result.chapters[0]!.body).toContain("第一节");
+    expect(result.chapters[0]!.body).toContain("少年下山。");
+  });
+
+  it("整本只用「第N回」时就按回切分", () => {
+    const result = splitChapters("第一回 初见\n甲。\n\n第二回 再会\n乙。");
+    expect(result.marker).toBe("回");
+    expect(result.chapters.map((c) => c.chapter)).toEqual([1, 2]);
+  });
+
+  it("第一个标记之前的内容单列为楔子，本次不导入", () => {
+    const result = splitChapters("楔子\n三十年前的那场雪。\n\n第一章 破庙\n少年醒来。");
+    expect(result.chapters.map((c) => c.chapter)).toEqual([1]);
+    expect(result.preface?.words).toBe(countWords("楔子\n三十年前的那场雪。"));
+    expect(result.notes.join("")).toMatch(/楔子|开头/u);
+    // 提示而不是阻断 —— 大多数文件开头是版权页或书名，作者未必要它。
+    expect(result.problems).toEqual([]);
+  });
+
+  it("重号、空章、无标记都阻断导入", () => {
+    expect(splitChapters("第一章 甲\n子。\n\n第一章 乙\n丑。").problems.join("")).toMatch(/第 1 章出现了两次/u);
+    expect(splitChapters("第一章 甲\n\n第二章 乙\n丑。").problems.join("")).toMatch(/第 1 章（第一章 甲）标记下没有正文/u);
+    expect(splitChapters("这是一段没有任何章节标记的文字。").problems.join("")).toMatch(/没有识别到章节标记/u);
+    expect(splitChapters("   ").problems.length).toBeGreaterThan(0);
+  });
+
+  it("以「第三章」开头的正文段落不会被当成标记行劈开一章", () => {
+    // 章号后面没有分隔符 —— 这是标记行与正文段落的分界线。
+    const text = "第一章 旧事\n少年想起往事。\n第三章的事他一直记得很清楚，那天的雪下得很大。\n他没有再说话。";
+    const result = splitChapters(text);
+    expect(result.chapters.map((c) => c.chapter)).toEqual([1]);
+    expect(result.chapters[0]!.body).toContain("第三章的事他一直记得很清楚");
+    // 带了分隔符但长得像一整段的，由长度兜底挡住。
+    const spaced = splitChapters(`第一章 旧事\n少年想起往事。\n第三章 ${"的事他一直记得很清楚，那天的雪下得很大".repeat(3)}\n他没有再说话。`);
+    expect(spaced.chapters.map((c) => c.chapter)).toEqual([1]);
+    // 「第一章节」是个词，不是标记。
+    expect(splitChapters("第一章 甲\n第一章节讲的是入门。\n子。").chapters).toHaveLength(1);
+  });
+
+  it("缺号只提示不阻断 —— 作者可能分两次导入", () => {
+    const result = splitChapters("第一章 甲\n子。\n\n第三章 丙\n寅。");
+    expect(result.problems).toEqual([]);
+    expect(result.notes.join("")).toMatch(/第 2 章/u);
+    expect(result.chapters.map((c) => c.chapter)).toEqual([1, 3]);
+  });
+});
+
+describe("导入旧作·入库", () => {
+  it("落盘为正式正文，下一章顺延，且不产生任何事件", async () => {
+    const root = empty();
+    const session = new ProjectSession(root);
+    const text = "第一章 破庙\n少年在破庙里醒来。\n\n第二章 断剑\n他捡起那把断剑。";
+    const preview = session.imports.preview({ text });
+    expect(preview.ready).toBe(true);
+    expect(preview.conflicts).toEqual([]);
+
+    const result = session.imports.apply({ text });
+    expect(result.imported).toEqual([1, 2]);
+    expect(result.replaced).toEqual([]);
+    expect(result.nextChapter).toBe(3);
+
+    // 内存与磁盘都要对：重开会话读到的是同一份正文。
+    expect(session.chapterText(1)).toBe("少年在破庙里醒来。");
+    expect(readFileSync(join(root, "chapters", "ch2.txt"), "utf8")).toBe("他捡起那把断剑。");
+    const reopened = new ProjectSession(root);
+    expect(reopened.currentChapter).toBe(2);
+    expect(reopened.nextChapter).toBe(3);
+
+    // 本批只入正文。结构是下一批的事，这里不能凭空长出事件。
+    expect(reopened.events()).toEqual([]);
+    expect(reopened.derived.projections.foreshadows).toEqual([]);
+
+    // 入库后资料页该提示的是"去起草资料"，而不是"已经就绪"。
+    expect(session.preparation.view().readiness.ready).toBe(false);
+    void api;
+  });
+
+  it("默认不覆盖已有正文；逐字相同时算作已导入，重试幂等", () => {
+    const root = empty();
+    const session = new ProjectSession(root);
+    const text = "第一章 破庙\n少年在破庙里醒来。";
+    session.imports.apply({ text });
+
+    // 同一份文件再导一次：不是冲突，是"这一章已经是这个内容"。
+    const again = session.imports.preview({ text });
+    expect(again.ready).toBe(true);
+    expect(again.conflicts).toHaveLength(1);
+    expect(again.conflicts[0]).toMatchObject({ chapter: 1, identical: true, locked: false });
+    expect(session.imports.apply({ text })).toMatchObject({ imported: [], replaced: [], unchanged: [1] });
+
+    // 换了内容就必须作者明确勾选覆盖。
+    const changed = "第一章 破庙\n少年在破庙里醒来，雪还没停。";
+    const conflict = session.imports.preview({ text: changed });
+    expect(conflict.ready).toBe(false);
+    expect(conflict.readyWithOverwrite).toBe(true);
+    expect(conflict.conflicts[0]).toMatchObject({ chapter: 1, identical: false, locked: false });
+    expect(() => session.imports.apply({ text: changed })).toThrow(/第 1 章/u);
+    expect(session.chapterText(1)).toBe("少年在破庙里醒来。");
+
+    expect(session.imports.apply({ text: changed, overwrite: true })).toMatchObject({ imported: [], replaced: [1] });
+    expect(session.chapterText(1)).toBe("少年在破庙里醒来，雪还没停。");
+  });
+
+  it("已有结构事件的章节即使勾了覆盖也拒绝 —— 换掉正文会让锚点指向不存在的原文", () => {
+    const session = new ProjectSession(written());
+    const before = session.chapterText(1);
+    const text = "第一章 破庙\n完全不同的正文。";
+    const preview = session.imports.preview({ text });
+    expect(preview.ready).toBe(false);
+    expect(preview.readyWithOverwrite).toBe(false);
+    expect(preview.conflicts[0]).toMatchObject({ chapter: 1, locked: true });
+    expect(preview.conflicts[0]!.reason).toMatch(/结构|修订/u);
+
+    expect(() => session.imports.apply({ text, overwrite: true })).toThrow(/第 1 章/u);
+    expect(session.chapterText(1)).toBe(before);
+  });
+
+  it("有阻断项时一章都不写 —— 失败的导入不留半本书", () => {
+    const root = empty();
+    const session = new ProjectSession(root);
+    // 第 2 章重号：整批都不该落盘。
+    expect(() => session.imports.apply({ text: "第一章 甲\n子。\n\n第二章 乙\n丑。\n\n第二章 丙\n寅。" })).toThrow();
+    expect(session.chapterNumbers()).toEqual([]);
+    expect(new ProjectSession(root).chapterNumbers()).toEqual([]);
+
+    // 混批更要紧：第 1 章被锁、第 9 章是全新的，不能只写进去一半。
+    const busy = written();
+    const mixed = new ProjectSession(busy);
+    expect(() => mixed.imports.apply({ text: "第一章 甲\n完全不同的正文。\n\n第九章 己\n全新的一章。", overwrite: true })).toThrow(/第 1 章/u);
+    expect(mixed.chapterText(9)).toBeUndefined();
+    expect(new ProjectSession(busy).chapterNumbers()).toEqual([1, 2]);
+  });
+
+  it("只导第 7 章而书里只有 1–3 章时，明说 4–6 章仍是空的", () => {
+    const session = new ProjectSession(empty());
+    session.imports.apply({ text: "第一章 甲\n子。\n\n第二章 乙\n丑。\n\n第三章 丙\n寅。" });
+    // 切分器看不见这件事 —— 文件里只有一章，本来就没有"缺号"。
+    expect(splitChapters("第七章 庚\n午。").notes).toEqual([]);
+    // 服务层知道书里已有什么，必须替作者把空洞说出来。
+    const preview = session.imports.preview({ text: "第七章 庚\n午。" });
+    expect(preview.notes.join("")).toMatch(/导入后第 4、5、6 章仍然没有正文/u);
+    expect(preview.ready).toBe(true);
+    expect(session.imports.apply({ text: "第七章 庚\n午。" }).nextChapter).toBe(8);
+  });
+
+  it("两个端点可用，参数不对时报 400", async () => {
+    const session = new ProjectSession(empty());
+    const text = "第一章 破庙\n少年在破庙里醒来。";
+    const preview = await api(session, "/api/import/preview", { text });
+    expect(preview.status).toBe(200);
+    expect(preview.body).toMatchObject({ ready: true });
+
+    const applied = await api(session, "/api/import/apply", { text });
+    expect(applied.status).toBe(200);
+    expect(applied.body).toMatchObject({ imported: [1] });
+    expect(session.chapterText(1)).toBe("少年在破庙里醒来。");
+
+    for (const bad of [null, {}, { text: 42 }, { text: "第一章 甲\n子。", overwrite: "yes" }]) {
+      expect((await api(session, "/api/import/preview", bad)).status).toBe(400);
+    }
+    // 切不出章节是 400（作者的输入问题），并给出可操作的说明。
+    const none = await api(session, "/api/import/apply", { text: "没有任何标记的一段话。" });
+    expect(none.status).toBe(400);
+    expect(String((none.body as { error: string }).error)).toMatch(/标记/u);
+  });
+});
