@@ -21,6 +21,8 @@ import { useFetch } from "../hooks.js";
 
 export interface ChatProps {
   initialPrompt?: string;
+  /** 地址里指定的模式（新建空白作品后直接进谋篇）。只在载入时对齐一次。 */
+  initialMode?: ConversationMode | undefined;
   onJump: (chapter: number, quote: string) => void;
   /** 对话可能改变作品状态（写章/采用/改计划），据此刷新侧栏与首页。 */
   refresh: () => void;
@@ -42,7 +44,7 @@ const SUGGESTIONS = ["看看现在写到哪了，下一章该做什么", "按计
 /** 谋篇模式的起手句：新手最卡的就是不知道第一句说什么，给他一句能直接发的。 */
 const PLANNING_SUGGESTIONS = ["我还没想好写什么，脑子里只有一个画面：一个人半夜被敲门声吵醒", "先聊聊主角是谁", "我想给主角加一条旧伤的线，但不知道往哪放", "看看还欠着哪些伏笔，帮我想想怎么收"];
 
-export function Chat({ onJump, refresh, initialPrompt = "" }: ChatProps): React.ReactElement {
+export function Chat({ onJump, refresh, initialPrompt = "", initialMode }: ChatProps): React.ReactElement {
   const history = useFetch(() => api.conversationHistory(), []);
   const [live, setLive] = useState<ConversationTurn[]>([]);
   const [input, setInput] = useState(initialPrompt);
@@ -59,9 +61,15 @@ export function Chat({ onJump, refresh, initialPrompt = "" }: ChatProps): React.
   const planning = mode === "planning";
 
   // 历史载入后对齐后端的模式；之后以本地状态为准（每次切换都落过库）。
+  // 地址里带了模式且与后端不同时，先落库再改本地态 —— 模式存后端是谋篇的锁，刷新不能把它打开。
   useEffect(() => {
-    if (history.data !== null) setMode(history.data.mode);
-  }, [history.data]);
+    if (history.data === null) return;
+    if (initialMode !== undefined && initialMode !== history.data.mode) {
+      void api.setConversationMode(initialMode).then((r) => setMode(r.mode)).catch((e: unknown) => setError(`切换模式失败：${(e as Error).message}`));
+      return;
+    }
+    setMode(history.data.mode);
+  }, [history.data, initialMode]);
 
   const switchMode = async (next: ConversationMode): Promise<void> => {
     if (switching || sending || next === mode) return;
