@@ -457,6 +457,12 @@ export interface PreparationProposal {
   findings: GateFinding[];
 }
 
+/** 两个 model 审查通道的开关，按作品保存。 */
+export interface ReviewSettings {
+  voice: boolean;
+  semantics: boolean;
+}
+
 export interface PreparationDraftResult {
   /** 起草回合的说明：补了什么、哪里还需要作者拿主意。 */
   reply: string;
@@ -511,6 +517,8 @@ export const api = {
   downloadExport: (id: string) => request<{ filename: string; text: string; sha256: string }>(`/api/export/file?id=${encodeURIComponent(id)}`),
   planningAction: (action: PlanningAction, reason?: string) => post<ActionResult>("/api/planning/action", { action, ...(reason === undefined ? {} : { reason }) }),
   preparation: () => request<PreparationPayload>("/api/preparation"),
+  reviewSettings: () => request<ReviewSettings>("/api/review-settings"),
+  saveReviewSettings: (value: ReviewSettings) => post<ReviewSettings>("/api/review-settings", value),
   confirmPreparation: (proposalId: string) => post<{ changed: boolean; proposal: PreparationProposal }>("/api/preparation/confirm", { proposalId }),
   rejectPreparation: (proposalId: string) => post<PreparationProposal>("/api/preparation/reject", { proposalId }),
   recordAuthorDetails: (input: { summary: string; baseFingerprint: string; changes: unknown }) => post<PreparationProposal>("/api/preparation/author", input),

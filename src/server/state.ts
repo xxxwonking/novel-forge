@@ -20,7 +20,7 @@ import { computeAlerts, type AlertCandidate } from "../alerts/compute.js";
 import { selectAlerts, type AlertSelection } from "../alerts/select.js";
 import { buildViewModel, type ViewModel } from "../view/models.js";
 import { loadRules } from "../rules/load.js";
-import type { Rules } from "../rules/schema.js";
+import type { ReviewRules, Rules } from "../rules/schema.js";
 import type { AlertAction, AlertState } from "../types/projections.js";
 import type { ChapterBeat, WorkProfile } from "../types/beat.js";
 import type { WorkSetting, WritingDiscipline } from "../types/work.js";
@@ -329,7 +329,8 @@ export class ProjectSession {
     const numbers = [...snapshot.chapters.keys()].sort((a, b) => a - b);
     const currentChapter = Math.max(0, ...numbers);
     return {
-      rules: this.rules, meta: { ...content, currentChapter, nextChapter: currentChapter + 1, chapterCount: numbers.length },
+      rules: this.rules, reviewSettings: this.reviewSettings,
+      meta: { ...content, currentChapter, nextChapter: currentChapter + 1, chapterCount: numbers.length },
       events: () => snapshot.events, chapterNumbers: () => numbers,
       chapterText: (n) => snapshot.chapters.get(n), beatFor: (n) => content.beats.find((b) => b.chapter === n),
       allDrafts: () => this.allDrafts(),
@@ -514,6 +515,25 @@ export class ProjectSession {
       throw new ChapterWriteError(502, `起草没有保存出方案${reply === "" ? "" : `：${reply}`}`);
     }
     return { reply, proposalId: proposed.proposalId, summary: proposed.summary, characters: [] };
+  }
+
+  /**
+   * 本作品实际生效的模型审查开关：作品自己的设置优先，没设过就用 `rules.review`。
+   *
+   * 每次从磁盘读：它不参与来源指纹，也就不该进入会话缓存 —— 另一个页面改了开关，
+   * 下一章检查就该按新值走，不必重开会话。
+   */
+  get reviewSettings(): ReviewRules {
+    return this.store.loadReview() ?? this.rules.review;
+  }
+
+  setReviewSettings(review: ReviewRules): ReviewRules {
+    if (typeof review?.voice !== "boolean" || typeof review.semantics !== "boolean") {
+      throw new ChapterWriteError(400, "voice 与 semantics 必须都是布尔值");
+    }
+    const value = { voice: review.voice, semantics: review.semantics };
+    this.store.writeReview(value);
+    return value;
   }
 
   conversationTurns(): readonly ConversationTurn[] {

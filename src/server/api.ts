@@ -66,6 +66,19 @@ export function handle(session: ProjectSession, req: ApiRequest): ApiResponse {
     catch (error) { if (error instanceof ChapterWriteError) return { status: error.status, body: { error: error.message } }; throw error; }
   }
 
+  // 两个 model 审查通道的开关。按作品存，不进来源指纹 —— 改它不作废任何草稿。
+  if (path === "/api/review-settings") {
+    if (method === "GET") return ok(session.reviewSettings);
+    if (method === "POST") {
+      if (!isRecord(req.body)) return bad("请求体必须是对象");
+      try { return ok(session.setReviewSettings(req.body as never)); }
+      catch (error) {
+        if (error instanceof ChapterWriteError) return { status: error.status, body: { error: error.message } };
+        throw error;
+      }
+    }
+  }
+
   if (path === "/api/preparation" && method === "GET") return ok({ ...session.preparation.view(), ideas: session.listIdeas() });
   if (path.startsWith("/api/preparation/") && method === "POST") {
     try {

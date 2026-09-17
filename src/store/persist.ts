@@ -20,6 +20,7 @@
  *   <root>/plotlines.json        情节线定义
  *   <root>/beats.json            节拍表（含派生预算）
  *   <root>/alert-states.json     告警的用户侧状态
+ *   <root>/review.json           两个 model 审查通道的开关（缺省用 rules.review）
  *   <root>/events.jsonl          结构事件流，append-only
  *   <root>/chapters/ch{n}.txt    正文
  */
@@ -35,6 +36,7 @@ import type { WorkSetting, WritingDiscipline } from "../types/work.js";
 import type { SettingCard } from "../context/select-l3.js";
 import { WRITING_DISCIPLINE } from "../context/discipline.js";
 import type { AlertState } from "../types/projections.js";
+import type { ReviewRules } from "../rules/schema.js";
 import type { AlertId, ChapterNo, PlotLineId } from "../types/primitives.js";
 import type { ForeshadowWeight } from "../types/events.js";
 
@@ -78,6 +80,7 @@ const FILES = {
   plotLines: "plotlines.json",
   beats: "beats.json",
   alertStates: "alert-states.json",
+  review: "review.json",
   events: "events.jsonl",
 } as const;
 
@@ -214,6 +217,27 @@ export class ProjectStore {
 
   writeSettings(settings: readonly SettingCard[]): void {
     this.writeJson(FILES.settings, settings);
+  }
+
+  /**
+   * 模型审查开关。**刻意不进 `ProjectSnapshot`** —— 来源指纹是按快照字段算的
+   * （见 `chapterInputFingerprint`），开关一旦进去，作者改个建议性审查的开关
+   * 就会把所有未采用草稿判成"作品资料发生变化"。结构上隔开比约定更可靠。
+   *
+   * 文件不存在时返回 undefined，由调用方回落到 `rules.review` 的全局默认；
+   * 只读浏览不写文件。
+   */
+  loadReview(): ReviewRules | undefined {
+    if (!existsSync(join(this.root, FILES.review))) return undefined;
+    const value = this.readJson<Partial<ReviewRules>>(FILES.review);
+    if (typeof value?.voice !== "boolean" || typeof value.semantics !== "boolean") {
+      throw new Error(`${FILES.review} 不是合法的审查开关：voice 与 semantics 必须都是布尔值`);
+    }
+    return Object.freeze({ voice: value.voice, semantics: value.semantics });
+  }
+
+  writeReview(review: ReviewRules): void {
+    this.writeJson(FILES.review, review);
   }
 
   writeDiscipline(discipline: WritingDiscipline): void {

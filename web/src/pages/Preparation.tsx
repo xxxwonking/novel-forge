@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Button, Input } from "antd";
 import { Chip } from "../components/Chip.js";
 import { BeatEditor, CharacterEditor, DraftDialog, PlotLineEditor, SettingEditor, type Editing } from "../components/PreparationEditors.js";
+import { ReviewSettings } from "../components/ReviewSettings.js";
 import { api, type CharacterRecord, type PreparationContent, type PreparationPayload, type PreparationProposal, type SettingInput, type PlotLineInput } from "../api.js";
 import { useFetch, useRouteActive } from "../hooks.js";
 
@@ -132,5 +133,7 @@ function Content({ content, onEdit, onDraft, expanded }: { content: PreparationC
     <section className="prep-section"><div className="section-head"><h2>情节方向</h2>{add("plotLine", "新增情节线")}</div>{content.plotLines.length === 0 ? <p className="muted">还没有情节线规划。</p> : <ul>{content.plotLines.map((line) => <li key={line.id}><Chip>{line.weight === "main" ? "主线" : line.weight === "sub" ? "支线" : "细节"}</Chip> {line.label}{edit("plotLine", line, "情节线")}</li>)}</ul>}</section>
     <section className="prep-section"><div className="section-head"><h2>章节计划</h2>{add("beat", "新增章计划")}</div>{content.beats.length === 0 && <p className="muted">还没有章节计划。先明确这一章的目标、冲突和结束位置。</p>}{content.beats.map((beat) => <article className="prep-beat" key={beat.chapter}><div className="row"><h3>第 {beat.chapter} 章</h3><Chip>{beat.provenance === "proposed" ? "建议计划" : "已确认计划"}</Chip>{beat.budget && <span className="muted">{beat.budget.words.min}–{beat.budget.words.max} 字</span>}<span className="push-right">{edit("beat", beat, "计划")}</span></div><strong>{beat.plan.coreEvent}</strong><dl className="prep-facts"><div><dt>本章兑现</dt><dd>{beat.plan.stageFeedback}</dd></div><div><dt>结束位置</dt><dd>{beat.plan.hook}</dd></div><div><dt>出场人物</dt><dd>{beat.plan.characters.map((id) => content.characters.find((c) => c.id === id)?.name ?? id).join("、")}</dd></div><div><dt>地点</dt><dd>{beat.plan.locations.map((id) => content.settings.find((s) => s.id === id)?.name ?? id).join("、")}</dd></div>{beat.plan.secondaryThread && <div><dt>次级推进</dt><dd>{beat.plan.secondaryThread}</dd></div>}</dl>{beat.plan.resolves.length > 0 && <p>计划兑现：{beat.plan.resolves.map((r) => `${r.foreshadowId}（${r.completeness === "partial" ? "部分" : "完整"}）`).join("、")}</p>}</article>)}</section>
     <section className="prep-section"><h2>写作规则与偏好</h2><ul>{content.discipline.rules.map((rule, i) => <li key={i}>{rule}</li>)}</ul></section>
+    {/* 方案预览里不显示 —— 它是这本书的设置，不属于某一份候选资料。 */}
+    {onEdit !== undefined && <ReviewSettings />}
   </>;
 }

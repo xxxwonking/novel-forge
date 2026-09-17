@@ -153,8 +153,8 @@ export function buildChapterGraph(deps: ChapterGraphDeps) {
     const stop = stopped(); if (stop !== null) return stop;
     // 只有正常收尾的章才判声音；失败/被拒的章连正文都不完整。
     if (s.outcome !== "ready" && s.outcome !== "needs_revision") return {};
-    // 按作品关掉时连调用都不发（rules.review.voice）。
-    if (s.runInput.gate?.rules.review.voice !== true) return {};
+    // 作者按作品关掉时连调用都不发。
+    if (s.runInput.gate?.review?.voice === false) return {};
     const characters = s.runInput.gate?.characters ?? [];
     const fingerprint = stableFingerprint(s.body);
     const judged = s.voiceForBody === fingerprint || characters.length === 0
@@ -180,7 +180,7 @@ export function buildChapterGraph(deps: ChapterGraphDeps) {
   const semantics = async (s: ChapterGraphState): Promise<Partial<ChapterGraphState>> => {
     const stop = stopped(); if (stop !== null) return stop;
     if (s.outcome !== "ready" && s.outcome !== "needs_revision") return {};
-    if (s.runInput.gate?.rules.review.semantics !== true) return {};
+    if (s.runInput.gate?.review?.semantics === false) return {};
     const fingerprint = stableFingerprint(s.body);
     const judged = s.semanticsForBody === fingerprint || s.declaration === null
       ? s.semanticsFindings

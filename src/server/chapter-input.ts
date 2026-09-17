@@ -17,7 +17,7 @@ import type { ForeshadowTimelineItem } from "../types/projections.js";
 import type { ProjectSession } from "./state.js";
 
 /** 只读写作资料。试写可提供独立视图，复用相同的装配、引用检查和读工具。 */
-export type ChapterSource = Pick<ProjectSession, "meta" | "rules" | "events" | "chapterNumbers" | "chapterText" | "beatFor" | "allDrafts">;
+export type ChapterSource = Pick<ProjectSession, "meta" | "rules" | "reviewSettings" | "events" | "chapterNumbers" | "chapterText" | "beatFor" | "allDrafts">;
 
 /** HTTP 可展示的准备/状态错误；模型失败仍由 ChapterDraft.error 表达。 */
 export class ChapterWriteError extends Error {
@@ -211,7 +211,7 @@ export function buildChapterRunInput(
     ...(options.maxOutputTokens === undefined ? {} : { maxOutputTokens: options.maxOutputTokens }),
     // 声音检查用的人物卡与 L3 装配的是同一批（节拍点名）—— 检查范围与模型看到的
     // 上下文保持一致，不会出现「模型没被告知这个人物，却被按他的声音表打分」。
-    gate: { profile: ctx.meta.profile, rules: session.rules, characters },
+    gate: { profile: ctx.meta.profile, rules: session.rules, characters, review: session.reviewSettings },
   };
 }
 
