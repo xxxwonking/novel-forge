@@ -159,8 +159,8 @@ function parseNewWork(raw: unknown): NewWorkInput {
     return value.trim();
   };
   const title = text("title", "未命名作品", 100) || "未命名作品";
+  // 想法可以为空：还没想好写什么的作者建了作品先进谋篇模式，由对话把书想出来。
   const idea = text("idea", "", 10000);
-  if (idea === "") throw new ChapterWriteError(400, "请先描述你的创作想法");
   const genre = input["genre"] ?? "xuanhuan";
   const platform = input["platform"] ?? "unpublished";
   if (!GENRES.includes(genre as Genre)) throw new ChapterWriteError(400, "不支持的题材");

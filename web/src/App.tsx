@@ -210,7 +210,8 @@ function Routed({ route, overview, onAction, onIgnore, onJump, refresh, tasks, r
   const query = new URLSearchParams(search ?? "");
 
   if (path === "/chat") {
-    return <Chat onJump={onJump} refresh={refresh} initialPrompt={query.get("prompt") ?? ""} />;
+    const mode = query.get("mode");
+    return <Chat onJump={onJump} refresh={refresh} initialPrompt={query.get("prompt") ?? ""} initialMode={mode === "planning" || mode === "normal" ? mode : undefined} />;
   }
   if (path === "/preparation") {
     return <Preparation key={query.get("proposal") ?? "confirmed"} refresh={refresh} proposalId={query.get("proposal")} />;

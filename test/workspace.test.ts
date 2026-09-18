@@ -71,6 +71,20 @@ describe("作品工作区", () => {
     expect(model.calls).toHaveLength(0);
   });
 
+  it("还没想好写什么也能建作品：想法留空，其余照常，谋篇缺项非空", async () => {
+    const { root, request, model } = await start();
+    const response = await request("/api/works", undefined, { ...idea, idea: "   " });
+    expect(response.status).toBe(201);
+    const snapshot = new ProjectStore(join(root, response.body.id)).load();
+    expect(snapshot.setting.premise).toBe("");
+    expect(snapshot.setting.title).toBe(idea.title);
+    // 想法为空时筹备缺项非空，对话页切进谋篇后会走「从零筹备」那条带法。
+    const preparation = await request("/api/preparation", response.body.id);
+    expect(preparation.body.readiness.ready).toBe(false);
+    expect(preparation.body.readiness.missing.length).toBeGreaterThan(0);
+    expect(model.calls).toHaveLength(0);
+  });
+
   it("同一创建请求重试只建一本，不覆盖不同请求内容", async () => {
     const { root, request } = await start();
     const payload = { ...idea, requestId: "11111111-1111-4111-8111-111111111111" };
@@ -151,7 +165,8 @@ describe("作品工作区", () => {
     expect((await request("/api/overview", "missing-book")).status).toBe(404);
   });
 
-  it.each([null, [], {}, { title: "只有书名" }, { idea: "   " }, { ...idea, genre: "invalid" }, { ...idea, targetWords: -1 }, { ...idea, requestId: "../../outside" }])("非法新建参数 %j 不产生作品文件", async (input) => {
+  // `{}`、只有书名、想法留空都是合法的空白作品（谋篇模式接手），不在这份清单里。
+  it.each([null, [], { ...idea, genre: "invalid" }, { ...idea, targetWords: -1 }, { ...idea, requestId: "../../outside" }])("非法新建参数 %j 不产生作品文件", async (input) => {
     const { request, root } = await start();
     expect((await request("/api/works", undefined, input)).status).toBe(400);
     expect(readdirSync(root)).toEqual([]);
