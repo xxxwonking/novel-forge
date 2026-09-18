@@ -112,6 +112,8 @@ export class ProjectSession {
   private alertStates: Map<AlertId, AlertState>;
   private chapters: Map<ChapterNo, string>;
   private cache: SessionDerived | null = null;
+  /** 处理进度与 derived 同源同失效点，但没有理由每问一次就重算一遍（它遍历全部事件与节拍表）。 */
+  private progress: ReturnType<typeof buildStoryProgress> | null = null;
   private readonly conversation: ConversationStore;
   private modelClient: ModelClient | undefined;
 
@@ -233,7 +235,7 @@ export class ProjectSession {
     return this.alertStates.get(id);
   }
 
-  storyProgress(): ReturnType<typeof buildStoryProgress> { return buildStoryProgress(this); }
+  storyProgress(): ReturnType<typeof buildStoryProgress> { return (this.progress ??= buildStoryProgress(this)); }
 
   // ── 写 ────────────────────────────────────────────────────────────────
 
@@ -461,7 +463,7 @@ export class ProjectSession {
           const input = buildChapterRunInput(this, chapter);
           const checked = checkChapter(input, draft.body, draft.declaration, [
             ...crossCheckC5({ declaration: draft.declaration, chapterText: draft.body }),
-            ...checkPromisedResolutions(draft.declaration, input.promisedResolutions),
+            ...checkPromisedResolutions(draft.declaration, input.promisedResolutions, input.patchWords),
           ]);
           if (!checked.acceptable) throw new ChapterWriteError(409, `选定资料后仍有必须处理项，本次采用未完成：${checked.findings.filter(f => f.level === "block").map(f => f.message).join("；")}`);
           findings = checked.findings;
@@ -869,6 +871,7 @@ export class ProjectSession {
 
   private invalidate(): void {
     this.cache = null;
+    this.progress = null;
   }
 
   private recompute(): SessionDerived {

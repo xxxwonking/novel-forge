@@ -195,6 +195,8 @@ export interface RevisionView {
   pending: number;
   conflicts: number;
   latest: { chapter: number; at: string; changes: string[] } | null;
+  /** 清单文件读不出来时的原因；非 null 时上面几项都是空值。 */
+  error: string | null;
 }
 
 /** 采用前的只读预览：这一稿会牵连到哪些章。 */
@@ -644,6 +646,7 @@ export const api = {
     post<PreparationDraftResult>("/api/preparation/draft", input),
   /** 跨章返修：清单只读；定位要花一次模型调用，所以由作者一章一章地点。 */
   revisionView: () => request<RevisionView>("/api/revision"),
+  rebuildRevision: () => post<{ archived: string | null; view: RevisionView }>("/api/revision/rebuild", {}),
   previewRevision: (chapter: number, draftId: string) => post<RevisionImpact>("/api/revision/preview", { chapter, draftId }),
   locateRevision: (chapter: number) => post<RevisionChapter>("/api/revision/locate", { chapter }),
   resolveRevision: (chapter: number) => post<RevisionChapter>("/api/revision/resolve", { chapter }),

@@ -23,7 +23,7 @@ import type { C5Declaration, StructuralEventPayload } from "../types/events.js";
 import type { ChapterNo } from "../types/primitives.js";
 import { diffDeclarations, impactedChapters, PROSE_ONLY_CHANGE, type ImpactReason, type ImpactSeverity, type LaterChapter, type RevisionImpact } from "./impact.js";
 import { buildLocateTask, parseLocateVerdict, REVISION_LOCATE_SYSTEM, REVISION_PASSAGE_SCHEMA, type RevisionPassage } from "./locate.js";
-import { ImpactStore, impactFingerprint, type ImpactRecord, type ImpactTrigger, type LatestRevision } from "./store.js";
+import { ImpactStore, impactFingerprint, type ImpactFileView, type ImpactRecord, type ImpactTrigger, type LatestRevision } from "./store.js";
 
 /** 定位只报要改的段落，输出不长；这是上限而非目标（管线常量，同 steps.ts）。 */
 const LOCATE_MAX_TOKENS = 4_000;
@@ -50,6 +50,14 @@ export interface ReviseView {
   /** 未处理且判定为硬矛盾的章数。连写闸门看的就是它。 */
   readonly conflicts: number;
   readonly latest: LatestRevision | null;
+  /**
+   * 清单文件读不出来时的原因。
+   *
+   * 有它是因为 `view()` 也被 `/api/overview` 调用 —— 读坏就抛会把整个作品的每个
+   * 页面一起打掉，代价远大于「这一页看不到清单」。所以读坏时返回空清单 + 这里说明
+   * 原因，界面照常起得来，作者也看得到出了什么事、能重建。
+   */
+  readonly error: string | null;
 }
 
 type Source = Pick<ProjectSession, "events" | "chapterNumbers" | "chapterText" | "getDraft">;
@@ -67,17 +75,54 @@ export class ReviseService {
     this.store = new ImpactStore(root);
   }
 
+  /**
+   * 读坏不抛，返回空清单 + `error`。界面与 overview 都靠这条路径活着。
+   *
+   * 容错**只包住读文件这一步**。把 buildView 也包进来的话，那里真出了程序 bug 会被
+   * 说成「清单读不出来」，而 rebuild() 据此就会把一份完好的清单改名归档 —— 那才是
+   * 真的丢数据。程序 bug 应该响亮地抛出来。
+   */
   view(): ReviseView {
-    const { chapters, latest } = this.store.load();
-    const list = [...chapters.values()]
+    let loaded: ImpactFileView;
+    try { loaded = this.store.load(); }
+    catch (cause) { return { chapters: [], pending: 0, conflicts: 0, latest: null, error: describe(cause) }; }
+    return this.buildView(loaded);
+  }
+
+  /**
+   * 读坏就抛。**只给连写闸门用。**
+   *
+   * 不能拿 `view()` 当闸门：读坏时它报 0，闸门跟着报 0 就是**静默放行连写** ——
+   * 而那份读不出来的清单里可能正压着没处理的硬矛盾。宁可挡住，也不能装作没事。
+   */
+  private strictView(): ReviseView {
+    return this.buildView(this.store.load());
+  }
+
+  private buildView(loaded: ImpactFileView): ReviseView {
+    const list = [...loaded.chapters.values()]
       .sort((a, b) => a.chapter - b.chapter)
       .map((record) => toView(record));
     return {
       chapters: list,
       pending: list.filter((item) => item.state !== "resolved").length,
       conflicts: list.filter((item) => item.state !== "resolved" && item.severity === "conflict").length,
-      latest,
+      latest: loaded.latest,
+      error: null,
     };
+  }
+
+  /**
+   * 清单读不动时的自助恢复：把坏文件改名留档，再起一份空清单。
+   *
+   * 只在**确实读不动**时才允许 —— 否则这就是一个一键抹掉作者全部返修进度的按钮。
+   * 留档名回给调用方，由界面说清楚原文件去了哪里。
+   */
+  rebuild(): { readonly archived: string | null } {
+    if (this.view().error === null) throw new ChapterWriteError(409, "返修清单能正常读取，不需要重建");
+    const archived = this.store.moveAside();
+    this.deps.transaction(() => this.store.save([]));
+    return { archived };
   }
 
   /** 该章当前正式的结构记录。采用前预览与采用时取「改动前」都用它。 */
@@ -157,7 +202,14 @@ export class ReviseService {
 
   /** 连写前置：还有没处理的硬矛盾就不开始。单章手写不走这里。 */
   assertNoConflicts(): void {
-    const blocking = this.view().chapters.filter((item) => item.state !== "resolved" && item.severity === "conflict");
+    let checked: ReviseView;
+    try { checked = this.strictView(); }
+    catch (cause) {
+      throw new ChapterWriteError(409,
+        `返修清单读不出来，连写已停：${describe(cause)}。先在跨章返修页重建清单再开始连写 —— ` +
+        "读不出来的清单里可能正压着没处理的硬矛盾。");
+    }
+    const blocking = checked.chapters.filter((item) => item.state !== "resolved" && item.severity === "conflict");
     if (blocking.length === 0) return;
     throw new ChapterWriteError(409,
       `还有未处理的跨章返修：${blocking.map((item) => `第 ${item.chapter} 章`).join("、")}。` +
@@ -226,6 +278,8 @@ export class ReviseService {
     return [...byChapter.entries()].map(([chapter, payloads]) => ({ chapter, payloads })).sort((a, b) => a.chapter - b.chapter);
   }
 }
+
+const describe = (cause: unknown): string => cause instanceof Error ? cause.message : String(cause);
 
 function unavailable(base: ImpactRecord, detail: string): Pick<ImpactRecord, "passages" | "notes" | "locatedFor"> {
   return {

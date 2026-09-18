@@ -270,6 +270,7 @@ export async function runTenChapters(chapters = 10): Promise<HarnessResult> {
       foreshadows: projections.foreshadows as readonly ForeshadowTimelineItem[],
       plotLines: projections.plotLines as readonly PlotLineTrack[],
       pendingAppend,
+      dueSoonWindow: loadRules().crossChapter.foreshadowDueSoon,
     });
 
     const l3 = selectL3({
@@ -310,6 +311,7 @@ export async function runTenChapters(chapters = 10): Promise<HarnessResult> {
         allocateForeshadowId: () => `F${String(++allocated).padStart(2, "0")}` as ForeshadowId,
       },
       promisedResolutions: [],
+      patchWords: loadRules().resolutionPatchWords,
       maxOutputTokens: 12_000,
       gate: { profile: PROFILE, rules },
     });

@@ -14,6 +14,8 @@
  * 错误的事实上继续往下写。
  */
 
+import { existsSync, renameSync } from "node:fs";
+import { join } from "node:path";
 import { readProjectFile, writeProjectFile } from "../store/transaction.js";
 import { stableFingerprint } from "../task/revision.js";
 import type { ImpactReason } from "./impact.js";
@@ -87,6 +89,24 @@ export class ImpactStore {
 
   get(chapter: ChapterNo): ImpactRecord | undefined {
     return this.load().chapters.get(chapter);
+  }
+
+  /**
+   * 把读不动的文件改名留档，返回留档后的文件名（没有文件则 null）。
+   *
+   * **不删。** 清单是「已处理」标记与触发历史的唯一载体，静默清掉等于把作者的进度
+   * 一并抹掉，而且他看不到发生了什么。所以换个名字让它躺在原地，再由界面把名字说出去。
+   */
+  moveAside(): string | null {
+    const target = join(this.root, FILE);
+    if (!existsSync(target)) return null;
+    const stamp = new Date().toISOString().replace(/[:.]/gu, "-");
+    for (let n = 1; ; n += 1) {
+      const name = n === 1 ? `${FILE}.broken-${stamp}` : `${FILE}.broken-${stamp}-${n}`;
+      if (existsSync(join(this.root, name))) continue;
+      renameSync(target, join(this.root, name));
+      return name;
+    }
   }
 
   /** 一次写完：`latest` 省略则保持原值。 */

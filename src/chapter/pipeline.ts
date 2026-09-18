@@ -81,6 +81,13 @@ export interface ChapterRunInput {
   }[];
   readonly maxOutputTokens?: number;
   /**
+   * 收束补写的字数区间（`rules.resolutionPatchWords`）。
+   *
+   * 与闸门是否配置无关 —— C5 阶段字数是未知的，收束完整性提示必须自己带数，
+   * 而那个数只能来自 rules，不能在这个文件里再写一份。
+   */
+  readonly patchWords: readonly [number, number];
+  /**
    * C6/C7 所需。缺省则跳过质量闸门 —— M1 的调用方（缓存实测工装）不需要
    * 闸门，而给它一份假 profile 会让实测数据里混进无意义的 findings。
    */
@@ -212,7 +219,7 @@ export async function runChapter(
   if (parsed.errors.length > 0) return { kind: "failed", step: "C5", detail: `C5 结构记录需要核对：${parsed.errors.join("；")}`, chapterText, metrics };
   const c5Findings = [
     ...crossCheckC5({ declaration: parsed.declaration, chapterText }),
-    ...checkPromisedResolutions(parsed.declaration, input.promisedResolutions),
+    ...checkPromisedResolutions(parsed.declaration, input.promisedResolutions, input.patchWords),
   ];
   const proposed = commitDeclaration(stream, input.chapter, parsed.declaration);
 

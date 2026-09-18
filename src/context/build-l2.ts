@@ -29,8 +29,6 @@ export const MINOR_CHARACTER_WINDOW = 20;
 /** §13.4 距离衰减的两个分界。 */
 export const SYNOPSIS_DECAY = { recent: 8, mid: 30, midBucket: 5, farBucket: 15 } as const;
 
-/** 伏笔"临近截止"的提前告警窗口（章）。 */
-export const DUE_SOON_WINDOW = 5;
 
 export interface L2BuildInput {
   /** 当前章号 —— 已写完的最后一章。裁剪与衰减都相对它计算。 */
@@ -43,6 +41,14 @@ export interface L2BuildInput {
   readonly foreshadows: readonly ForeshadowTimelineItem[];
   readonly plotLines: readonly PlotLineTrack[];
   readonly pendingAppend: readonly L2AppendEntry[];
+  /**
+   * 伏笔「临近截止」的提前量（章）。
+   *
+   * 由调用方从 `rules.crossChapter.foreshadowDueSoon` 传进来。**别在这里写死一个数** ——
+   * 这里曾经是 `DUE_SOON_WINDOW = 5`，而 gate 与告警读的是 rules 里的 3，于是模型在
+   * 索引里看到的「临近」比代码判的早两章，两边静默分歧了很久。
+   */
+  readonly dueSoonWindow: number;
 }
 
 // ── 人物名录 ────────────────────────────────────────────────────────────
@@ -158,6 +164,7 @@ function bucketize(
 function buildForeshadowRows(
   items: readonly ForeshadowTimelineItem[],
   currentChapter: ChapterNo,
+  dueSoonWindow: number,
 ): {
   rows: readonly L2ForeshadowRow[];
   counts: Readonly<Record<ForeshadowWeight, number>>;
@@ -174,15 +181,15 @@ function buildForeshadowRows(
       label: f.label,
       planted: `ch${f.plantedAt}埋`,
       expectation: `预期ch${f.expectedBy}`,
-      flag: overdueFlag(f.expectedBy, currentChapter),
+      flag: overdueFlag(f.expectedBy, currentChapter, dueSoonWindow),
     }));
 
   return { rows, counts };
 }
 
-function overdueFlag(expectedBy: ChapterNo, currentChapter: ChapterNo): "overdue" | "due_soon" | null {
+function overdueFlag(expectedBy: ChapterNo, currentChapter: ChapterNo, dueSoonWindow: number): "overdue" | "due_soon" | null {
   if (currentChapter > expectedBy) return "overdue";
-  if (expectedBy - currentChapter <= DUE_SOON_WINDOW) return "due_soon";
+  if (expectedBy - currentChapter <= dueSoonWindow) return "due_soon";
   return null;
 }
 
@@ -206,7 +213,7 @@ export function buildL2Snapshot(input: L2BuildInput): L2Snapshot {
     formatVersion: 1,
     characters: buildCharacterRows(input.characters, input.currentChapter),
     synopsis: buildSynopsisRows(input.chapterSynopses, input.volumeSummaries, input.currentChapter),
-    foreshadows: buildForeshadowRows(input.foreshadows, input.currentChapter),
+    foreshadows: buildForeshadowRows(input.foreshadows, input.currentChapter, input.dueSoonWindow),
     plotLines: buildPlotLineRows(input.plotLines),
     pendingAppend: input.pendingAppend,
   };

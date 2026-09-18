@@ -24,24 +24,60 @@ type Source = Pick<ProjectSession, "meta" | "events" | "derived" | "currentChapt
 
 export function buildStoryProgress(source: Source): readonly StoryProgress[] {
   const confirmed = (provenance: string) => provenance === "authored" || provenance === "committed";
+  // `currentChapter` 在 session 上是 `Math.max(...chapters.keys())`，每次调用都要展开一遍全部章号。
+  // 它被 verified() 逐条调到，所以必须只取一次 —— 否则长篇下的二次增长原样回来。
+  const currentChapter = source.currentChapter;
   const events = source.events().filter(e => confirmed(e.envelope.provenance));
-  const facts = events.filter(e => e.envelope.origin !== "P4_outline" && e.envelope.chapter <= source.currentChapter && source.chapterText(e.envelope.chapter) !== undefined);
+  const facts = events.filter(e => e.envelope.origin !== "P4_outline" && e.envelope.chapter <= currentChapter && source.chapterText(e.envelope.chapter) !== undefined);
   const beats = source.meta.beats.filter(b => confirmed(b.provenance));
-  const future = beats.filter(b => b.chapter > source.currentChapter);
-  const verified = (anchor: TextAnchor) => Boolean(anchor.quote.trim()) && anchor.chapter <= source.currentChapter && resolveAnchor(anchor, chapter => source.chapterText(chapter), source.rules.anchor).status !== "stale";
+  const future = beats.filter(b => b.chapter > currentChapter);
+  const verified = (anchor: TextAnchor) => Boolean(anchor.quote.trim()) && anchor.chapter <= currentChapter && resolveAnchor(anchor, chapter => source.chapterText(chapter), source.rules.anchor).status !== "stale";
   const out: StoryProgress[] = [];
 
+  // 先按编号分好桶再进循环。原来是每个伏笔、每个人物、每条情节线各扫一遍全量事件与
+  // 节拍表 —— 那是章节数 × 对象数，2000 章实测 1.7 秒全花在这儿。分桶只换查找方式，
+  // 桶内顺序仍是原数组顺序，所以判定与输出一字不动。
+  const eventsByForeshadow = group(events, e => "foreshadowId" in e.payload ? e.payload.foreshadowId as string : null);
+  const eventsByCharacter = group(events, e => "characterId" in e.payload ? e.payload.characterId as string : null);
+  const factsByCharacter = group(facts, e => "characterId" in e.payload ? e.payload.characterId as string : null);
+  const factsByPlotLine = group(facts, e => e.payload.type === "plot_event" ? e.payload.plotLine as string : null);
+  const beatsByForeshadow = groupBy(beats, b => b.plan.resolves.map(r => r.foreshadowId as string));
+  const beatsByPlotLine = groupBy(beats, b => b.plan.events.flatMap(e => e.plotLine === null ? [] : [e.plotLine as string]));
+  const beatsByCharacter = groupBy(beats, b => b.plan.characters.map(c => c as string));
+
+  // 未来节拍的兑现安排。一个节拍对同一个伏笔最多出一条，且**按编号的兑现优先于按名称
+  // 的埋设** —— 与原实现先 `find` 再 `some` 的先后一致。
+  const scheduledByForeshadow = new Map<string, { readonly chapter: number; readonly goal: string }[]>();
+  const plannedIdsByLabel = new Map<string, string[]>();
   for (const f of source.derived.projections.foreshadows) {
-    const scheduled = future.flatMap(beat => {
-      const resolution = beat.plan.resolves.find(r => r.foreshadowId === f.id);
-      if (resolution !== undefined) return [{ chapter: beat.chapter, goal: resolution.completeness === "full" ? "完整兑现" : "部分兑现" }];
-      return f.status === "planned" && beat.plan.plants.some(p => p.label === f.label) ? [{ chapter: beat.chapter, goal: "埋设伏笔" }] : [];
-    });
-    const related = events.filter(e => "foreshadowId" in e.payload && e.payload.foreshadowId === f.id);
+    if (f.status !== "planned") continue;
+    const list = plannedIdsByLabel.get(f.label);
+    if (list === undefined) plannedIdsByLabel.set(f.label, [f.id as string]); else list.push(f.id as string);
+  }
+  for (const beat of future) {
+    const emitted = new Set<string>();
+    for (const resolve of beat.plan.resolves) {
+      const id = resolve.foreshadowId as string;
+      if (emitted.has(id)) continue;
+      emitted.add(id);
+      append(scheduledByForeshadow, id, { chapter: beat.chapter, goal: resolve.completeness === "full" ? "完整兑现" : "部分兑现" });
+    }
+    for (const plant of beat.plan.plants) {
+      for (const id of plannedIdsByLabel.get(plant.label) ?? []) {
+        if (emitted.has(id)) continue;
+        emitted.add(id);
+        append(scheduledByForeshadow, id, { chapter: beat.chapter, goal: "埋设伏笔" });
+      }
+    }
+  }
+
+  for (const f of source.derived.projections.foreshadows) {
+    const scheduled = scheduledByForeshadow.get(f.id as string) ?? [];
+    const related = eventsByForeshadow.get(f.id as string) ?? [];
     const rescheduled = related.findLast(e => e.payload.type === "foreshadow_rescheduled");
     const abandoned = related.findLast(e => e.payload.type === "foreshadow_abandoned");
     const valid = f.resolutions.filter(r => verified(r.anchor));
-    const full = fullResolution(f, chapter => chapter <= source.currentChapter ? source.chapterText(chapter) : undefined, source.rules.anchor) !== undefined;
+    const full = fullResolution(f, chapter => chapter <= currentChapter ? source.chapterText(chapter) : undefined, source.rules.anchor) !== undefined;
     const arrangements = full || f.status === "abandoned" ? [] : scheduled;
     const state: StoryProgressState = f.status === "abandoned" ? "abandoned" : f.status === "planned" ? "planned"
       : full ? "resolved" : valid.length > 0 ? "partial" : rescheduled !== undefined ? "rescheduled" : arrangements.length > 0 ? "scheduled" : "pending";
@@ -55,13 +91,13 @@ export function buildStoryProgress(source: Source): readonly StoryProgress[] {
     const history: StoryProgress["history"][number][] = [];
     const actions: PlanningAction[] = [];
     if (f.status === "open" || f.status === "planned") {
-      const next = future.find(b => b.chapter === source.currentChapter + 1);
+      const next = future.find(b => b.chapter === currentChapter + 1);
       if (f.status === "open" && next !== undefined) for (const completeness of ["full", "partial"] as const) {
         actions.push({ kind: "add_resolution_to_beat", targetChapter: next.chapter, foreshadowId: f.id, weight: f.weight, completeness });
       }
       actions.push({ kind: "reschedule", foreshadowId: f.id, expectedBy: f.expectedBy }, { kind: "abandon", foreshadowId: f.id });
     }
-    for (const beat of beats) {
+    for (const beat of beatsByForeshadow.get(f.id as string) ?? []) {
       const resolution = beat.plan.resolves.find(r => r.foreshadowId === f.id);
       if (resolution !== undefined) history.push({ chapter: beat.chapter, state: "scheduled", detail: `原定第 ${beat.chapter} 章${resolution.completeness === "full" ? "完整" : "部分"}兑现` });
     }
@@ -77,29 +113,53 @@ export function buildStoryProgress(source: Source): readonly StoryProgress[] {
   }
 
   for (const line of source.meta.plotLines) {
-    const targets = beats.filter(b => b.plan.events.some(e => e.plotLine === line.id));
-    const records = facts.flatMap(e => e.payload.type === "plot_event" && e.payload.plotLine === line.id && verified(e.payload.anchor)
+    const targets = beatsByPlotLine.get(line.id as string) ?? [];
+    const records = (factsByPlotLine.get(line.id as string) ?? []).flatMap(e => e.payload.type === "plot_event" && verified(e.payload.anchor)
       ? [{ chapter: e.envelope.chapter, label: e.payload.summary, anchor: e.payload.anchor }] : []);
-    out.push(scheduleProgress("plotline", line.id, line.label, "推进情节", targets, records, source.currentChapter, source.rules.crossChapter.plotLineGap[line.weight]));
+    out.push(scheduleProgress("plotline", line.id, line.label, "推进情节", targets, records, currentChapter, source.rules.crossChapter.plotLineGap[line.weight]));
   }
   for (const character of source.meta.characters.filter(c => confirmed(c.provenance))) {
-    const targets = beats.filter(b => b.plan.characters.includes(character.id));
-    const records = facts.flatMap(e => e.payload.type === "character_presence" && e.payload.characterId === character.id && e.payload.role !== "mentioned"
+    const targets = beatsByCharacter.get(character.id as string) ?? [];
+    const records = (factsByCharacter.get(character.id as string) ?? []).flatMap(e => e.payload.type === "character_presence" && e.payload.role !== "mentioned"
       ? [{ chapter: e.envelope.chapter, label: `${character.name}的已采用出场记录` }] : []);
-    const authorExits = events.filter(e => e.envelope.origin === "user_edit" && e.envelope.chapter <= source.currentChapter && e.payload.type === "character_state_changed" && e.payload.characterId === character.id && e.payload.field === "vital" && e.payload.to === "missing" && !e.payload.anchor.quote.trim());
+    const own = eventsByCharacter.get(character.id as string) ?? [];
+    const authorExits = own.filter(e => e.envelope.origin === "user_edit" && e.envelope.chapter <= currentChapter && e.payload.type === "character_state_changed" && e.payload.field === "vital" && e.payload.to === "missing" && !e.payload.anchor.quote.trim());
     const exitHistory: StoryProgress["history"] = authorExits.map(e => ({ chapter: e.envelope.chapter, state: "exited", detail: "作者确认退场" }));
-    const lastVital = events.findLast(e => e.envelope.origin !== "P4_outline" && e.envelope.chapter <= source.currentChapter && e.payload.type === "character_state_changed" && e.payload.characterId === character.id && e.payload.field === "vital");
+    const lastVital = own.findLast(e => e.envelope.origin !== "P4_outline" && e.envelope.chapter <= currentChapter && e.payload.type === "character_state_changed" && e.payload.field === "vital");
     const lastExit = authorExits.at(-1);
     if (lastExit !== undefined && lastVital === lastExit && !records.some(r => r.chapter > lastExit.envelope.chapter)) {
-      const arrangements = targets.filter(b => b.chapter > source.currentChapter).map(b => ({ chapter: b.chapter, goal: "人物出场" }));
+      const arrangements = targets.filter(b => b.chapter > currentChapter).map(b => ({ chapter: b.chapter, goal: "人物出场" }));
       const detail = "作者已确认退场；这项决定没有新增正文中的出场或死亡情节。" + (arrangements.length > 0 ? `第 ${arrangements.map(a => a.chapter).join("、")} 章仍有出场安排，请核对这些章节计划。` : "");
       out.push({ id: `character:${character.id}`, kind: "character", title: character.name, state: "exited", detail, arrangements, evidence: [], history: exitHistory });
     } else {
-      const progress = scheduleProgress("character", character.id, character.name, "人物出场", targets, records, source.currentChapter, source.rules.crossChapter.characterAbsent[character.tier]);
+      const progress = scheduleProgress("character", character.id, character.name, "人物出场", targets, records, currentChapter, source.rules.crossChapter.characterAbsent[character.tier]);
       out.push({ ...progress, history: [...exitHistory, ...progress.history].sort((a, b) => a.chapter - b.chapter) });
     }
   }
   return out;
+}
+
+function append<T>(map: Map<string, T[]>, key: string, value: T): void {
+  const list = map.get(key);
+  if (list === undefined) map.set(key, [value]); else list.push(value);
+}
+
+/** 按单个编号分桶，保持原数组顺序；没有该编号的条目不进任何桶。 */
+function group<T>(items: readonly T[], keyOf: (item: T) => string | null): ReadonlyMap<string, T[]> {
+  const map = new Map<string, T[]>();
+  for (const item of items) {
+    const key = keyOf(item);
+    if (key === null) continue;
+    append(map, key, item);
+  }
+  return map;
+}
+
+/** 一条命中多个编号时分多个桶；同一编号在一条里重复只算一次，对应原来的 `some` / `includes` / `find`。 */
+function groupBy<T>(items: readonly T[], keysOf: (item: T) => readonly string[]): ReadonlyMap<string, T[]> {
+  const map = new Map<string, T[]>();
+  for (const item of items) for (const key of new Set(keysOf(item))) append(map, key, item);
+  return map;
 }
 
 function scheduleProgress(kind: "plotline" | "character", id: string, title: string, goal: string, targets: readonly ChapterBeat[], records: readonly ProgressEvidence[], current: number, gapLimit: number): StoryProgress {

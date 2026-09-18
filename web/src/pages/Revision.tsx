@@ -47,6 +47,27 @@ export function Revision({ refresh }: { refresh: () => void }): React.ReactEleme
     finally { setBusy(null); }
   };
 
+  /**
+   * 清单文件读不出来：只说这一件事，并给一条出路。
+   *
+   * 不能照常往下渲染 —— 后端此时返回的是空清单，页面会显示成「没有待复核的章节」，
+   * 那是在撒谎。重建**改名留档而不是删除**，所以不会悄悄抹掉作者的进度。
+   */
+  if (view.error !== null) return <>
+    <div className="page-head"><h1>跨章返修</h1></div>
+    {notice !== null && <p className="prep-notice" role="status">{notice}</p>}
+    <div className="finding" data-level="block" role="alert">
+      <p>{view.error}</p>
+      <p className="muted">读不出来，所以这份清单现在当空的用（导航上的计数也是 0）。原文件还在，没有被删 —— 重建会把它改名留档。</p>
+      <Button size="small" danger loading={busy === "rebuild"} disabled={busy !== null}
+        onClick={() => void run("rebuild", async () => {
+          const result = await api.rebuildRevision();
+          return result.archived === null ? "清单已重建。" : `清单已重建；原文件留档改名为 ${result.archived}，没有删除。`;
+        })}>重建清单</Button>
+    </div>
+    <p className="muted">重建之前不能开始连写 —— 读不出来的清单里可能正压着没处理的硬矛盾。</p>
+  </>;
+
   const locate = (chapter: number): Promise<void> => run(`locate${chapter}`, async () => {
     const result = await api.locateRevision(chapter);
     return result.passages.length === 0

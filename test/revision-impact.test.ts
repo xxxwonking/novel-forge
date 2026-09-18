@@ -13,7 +13,7 @@
  */
 
 import { afterEach, describe, expect, it } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ProjectStore } from "../src/store/persist.js";
@@ -24,6 +24,7 @@ import { draftRevisionToken } from "../src/task/revision.js";
 import { diffDeclarations, impactedChapters, type LaterChapter } from "../src/revise/impact.js";
 import { parseLocateVerdict } from "../src/revise/locate.js";
 import { ChapterWriteError } from "../src/server/chapter-input.js";
+import { handleAsync } from "../src/server/api.js";
 import type { C5Declaration, StructuralEventPayload } from "../src/types/events.js";
 import type { ChapterNo } from "../src/types/primitives.js";
 import { CH1, CH2, NO_MODEL_REVIEW, PROSE, fakeClient, modelText, savedDraft, writingSnapshot } from "./writing-fixtures.js";
@@ -330,5 +331,73 @@ describe("跨章返修·清单与解锁", () => {
     expect(located.state).toBe("located");
     expect(located.passages[0]?.suggestion).toContain("密库");
     expect(session.revise.view().chapters.find((c) => c.chapter === 3)?.passages.length).toBe(1);
+  });
+});
+
+describe("跨章返修·清单文件读坏时（回归：不能把整个应用拖下水）", () => {
+  const CORRUPT = "{ 这不是 JSON";
+
+  /** 先落一份正常的返修清单，再把文件写坏。 */
+  function broken(): { root: string; session: ProjectSession } {
+    const { root, session: base, drafts } = project();
+    drafts.saveDraft(withoutF01("ch1d2", 0));
+    base.adopt(1, "ch1d2", { revisionToken: draftRevisionToken(drafts.loadDraft(1, "ch1d2")!) });
+    expect(base.revise.view().conflicts).toBeGreaterThan(0);
+    writeFileSync(join(root, "revision-impact.json"), CORRUPT);
+    return { root, session: new ProjectSession(root, NO_MODEL_REVIEW) };
+  }
+
+  const overview = (session: ProjectSession): Promise<{ status: number }> =>
+    handleAsync(session, { method: "GET", path: "/api/overview", query: new URLSearchParams(), body: undefined });
+
+  it("view() 不抛，返回空清单与原因", () => {
+    const { session } = broken();
+    const view = session.revise.view();
+    expect(view.error).toContain("revision-impact.json");
+    expect(view.chapters).toEqual([]);
+    expect(view.pending).toBe(0);
+  });
+
+  it("overview 仍然可用 —— 它被每一个页面拉取，读坏不能让它 500", async () => {
+    const { session } = broken();
+    expect((await overview(session)).status).toBe(200);
+  });
+
+  it("连写闸门失败关闭：读不出来就不放行，不跟着 view() 报 0", () => {
+    const { session } = broken();
+    expect(() => session.revise.assertNoConflicts()).toThrow(ChapterWriteError);
+    // 闸门抛的必须是「读不出来」，不是「没有矛盾」。
+    expect(() => session.revise.assertNoConflicts()).toThrow(/读不出来/u);
+  });
+
+  it("重建把坏文件改名留档而不是删除，内容一字不少", () => {
+    const { root, session } = broken();
+    const { archived } = session.revise.rebuild();
+    expect(archived).not.toBeNull();
+    expect(readFileSync(join(root, archived!), "utf8")).toBe(CORRUPT);
+    // 起了一份能读的空清单；坏文件仍在原地躺着。
+    expect(session.revise.view().error).toBeNull();
+    expect(session.revise.view().chapters).toEqual([]);
+    expect(readdirSync(root).filter((name) => name.startsWith("revision-impact.json"))).toHaveLength(2);
+  });
+
+  it("重建之后闸门放行（清单是空的），而且能继续落新的返修", () => {
+    const { root, session } = broken();
+    session.revise.rebuild();
+    expect(() => session.revise.assertNoConflicts()).not.toThrow();
+
+    const drafts = new DraftStore(root);
+    drafts.saveDraft(replantedF01("ch1d3", 1));
+    session.adopt(1, "ch1d3", { revisionToken: draftRevisionToken(drafts.loadDraft(1, "ch1d3")!) });
+    expect(session.revise.view().chapters.length).toBeGreaterThan(0);
+  });
+
+  it("清单能正常读取时拒绝重建 —— 这不是一个一键抹掉进度的按钮", () => {
+    const { root, session: base, drafts } = project();
+    drafts.saveDraft(withoutF01("ch1d2", 0));
+    base.adopt(1, "ch1d2", { revisionToken: draftRevisionToken(drafts.loadDraft(1, "ch1d2")!) });
+    expect(() => base.revise.rebuild()).toThrow(/不需要重建/u);
+    expect(base.revise.view().conflicts).toBeGreaterThan(0);
+    expect(readdirSync(root).some((name) => name.includes(".broken-"))).toBe(false);
   });
 });

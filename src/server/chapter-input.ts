@@ -180,6 +180,7 @@ export function buildChapterRunInput(
         // 当前没有独立的卷梗概存储；不把规划中的卷纲伪装成已发生剧情。
         volumeSummaries: [], pendingAppend: [],
         foreshadows: ctx.projections.foreshadows.filter((f) => f.status !== "planned"), plotLines: ctx.projections.plotLines,
+        dueSoonWindow: session.rules.crossChapter.foreshadowDueSoon,
       }),
       l3,
       volatile: {
@@ -210,6 +211,7 @@ export function buildChapterRunInput(
       allocateForeshadowId: foreshadowAllocator(session),
     },
     promisedResolutions: beat.plan.resolves.map((r) => ({ foreshadowId: r.foreshadowId, completeness: r.completeness })),
+    patchWords: session.rules.resolutionPatchWords,
     ...(options.maxOutputTokens === undefined ? {} : { maxOutputTokens: options.maxOutputTokens }),
     // 声音检查用的人物卡与 L3 装配的是同一批（节拍点名）—— 检查范围与模型看到的
     // 上下文保持一致，不会出现「模型没被告知这个人物，却被按他的声音表打分」。

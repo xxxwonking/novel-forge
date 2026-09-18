@@ -124,6 +124,7 @@ function runInput(): ChapterRunInput {
         foreshadows,
         plotLines,
         pendingAppend: [],
+        dueSoonWindow: loadRules().crossChapter.foreshadowDueSoon,
       }),
       l3: selectL3({
         beat,
@@ -160,6 +161,7 @@ function runInput(): ChapterRunInput {
       { foreshadowId: "F07", completeness: "full" },
       { foreshadowId: "F11", completeness: "partial" },
     ],
+    patchWords: loadRules().resolutionPatchWords,
   };
 }
 

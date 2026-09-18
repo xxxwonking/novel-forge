@@ -8,6 +8,7 @@
 
 import { describe, expect, it } from "vitest";
 import { assemble } from "../src/context/assemble.js";
+import { loadRules } from "../src/rules/load.js";
 import { buildL2Snapshot, shouldRebuildL2 } from "../src/context/build-l2.js";
 import { selectL3 } from "../src/context/select-l3.js";
 import { WRITING_DISCIPLINE } from "../src/context/discipline.js";
@@ -43,6 +44,7 @@ function assembleAt(chapter: number, pendingAppend: readonly L2AppendEntry[]) {
       foreshadows,
       plotLines,
       pendingAppend,
+      dueSoonWindow: loadRules().crossChapter.foreshadowDueSoon,
     }),
     l3: selectL3({
       beat,

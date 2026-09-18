@@ -323,7 +323,7 @@ function stateFromDraft(draft: ChapterDraft, runInput: ChapterRunInput): Chapter
     declaration: draft.declaration,
     c5Findings: draft.declaration === null ? [] : [
       ...crossCheckC5({ declaration: draft.declaration, chapterText: draft.body }),
-      ...checkPromisedResolutions(draft.declaration, runInput.promisedResolutions),
+      ...checkPromisedResolutions(draft.declaration, runInput.promisedResolutions, runInput.patchWords),
     ],
     findings: draft.findings,
     acceptable: draft.acceptable,

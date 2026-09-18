@@ -105,6 +105,14 @@ export function handle(session: ProjectSession, req: ApiRequest): ApiResponse {
 
   // 连写：启动只是登记授权并起后台循环，本身不等模型，留在同步入口。
   if (path === "/api/revision" && method === "GET") return ok(session.revise.view());
+  // 清单读坏后的自助恢复。改名留档而不是删除，留档名回给界面说清楚。
+  if (path === "/api/revision/rebuild" && method === "POST") {
+    try { return ok({ ...session.revise.rebuild(), view: session.revise.view() }); }
+    catch (error) {
+      if (error instanceof ChapterWriteError) return { status: error.status, body: { error: error.message } };
+      throw error;
+    }
+  }
   if (method === "POST" && (path === "/api/revision/preview" || path === "/api/revision/resolve")) {
     try { return ok(path === "/api/revision/preview" ? session.revise.preview(req.body) : session.revise.resolve(req.body)); }
     catch (error) {
