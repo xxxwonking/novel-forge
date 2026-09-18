@@ -96,6 +96,16 @@ export function handle(session: ProjectSession, req: ApiRequest): ApiResponse {
     }
   }
 
+  // 连写：启动只是登记授权并起后台循环，本身不等模型，留在同步入口。
+  if (path === "/api/run" && method === "GET") return ok(session.run.view());
+  if (method === "POST" && (path === "/api/run/start" || path === "/api/run/stop" || path === "/api/run/acknowledge")) {
+    try { return ok(path.endsWith("start") ? session.run.start(req.body) : path.endsWith("stop") ? session.run.stop() : session.run.acknowledge()); }
+    catch (error) {
+      if (error instanceof ChapterWriteError) return { status: error.status, body: { error: error.message } };
+      throw error;
+    }
+  }
+
   // 反推的进度、确认与丢弃都不调模型，留在同步入口。
   if (path === "/api/import/inference" && method === "GET") return ok(session.inference.view());
   if (method === "POST" && (path === "/api/import/inference/confirm" || path === "/api/import/inference/reject")) {
@@ -503,14 +513,16 @@ async function chapterWrite(session: ProjectSession, body: unknown, start = fals
 async function preparationDraft(session: ProjectSession, body: unknown): Promise<ApiResponse> {
   if (!isRecord(body)) return bad("请求体必须是对象");
   const focus = body["focus"] ?? "characters";
-  if (focus !== "characters" && focus !== "full") return bad("focus 只能是 characters 或 full");
+  if (focus !== "characters" && focus !== "full" && focus !== "chapters") return bad("focus 只能是 characters、full 或 chapters");
+  const count = body["count"];
+  if (count !== undefined && !Number.isSafeInteger(count)) return bad("count 必须是整数");
   const apply = body["apply"] ?? true;
   if (typeof apply !== "boolean") return bad("apply 必须是布尔值");
   const brief = body["brief"];
   if (brief !== undefined && typeof brief !== "string") return bad("brief 必须是字符串");
   try {
     // exactOptionalPropertyTypes：brief 缺省与显式 undefined 不同，缺省时不传这个键。
-    return ok(await session.draftPreparation({ focus, apply, ...(brief === undefined ? {} : { brief }) }));
+    return ok(await session.draftPreparation({ focus, apply, ...(brief === undefined ? {} : { brief }), ...(count === undefined ? {} : { count: count as number }) }));
   } catch (error) {
     if (error instanceof ChapterWriteError) return { status: error.status, body: { error: error.message } };
     throw error;

@@ -56,6 +56,7 @@ import { buildStoryProgress } from "../alerts/progress.js";
 import { TextExportService } from "../export/service.js";
 import { ImportService } from "../import/service.js";
 import { InferenceService } from "../import/inference.js";
+import { ContinuousRunService, adoptionToken } from "../run/service.js";
 
 export interface SessionDerived {
   readonly projections: Projections;
@@ -70,8 +71,9 @@ const PREPARATION_DRAFT_MAX_TOKENS = 8192;
 export interface PreparationDraftOptions {
   /** 作者的一句话补充要求，可空 —— 空了就只按作品想法推断。 */
   readonly brief?: string;
-  /** characters 只起草人物；full 连地点、情节线与下一章计划一起。 */
-  readonly focus: "characters" | "full";
+  /** characters 只起草人物；full 连地点、情节线与下一章计划一起；chapters 只排后面 count 章的章计划。 */
+  readonly focus: "characters" | "full" | "chapters";
+  readonly count?: number;
   /** true 落成候选方案；false 只把草稿交回来（表单试填），不写任何文件。 */
   readonly apply: boolean;
 }
@@ -92,6 +94,7 @@ export class ProjectSession {
   readonly exports: TextExportService;
   readonly imports: ImportService;
   readonly inference: InferenceService;
+  readonly run: ContinuousRunService;
   private readonly store: ProjectStore;
   private readonly drafts: DraftStore;
   private readonly writer: ChapterWriter;
@@ -142,6 +145,13 @@ export class ProjectSession {
     this.imports = new ImportService(this);
     this.inference = new InferenceService(root, {
       source: this, client: () => this.getModelClient(), transaction: (operation) => this.transact(operation),
+    });
+    this.run = new ContinuousRunService(root, {
+      nextChapter: () => this.nextChapter,
+      maxBatchChapters: this.rules.task.maxBatchChapters,
+      assertCanStart: () => this.writer.prepareModelTask(),
+      writeChapter: (chapter, requestId) => this.writer.write({ chapter, requestId }),
+      adopt: (chapter, draft) => { this.adopt(chapter, draft.draftId, { revisionToken: adoptionToken(draft) }); },
     });
   }
 
@@ -528,19 +538,23 @@ export class ProjectSession {
    */
   async draftPreparation(options: PreparationDraftOptions, observe?: ConversationObserver): Promise<PreparationDraftResult> {
     const client = this.getModelClient();
+    const chapters = options.focus === "chapters" ? this.batchRange(options.count) : null;
     const focus = options.focus === "characters"
       ? "这次**只**起草人物档案（changes.characters）。地点、情节线、章节计划一律不要动。"
-      : "起草这份作品现在还缺的资料：人物档案、必要的地点/组织、情节线，以及下一章的章计划。已经确认的内容不要重复提交。";
+      : chapters !== null
+        ? `这次**只**排章计划（changes.beats）：为第 ${chapters.from} 章到第 ${chapters.to} 章各起草一份，章号连续、volume 沿用最近一章的卷号（没有就填 1）。人物、地点、情节线一律不动，只能引用已确认的 ID。每章必须有具体的核心事件、阶段反馈与章末钩子，不要写「继续铺垫」「更大的风暴」这类空话；要收的伏笔只能是当前 open 的编号，埋设与兑现要跨章衔接，不要把所有兑现堆在最后一章。`
+        : "起草这份作品现在还缺的资料：人物档案、必要的地点/组织、情节线，以及下一章的章计划。已经确认的内容不要重复提交。";
     const brief = (options.brief ?? "").trim();
     // 提示词仍然写明边界，与受限工具集互补：工具集管"做不到"，提示词管"该怎么用"。
     const ask = [
       "（这条请求来自资料页的「让 AI 起草」按钮，不是作者在对话里打的字，请直接执行，不要反问。）",
       "先 get_preparation 读取作者已指定的想法与现有正式资料，再据此推断并补齐：",
       focus,
-      "人物 profile 与 speech 必须是完整的：定位、外貌、性格标签、想要什么、害怕什么、背景，以及说话方式（语域、情绪表达、句长区间、句式偏好、至少一条正例台词）。作者的设定常常只有一句想法 —— 人物具体是什么样由你判断，不要回过头去问作者。",
+      ...(chapters !== null ? [] : ["人物 profile 与 speech 必须是完整的：定位、外貌、性格标签、想要什么、害怕什么、背景，以及说话方式（语域、情绪表达、句长区间、句式偏好、至少一条正例台词）。作者的设定常常只有一句想法 —— 人物具体是什么样由你判断，不要回过头去问作者。"]),
       "用 propose_preparation 保存为一份方案供作者审阅。不要确认方案，不要写章，不要采用任何稿件。",
       ...(brief === "" ? [] : [`作者这次的补充要求：${brief}`]),
-      "最后用一段话说明你补了哪些人物、各自的关键设定，以及哪里还需要作者拿主意。",
+      chapters !== null ? "最后用一段话说明每章推进了什么、哪几章收了哪些伏笔，以及哪里还需要作者拿主意。"
+        : "最后用一段话说明你补了哪些人物、各自的关键设定，以及哪里还需要作者拿主意。",
     ].join("\n");
 
     let captured: PreparationInput | null = null;
@@ -612,6 +626,18 @@ export class ProjectSession {
    * 不共享实例无碍）；测试注入 writing.client 时两者拿到同一实例。
    * 不在构造期创建 —— 只读作品（如演示数据）没有配模型，构造期创建会 503 掉整个会话。
    */
+  /**
+   * 排章的范围：从最后一章已确认计划之后开始，排 count 章。
+   * 不从下一章开始 —— 已排好的计划不该被"排后面几章"覆盖掉。
+   */
+  private batchRange(count: number | undefined): { readonly from: ChapterNo; readonly to: ChapterNo } {
+    const max = this.rules.task.maxBatchChapters;
+    if (!Number.isSafeInteger(count) || (count as number) < 1 || (count as number) > max) throw new ChapterWriteError(400, `一次最多排 ${max} 章，count 必须是 1 到 ${max} 之间的整数`);
+    const planned = this.beats.filter((b) => b.provenance === "committed" || b.provenance === "authored").map((b) => b.chapter);
+    const from = Math.max(this.nextChapter, ...planned.map((n) => n + 1));
+    return { from, to: from + (count as number) - 1 };
+  }
+
   private getModelClient(): ModelClient {
     if (this.modelClient === undefined) {
       try {

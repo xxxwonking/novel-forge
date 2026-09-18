@@ -374,6 +374,7 @@ export function buildRules(root: unknown): Rules {
     task: Object.freeze({
       maxToolIterations: num(root, "task.maxToolIterations"),
       maxAutoRevisions: num(root, "task.maxAutoRevisions"),
+      maxBatchChapters: num(root, "task.maxBatchChapters"),
     }),
     agent: Object.freeze({
       maxConversationRounds: num(root, "agent.maxConversationRounds"),

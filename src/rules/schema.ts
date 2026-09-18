@@ -181,6 +181,8 @@ export interface TaskRules {
   readonly maxToolIterations: number;
   /** 检查未过时的自动修订次数上限。 */
   readonly maxAutoRevisions: number;
+  /** 一次授权连写、一次排章的章数上限。 */
+  readonly maxBatchChapters: number;
 }
 
 /**

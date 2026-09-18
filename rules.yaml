@@ -16,6 +16,7 @@ version: r1
 task:
   maxToolIterations: 6 # C4/C5 单次调用内工具循环的步数上限，超过即停、按现有内容继续
   maxAutoRevisions: 1 # 检查未过时时的自动修订次数上限（首版：一次）
+  maxBatchChapters: 10 # 一次授权连写 / 一次排章的章数上限；连写每章仍是一次完整任务
 
 ## 对话式主 Agent（Stage 2·切片 1）。循环步数上限，不是派生阈值 ——
 ## 放这里让 src/agent 里也没有魔法数字，与 task 同源。
