@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Button } from "antd";
-import { api, type ChapterTaskView } from "../api.js";
+import { api, type ChapterTaskView, type RunStopReason } from "../api.js";
+import { usePolling } from "../hooks.js";
 
 const stages = { writing: "创作正文中", revising: "根据检查修改中", declaring: "核对结构中", checking: "检查中" };
 const labels = { waiting: "待检查", awaiting_input: "等待你的决定", running: "正在处理", pausing: "正在暂停", ending: "正在结束", paused: "已暂停", ended: "本次任务已结束", completed: "本次任务完成", failed: "执行未完成", interrupted: "执行已中断" };
@@ -43,11 +44,49 @@ export function TaskCard({ task, reload, detailed = false }: { task: ChapterTask
   </section>;
 }
 
+const STOP_REASONS: Record<RunStopReason, string> = {
+  key_change: "这一章有需要你亲自确认的变化", needs_revision: "检查没有通过", failed: "任务没交出可用结果",
+  blocked: "前置条件不满足", author: "你停下了连写", interrupted: "上次连写被中断",
+};
+
+/**
+ * 连写卡片：进度、停下、停下原因。
+ *
+ * 自动采用是「逐章采用」的例外，所以卡片把已采用的章号列出来 —— 作者一眼能看到
+ * 这次授权替他做了哪些决定；停在哪一章、为什么停，直接链到那一章的结果页。
+ */
+export function RunCard({ reload }: { reload: () => void }): React.ReactElement | null {
+  const run = usePolling(api.run);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const view = run.data;
+  if (view === null || view.status === "idle") return null;
+  const act = async (action: "stop" | "acknowledge"): Promise<void> => {
+    if (busy) return;
+    setBusy(true); setError(null);
+    try { if (action === "stop") await api.stopRun(); else await api.acknowledgeRun(); run.reload(); reload(); }
+    catch (e) { setError((e as Error).message); }
+    finally { setBusy(false); }
+  };
+  const adopted = view.adopted.length === 0 ? "还没有自动采用的章" : `已自动采用第 ${view.adopted.join("、")} 章`;
+  return <section className="task-card" data-running={view.status === "running"} aria-label="连写">
+    <div className="task-heading"><strong>连写到第 {view.through} 章</strong><span role="status">{view.status === "running" ? (view.stopRequested ? "这一章写完就停" : `正在写第 ${view.current ?? view.nextChapter} 章`) : STOP_REASONS[view.stopped?.reason ?? "interrupted"]}</span></div>
+    <p>{adopted}。{view.status === "running" ? "每章检查通过且没有关键变化才自动采用；否则停下等你。" : ""}</p>
+    {view.stopped !== null && <p className="muted">第 {view.stopped.chapter} 章：{view.stopped.detail}</p>}
+    <div className="task-actions">
+      {view.stopped?.draftId && <a href={`#/draft/${view.stopped.chapter}/${view.stopped.draftId}`}>查看第 {view.stopped.chapter} 章的结果 →</a>}
+      {view.status === "running" && <Button size="small" disabled={busy || view.stopRequested} onClick={() => void act("stop")}>{view.stopRequested ? "正在停下" : "写完这一章就停"}</Button>}
+      {view.status === "stopped" && <Button size="small" type="text" disabled={busy} onClick={() => void act("acknowledge")}>知道了</Button>}
+    </div>
+    {error && <p className="finding" data-level="block" role="alert">{error}</p>}
+  </section>;
+}
+
 export function TaskPanel({ tasks, error, route, reload }: { tasks: readonly ChapterTaskView[]; error: string | null; route: string; reload: () => void }): React.ReactElement | null {
   const pending = tasks.filter((t) => !t.isHistory && !["adopted", "discarded"].includes(t.draftStatus) && route !== `/draft/${t.chapter}/${t.draftId}`)
     .sort((a, b) => Number(taskRunning(b)) - Number(taskRunning(a)) || b.updatedAt.localeCompare(a.updatedAt));
-  if (pending.length === 0 && error === null) return null;
   return <aside className="task-panel" aria-label="作品任务">
+    <RunCard reload={reload} />
     {error && <p className="finding" data-level="warn">暂时无法更新任务状态：{error}。正在重连；当前显示上次读到的状态。</p>}
     {pending.slice(0, 3).map((task) => <TaskCard key={task.draftId} task={task} reload={reload} />)}
     {pending.length > 3 && <p className="muted">还有 {pending.length - 3} 份历史结果，可在对应章节的版本列表查看。</p>}

@@ -412,6 +412,20 @@ export interface DraftView {
   updatedAt: string;
 }
 
+export type RunStopReason = "key_change" | "needs_revision" | "failed" | "blocked" | "author" | "interrupted";
+export interface RunView {
+  status: "idle" | "running" | "stopped";
+  through: number | null;
+  startedAt: string | null;
+  updatedAt: string;
+  adopted: number[];
+  stopped: { chapter: number; reason: RunStopReason; detail: string; draftId: string | null } | null;
+  current: number | null;
+  stopRequested: boolean;
+  nextChapter: number;
+  maxThrough: number;
+}
+
 export interface TaskExecution {
   status: "waiting" | "awaiting_input" | "running" | "pausing" | "ending" | "paused" | "ended" | "completed" | "failed" | "interrupted";
   stage: "writing" | "revising" | "declaring" | "checking";
@@ -574,8 +588,13 @@ export const api = {
   rejectPreparation: (proposalId: string) => post<PreparationProposal>("/api/preparation/reject", { proposalId }),
   recordAuthorDetails: (input: { summary: string; baseFingerprint: string; changes: unknown }) => post<PreparationProposal>("/api/preparation/author", input),
   /** 让 AI 起草资料。apply=false 只交回草稿供表单试填，不落任何文件。 */
-  draftPreparation: (input: { focus: "characters" | "full"; apply: boolean; brief?: string }) =>
+  draftPreparation: (input: { focus: "characters" | "full" | "chapters"; apply: boolean; brief?: string; count?: number }) =>
     post<PreparationDraftResult>("/api/preparation/draft", input),
+  /** 连写：启动登记授权并起后台循环；停下在章与章之间生效；知道了把停下状态清回空闲。 */
+  run: () => request<RunView>("/api/run"),
+  startRun: (through: number) => post<RunView>("/api/run/start", { through }),
+  stopRun: () => post<RunView>("/api/run/stop", {}),
+  acknowledgeRun: () => post<RunView>("/api/run/acknowledge", {}),
   writeChapter: (input: { chapter: number; proposalId?: string; draftId?: string; newDraft?: boolean; requestId?: string }) => post<DraftView>("/api/chapter/start", { ...input, requestId: input.requestId ?? crypto.randomUUID() }),
   chapterTasks: () => request<ChapterTaskView[]>("/api/tasks"),
   controlTask: (chapter: number, draftId: string, action: "pause" | "end") => post<ChapterTaskView>("/api/chapter/control", { chapter, draftId, action }),

@@ -86,30 +86,35 @@ const num = (value: number | null, fallback: number): number => value ?? fallbac
  * 不另开一条拍板路径。
  */
 export function DraftDialog({ focus, onProposed, onClose }: {
-  focus: "characters" | "full"; onProposed: (proposalId: string) => void; onClose: () => void;
+  focus: "characters" | "full" | "chapters"; onProposed: (proposalId: string) => void; onClose: () => void;
 }): React.ReactElement {
   const [brief, setBrief] = useState("");
+  const [count, setCount] = useState(3);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const characters = focus === "characters";
+  const chapters = focus === "chapters";
   const submit = async (): Promise<void> => {
     if (busy) return;
     setBusy(true); setError(null);
     try {
       const trimmed = brief.trim();
-      const result = await api.draftPreparation({ focus, apply: true, ...(trimmed === "" ? {} : { brief: trimmed }) });
+      const result = await api.draftPreparation({ focus, apply: true, ...(trimmed === "" ? {} : { brief: trimmed }), ...(chapters ? { count } : {}) });
       if (result.proposalId === undefined) throw new Error("这次起草没有返回方案，请再试一次。");
       onProposed(result.proposalId);
     } catch (e) { setError((e as Error).message); }
     finally { setBusy(false); }
   };
-  return <Modal open className="prep-editor" title={characters ? "让 AI 起草人物" : "让 AI 起草整份资料"} width={620}
+  return <Modal open className="prep-editor" title={characters ? "让 AI 起草人物" : chapters ? "让 AI 排后面几章" : "让 AI 起草整份资料"} width={620}
     onCancel={() => { if (!busy) onClose(); }} maskClosable={!busy}
     footer={[<Button key="cancel" disabled={busy} onClick={onClose}>取消</Button>,
       <Button key="ok" type="primary" loading={busy} onClick={() => void submit()}>{busy ? "正在起草…" : "开始起草"}</Button>]}>
     <p className="muted">{characters
       ? "AI 会读作品的想法与你已确认的资料，推断出人物的性格、动机与说话方式，保存成一份待确认方案。"
-      : "AI 会读作品的想法与你已确认的资料，补齐人物、地点组织、情节线和下一章的计划，保存成一份待确认方案。"}它不会确认方案，也不会开始写章。</p>
+      : chapters
+        ? "AI 会接着最后一章已确认的计划往后排，每章一份章计划，合成一份待确认方案；确认后就能授权连写。"
+        : "AI 会读作品的想法与你已确认的资料，补齐人物、地点组织、情节线和下一章的计划，保存成一份待确认方案。"}它不会确认方案，也不会开始写章。</p>
+    {chapters && <Field label="排几章"><Select value={count} disabled={busy} onChange={(value: number) => setCount(value)} options={[3, 5, 8].map((n) => ({ value: n, label: `${n} 章` }))} /></Field>}
     {error !== null && <div className="finding" role="alert" data-level="block">{error}</div>}
     <Field label="补充要求（可留空）" wide><Input.TextArea rows={3} value={brief} disabled={busy}
       onChange={(e) => setBrief(e.target.value)} placeholder="例如：主要写一个账房和一个守夜的老人；基调要冷，别写感情线。" /></Field>

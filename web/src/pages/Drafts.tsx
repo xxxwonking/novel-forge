@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Button, Select, Tag } from "antd";
+import { Button, InputNumber, Modal, Select, Tag } from "antd";
 import { api, type TextAnchor, type ChapterTaskView, type DraftView } from "../api.js";
 import { useFetch, useRouteActive } from "../hooks.js";
 import { TaskCard, taskRunning } from "../components/TaskPanel.js";
@@ -22,6 +22,8 @@ export function Drafts({ chapter, draftId, refresh, task, reloadTasks }: { chapt
   const [selectedProposals, setSelectedProposals] = useState<number[]>([]);
   const [editor, setEditor] = useState<"body" | "structure" | "rewrite" | "continue" | null>(null);
   const [anchor, setAnchor] = useState<TextAnchor | null>(null);
+  const [runThrough, setRunThrough] = useState<number | null>(null);
+  const runLimit = useFetch(() => api.run(), [chapter, draftId]);
   const prose = useRef<HTMLElement | null>(null);
   useEffect(() => { query.reload(); versions.reload(); }, [task?.updatedAt, task?.status, task?.draftStatus, query.reload, versions.reload]);
   useEffect(() => { setEditor(null); setError(null); setNotice(null); setAnchor(null); }, [chapter, draftId]);
@@ -36,6 +38,18 @@ export function Drafts({ chapter, draftId, refresh, task, reloadTasks }: { chapt
   const goDraft = (n: number, id: string): void => { if (isCurrent()) { window.location.hash = `/draft/${n}/${id}`; setAnchor(null); } };
   const saved = (next: DraftView): void => { if (isCurrent()) { setEditor(null); goDraft(next.chapter, next.draftId); } reload(); };
   const editable = draft.status !== "discarded" && (draft.status !== "adopted" || draft.isCurrentAdopted) && !taskRunning(task);
+  /** 采用这一版，再授权连写到第 through 章：自动采用只在作者给出范围后发生。 */
+  const adoptAndRun = async (through: number): Promise<void> => {
+    if (busy) return;
+    setBusy(true); setError(null); setNotice(null);
+    let adopted = false;
+    try {
+      await api.adopt(chapter, draftId, { revisionToken: draft.revisionToken, selectedProposals }); adopted = true;
+      await api.startRun(through);
+      if (isCurrent()) { setRunThrough(null); setNotice(`已采用第 ${chapter} 章，开始连写到第 ${through} 章。每章检查通过且没有关键变化才自动采用，否则停下等你；进度在任务面板。`); }
+    } catch (e) { if (isCurrent()) setError(`${adopted ? `第 ${chapter} 章已采用；连写没有开始：` : ""}${(e as Error).message}`); }
+    finally { if (isCurrent()) setBusy(false); reload(); }
+  };
   const perform = async (action: "adopt" | "continue" | "resume" | "new" | "discard" | "check" | "checkAdopt"): Promise<void> => {
     if (busy) return;
     setBusy(true); setError(null); setNotice(null);
@@ -81,7 +95,7 @@ export function Drafts({ chapter, draftId, refresh, task, reloadTasks }: { chapt
     <DraftProposals draft={draft} selected={selectedProposals} onSelected={setSelectedProposals} disabled={busy || !editable || editor !== null || !["ready", "pending_check"].includes(draft.status)} />
     <div className="draft-actions row">
       {draft.status === "pending_check" && <><Button type="primary" disabled={busy || taskRunning(task) || editor !== null} onClick={() => void perform("checkAdopt")}>检查并采用</Button><Button disabled={busy || taskRunning(task) || editor !== null} onClick={() => void perform("check")}>检查</Button></>}
-      {draft.status === "ready" && draft.acceptable && <><Button type="primary" disabled={busy} onClick={() => void perform("continue")}>采用并继续下一章</Button><Button disabled={busy} onClick={() => void perform("adopt")}>采用这一版</Button></>}
+      {draft.status === "ready" && draft.acceptable && <><Button type="primary" disabled={busy} onClick={() => void perform("continue")}>采用并继续下一章</Button><Button disabled={busy} onClick={() => void perform("adopt")}>采用这一版</Button><Button disabled={busy || runLimit.data === null || runLimit.data.status === "running"} onClick={() => setRunThrough(Math.min(chapter + 3, runLimit.data?.maxThrough ?? chapter + 1))}>采用并连写到…</Button></>}
       {editable && <Button disabled={busy || editor !== null} onClick={() => setEditor("body")}>修改正文</Button>}
       {editable && draft.body.trim() && <Button disabled={busy || editor !== null} onClick={() => setEditor("rewrite")}>按要求改写</Button>}
       {editable && draft.canContinueBody && <Button type="primary" disabled={busy || editor !== null} onClick={() => setEditor("continue")}>保留片段继续完成</Button>}
@@ -92,6 +106,10 @@ export function Drafts({ chapter, draftId, refresh, task, reloadTasks }: { chapt
     </div>
     {editor === "body" && <DraftEditor key={draftId} draft={draft} onSaved={saved} onClose={() => setEditor(null)} />}
     {editor === "structure" && <StructureEditor key={draftId} draft={draft} characters={names} onSaved={saved} onClose={() => setEditor(null)} />}
+    {runThrough !== null && runLimit.data !== null && <Modal open title={`采用第 ${chapter} 章，然后连写到第几章？`} onCancel={() => { if (!busy) setRunThrough(null); }} okText="采用并开始连写" cancelText="取消" confirmLoading={busy} onOk={() => void adoptAndRun(runThrough)}>
+      <p className="muted">每章写完、检查通过且没有关键变化（人物生死、关系、主线伏笔、新人物或新设定建议）才自动采用；否则停在那一章等你。每一章都要有已确认的计划，可以先在资料页「让 AI 排后面几章」。</p>
+      <label>连写到第 <InputNumber min={chapter + 1} max={runLimit.data.maxThrough + 1} value={runThrough} onChange={(value) => { if (typeof value === "number") setRunThrough(value); }} /> 章（最多到第 {runLimit.data.maxThrough + 1} 章）</label>
+    </Modal>}
     {(editor === "rewrite" || editor === "continue") && <DraftRewriteEditor key={`${draftId}-${editor}`} draft={draft} mode={editor} onSaved={saved} onClose={() => setEditor(null)} />}
     {draft.revision && <RevisionComparison draft={draft} characters={names} />}
     <section className="prep-section"><h2>本章摘要</h2>{declaration === null ? <p className="muted">结构核对尚未完成，已有正文保留在下方。</p> : declaration.events.length === 0 ? <p className="muted">本稿未提取独立剧情事件，可直接阅读正文。</p> : declaration.events.map((event, i) => <div className="draft-change" key={i}><p>{event.summary}</p>{evidence(event.anchor)}</div>)}</section>
