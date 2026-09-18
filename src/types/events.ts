@@ -60,6 +60,8 @@ export type EventOrigin =
   | "C5_declaration"
   /** 异步伏笔候选抽取（§12.5），永远是 proposed，不进主清单。 */
   | "async_candidate"
+  /** 旧稿反推：读作者导入的正文补出的结构声明，作者确认后才成为事实。 */
+  | "import_inference"
   /** 用户在 UI 里手动标注/修正。 */
   | "user_edit";
 

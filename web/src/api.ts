@@ -511,6 +511,26 @@ export interface ImportPreview {
   ready: boolean;
   readyWithOverwrite: boolean;
 }
+export interface InferenceDeclaration {
+  events: { summary: string; participants: string[]; anchor: TextAnchor }[];
+  foreshadowPlanted: { foreshadowId: string; label: string; intent: string; expectedBy: number; anchor: TextAnchor }[];
+  foreshadowResolved: { foreshadowId: string; completeness: "full" | "partial"; anchor: TextAnchor }[];
+  relationsChanged: { from: string; to: string; fromKind: string | null; toKind: string; note: string; anchor: TextAnchor }[];
+  characterStates: { characterId: string; field: string; from: string | null; to: string; anchor: TextAnchor }[];
+  characterPresence: { characterId: string; role: string }[];
+}
+export interface InferenceChapter {
+  chapter: number; words: number;
+  state: "written" | "confirmed" | "pending" | "problem" | "failed" | "skipped" | "none";
+  problems: string[]; warnings: string[]; at: string | null;
+  declaration: InferenceDeclaration | null;
+}
+export interface InferenceView {
+  chapters: InferenceChapter[];
+  nextChapter: number | null;
+  pending: number[];
+  blocked: string | null;
+}
 export interface ImportResult {
   imported: number[]; replaced: number[]; unchanged: number[];
   totalWords: number; nextChapter: number;
@@ -538,6 +558,11 @@ export const api = {
   /** 导入旧作：只入正文，不反推结构。预览与落盘用同一份文本，服务端不暂存。 */
   importPreview: (input: { text: string }) => post<ImportPreview>("/api/import/preview", input),
   importApply: (input: { text: string; overwrite?: boolean }) => post<ImportResult>("/api/import/apply", input),
+  /** 逐章反推结构：一次一章，落盘即生效，所以中断只是停下来。 */
+  inferenceView: () => request<InferenceView>("/api/import/inference"),
+  inferChapter: (chapter: number) => post<InferenceChapter>("/api/import/infer", { chapter }),
+  confirmInference: (chapter: number) => post<{ chapter: number; committed: number }>("/api/import/inference/confirm", { chapter }),
+  rejectInference: (chapter: number) => post<{ chapter: number; rejected: number }>("/api/import/inference/reject", { chapter }),
   exportPreview: (selection: ExportSelection) => post<TextExportPreview>("/api/export/preview", selection),
   getExport: (id: string) => request<TextExportPreview>(`/api/export?id=${encodeURIComponent(id)}`),
   downloadExport: (id: string) => request<{ filename: string; text: string; sha256: string }>(`/api/export/file?id=${encodeURIComponent(id)}`),

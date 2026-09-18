@@ -52,6 +52,14 @@ export async function handleAsync(session: ProjectSession, req: ApiRequest): Pro
   if (req.method === "POST" && req.path === "/api/conversation") {
     return conversationSend(session, req.body);
   }
+  // 旧稿反推：逐章读正文补结构。放在 handleAsync —— 它 await 模型。
+  if (req.method === "POST" && req.path === "/api/import/infer") {
+    try { return ok(await session.inference.infer(req.body)); }
+    catch (error) {
+      if (error instanceof ChapterWriteError) return { status: error.status, body: { error: error.message } };
+      throw error;
+    }
+  }
   if (req.method === "POST" && req.path === "/api/preparation/draft") {
     return preparationDraft(session, req.body);
   }
@@ -82,6 +90,16 @@ export function handle(session: ProjectSession, req: ApiRequest): ApiResponse {
   // 导入旧作：只入正文，不反推结构。预览与落盘都不调模型，所以走同步入口。
   if (method === "POST" && (path === "/api/import/preview" || path === "/api/import/apply")) {
     try { return ok(path === "/api/import/preview" ? session.imports.preview(req.body) : session.imports.apply(req.body)); }
+    catch (error) {
+      if (error instanceof ChapterWriteError) return { status: error.status, body: { error: error.message } };
+      throw error;
+    }
+  }
+
+  // 反推的进度、确认与丢弃都不调模型，留在同步入口。
+  if (path === "/api/import/inference" && method === "GET") return ok(session.inference.view());
+  if (method === "POST" && (path === "/api/import/inference/confirm" || path === "/api/import/inference/reject")) {
+    try { return ok(path.endsWith("confirm") ? session.inference.confirm(req.body) : session.inference.reject(req.body)); }
     catch (error) {
       if (error instanceof ChapterWriteError) return { status: error.status, body: { error: error.message } };
       throw error;

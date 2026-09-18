@@ -75,7 +75,7 @@ export function Preparation({ refresh, proposalId }: { refresh: () => void; prop
     <div className="prep-layout">
       <div className="prep-main">
         {candidate === undefined ? <>
-          <div className="section-head"><h2>当前创作依据</h2><div className="row"><Button type="primary" onClick={() => setDrafting("full")}>让 AI 起草资料</Button><Button onClick={() => setImporting(true)}>导入已有正文</Button><Button onClick={() => setEditing(!editing)}>{editing ? "返回资料" : "编辑基本设定与偏好"}</Button></div></div>
+          <div className="section-head"><h2>当前创作依据</h2><div className="row"><Button type="primary" onClick={() => setDrafting("full")}>让 AI 起草资料</Button><Button onClick={() => setImporting(true)}>导入已有正文</Button><Button onClick={() => { window.location.hash = "/inference"; }}>从正文反推结构</Button><Button onClick={() => setEditing(!editing)}>{editing ? "返回资料" : "编辑基本设定与偏好"}</Button></div></div>
           {editing ? <AuthorForm view={view} onSaved={saved} /> : <Content content={view.confirmed} onEdit={setEntity} onDraft={setDrafting} />}
           <section className="prep-section"><h2>未来伏笔计划</h2><p className="muted">这些安排已确认，尚未写成正文中的埋设或兑现。</p>{view.plannedForeshadows.length === 0 ? <p className="muted">暂时没有独立的未来伏笔规划。</p> : view.plannedForeshadows.map(plan => <div className="draft-change" key={plan.id}><strong>{plan.label}</strong><p>{plan.intent}</p><small>预期第 {plan.expectedBy} 章前兑现 · 尚未埋设</small></div>)}</section>
           <section className="prep-section"><h2>备选想法</h2>{view.ideas.length === 0 ? <p className="muted">暂时没有记录。可以在对话中说“把这个想法记为备选”。</p> : <ul>{view.ideas.map((idea) => <li key={idea.id}>{idea.text}</li>)}</ul>}</section>
@@ -101,7 +101,7 @@ export function Preparation({ refresh, proposalId }: { refresh: () => void; prop
       setImporting(false); setEntity(null); setEditing(false); setSelected(null);
       const done = [result.imported.length > 0 ? `新增 ${result.imported.length} 章` : "", result.replaced.length > 0 ? `覆盖 ${result.replaced.length} 章` : "", result.unchanged.length > 0 ? `${result.unchanged.length} 章内容未变` : ""].filter(Boolean).join("、");
       // 明确说出"结构还没有" —— 让作者以为导进来就什么都有了，比不做这个功能更糟。
-      setNotice(`已导入正文：${done}${result.totalWords > 0 ? `，共 ${result.totalWords} 字` : ""}，下一章是第 ${result.nextChapter} 章。人物、伏笔和情节线还没有，接着用「让 AI 起草资料」从正文推断出来。`);
+      setNotice(`已导入正文：${done}${result.totalWords > 0 ? `，共 ${result.totalWords} 字` : ""}，下一章是第 ${result.nextChapter} 章。接着用「让 AI 起草资料」补出人物，再用「从正文反推结构」逐章补出事件与伏笔 —— 在那之前伏笔时间线仍是空的。`);
       data.reload(); refresh();
     }} />}
     {entity?.kind === "beat" && <BeatEditor base={entity.base as never} chapter={view.nextChapter} characters={view.confirmed.characters} settings={view.confirmed.settings} plotLines={view.confirmed.plotLines} fingerprint={view.fingerprint} onSaved={saved} onClose={() => setEntity(null)} />}

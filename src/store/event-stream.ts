@@ -140,8 +140,10 @@ export class EventStream {
   /**
    * 作废一章已提交的 C5 声明事件（committed → rejected）—— 修订已采用章时用。
    *
-   * 只翻 `origin==='C5_declaration'` 的事件：`user_edit`（改期/废弃/确认退场）和
-   * `P4_outline`（作者规划）是独立的用户决定，不随章节重写而作废。翻成 rejected 后
+   * 只翻结构声明（`C5_declaration` 与旧稿反推的 `import_inference`）：`user_edit`
+   * （改期/废弃/确认退场）和 `P4_outline`（作者规划）是独立的用户决定，不随章节
+   * 重写而作废。旧稿反推必须一起翻 —— 否则重写一章旧稿后，反推出的旧事实与新稿
+   * 的事实会并存在同一章上。翻成 rejected 后
    * `effective()` 自动过滤，新稿的 committed 事件即取代旧事实，无需改投影器。
    */
   supersedeChapter(chapter: ChapterNo): number {
@@ -152,7 +154,7 @@ export class EventStream {
       if (
         e.envelope.chapter === chapter &&
         e.envelope.provenance === "committed" &&
-        e.envelope.origin === "C5_declaration"
+        (e.envelope.origin === "C5_declaration" || e.envelope.origin === "import_inference")
       ) {
         this.events[i] = {
           envelope: {

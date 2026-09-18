@@ -55,6 +55,7 @@ import { PlanningService } from "../planning/service.js";
 import { buildStoryProgress } from "../alerts/progress.js";
 import { TextExportService } from "../export/service.js";
 import { ImportService } from "../import/service.js";
+import { InferenceService } from "../import/inference.js";
 
 export interface SessionDerived {
   readonly projections: Projections;
@@ -90,6 +91,7 @@ export class ProjectSession {
   readonly planning: PlanningService;
   readonly exports: TextExportService;
   readonly imports: ImportService;
+  readonly inference: InferenceService;
   private readonly store: ProjectStore;
   private readonly drafts: DraftStore;
   private readonly writer: ChapterWriter;
@@ -138,6 +140,9 @@ export class ProjectSession {
     this.planning = new PlanningService(this, operation => this.transact(operation));
     this.exports = new TextExportService(root, this);
     this.imports = new ImportService(this);
+    this.inference = new InferenceService(root, {
+      source: this, client: () => this.getModelClient(), transaction: (operation) => this.transact(operation),
+    });
   }
 
   // ── 读 ────────────────────────────────────────────────────────────────
@@ -278,6 +283,40 @@ export class ProjectSession {
    */
   putChapters(entries: readonly { readonly chapter: ChapterNo; readonly text: string }[]): void {
     this.transact(() => { for (const entry of entries) this.putChapter(entry.chapter, entry.text); });
+  }
+
+  /**
+   * 旧稿反推的一轮结果落库：先作废该章上一轮的待确认声明，再落这一轮（可为空）。
+   *
+   * 重跑必须清场 —— 两轮待确认记录并存时，作者在界面上看到的是哪一轮的判断
+   * 就说不清了。返回作废的条数。
+   */
+  replaceInference(chapter: ChapterNo, declaration: C5Declaration | null): number {
+    return this.transact(() => {
+      const stream = EventStream.restore(this.stream.all());
+      const stale = stream.all().filter((e) => e.envelope.chapter === chapter
+        && e.envelope.origin === "import_inference" && e.envelope.provenance === "proposed");
+      for (const event of stale) stream.decide(event.envelope.id, "rejected", "旧稿反推重跑，上一轮记录作废");
+      if (declaration !== null) commitDeclaration(stream, chapter, declaration, "import_inference");
+      this.store.rewriteEvents(stream.all());
+      this.stream = stream;
+      this.invalidate();
+      return stale.length;
+    });
+  }
+
+  /** 裁决一章的旧稿反推声明（作者确认或丢弃）。返回实际改变的条数。 */
+  decideInference(chapter: ChapterNo, decision: "committed" | "rejected"): number {
+    return this.transact(() => {
+      const stream = EventStream.restore(this.stream.all());
+      const pending = stream.all().filter((e) => e.envelope.chapter === chapter
+        && e.envelope.origin === "import_inference" && e.envelope.provenance === "proposed");
+      for (const event of pending) stream.decide(event.envelope.id, decision);
+      this.store.rewriteEvents(stream.all());
+      this.stream = stream;
+      this.invalidate();
+      return pending.length;
+    });
   }
 
   /**
