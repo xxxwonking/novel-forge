@@ -3,7 +3,8 @@ import { createHash } from "node:crypto";
 import { deriveBudget } from "../beat/derive.js";
 import { validatePlan } from "../beat/validate.js";
 import { C4_TASK, type ChapterRunInput } from "../chapter/pipeline.js";
-import { buildL2Snapshot } from "../context/build-l2.js";
+import { buildL2Snapshot, type L2BuildInput } from "../context/build-l2.js";
+import { volumeRanges } from "../beat/volumes.js";
 import { selectL3, type PlantedExcerpt } from "../context/select-l3.js";
 import { anchorContext, resolveAnchor } from "../anchor/resolve.js";
 import { project, projectCharacterState } from "../store/project.js";
@@ -178,8 +179,11 @@ export function buildChapterRunInput(
         currentChapter: chapter - 1, characters: ctx.characters,
         chapterSynopses: ctx.chapterSynopses,
         // 当前没有独立的卷梗概存储；不把规划中的卷纲伪装成已发生剧情。
-        volumeSummaries: [], pendingAppend: [],
+        // 卷纲顶替远距离逐章梗概（见 build-l2.ts）。只给**写完的卷**、且只给写了纲的卷 ——
+        // 空纲不顶替，规划中的卷也不顶替，否则等于把还没发生的事当成已发生的喂进 L2。
+        volumeSummaries: volumeOutlines(ctx, chapter - 1), pendingAppend: [],
         foreshadows: ctx.projections.foreshadows.filter((f) => f.status !== "planned"), plotLines: ctx.projections.plotLines,
+        dueSoonWindow: session.rules.crossChapter.foreshadowDueSoon,
       }),
       l3,
       volatile: {
@@ -210,6 +214,7 @@ export function buildChapterRunInput(
       allocateForeshadowId: foreshadowAllocator(session),
     },
     promisedResolutions: beat.plan.resolves.map((r) => ({ foreshadowId: r.foreshadowId, completeness: r.completeness })),
+    patchWords: session.rules.resolutionPatchWords,
     ...(options.maxOutputTokens === undefined ? {} : { maxOutputTokens: options.maxOutputTokens }),
     // 声音检查用的人物卡与 L3 装配的是同一批（节拍点名）—— 检查范围与模型看到的
     // 上下文保持一致，不会出现「模型没被告知这个人物，却被按他的声音表打分」。
@@ -249,14 +254,32 @@ function plantedExcerpt(session: ChapterSource, ctx: ChapterContext, f: Foreshad
   return { foreshadowId: f.id, label: f.label, anchor, excerpt: text.before + text.hit + text.after };
 }
 
+/**
+ * 可用于顶替的卷纲：整卷都已写完、且作者确认过卷纲文本。
+ *
+ * 两个条件都不能松。卷没写完就顶替，L2 里那一段会缺掉最近发生的事；纲是空串还顶替，
+ * 等于把那几章直接抹掉。
+ */
+function volumeOutlines(ctx: ChapterContext, through: ChapterNo): L2BuildInput["volumeSummaries"] {
+  const ranges = volumeRanges(ctx.meta.beats);
+  return ctx.meta.volumes.flatMap((card) => {
+    const span = ranges.find((item) => item.volume === card.volume);
+    if (span === undefined || card.summary.trim() === "" || span.to > through) return [];
+    return [{ volume: card.volume, text: card.summary, from: span.from, to: span.to }];
+  });
+}
+
 function volumeBoundary(session: ChapterSource, beat: ChapterBeat, ctx: ChapterContext): VolumeBoundary | null {
   const previous = session.beatFor(beat.chapter - 1);
   if (previous === undefined || previous.volume === beat.volume) return null;
+  // 作者写过卷纲就用它。没有才退回拼逐章梗概 —— 一卷三十章就是三十行，
+  // 那是兜底不是常态，卷纲写了就该用那一句。
+  const outline = ctx.meta.volumes.find((card) => card.volume === previous.volume)?.summary.trim() ?? "";
   const summaries = ctx.chapterSynopses.filter((s) => session.beatFor(s.chapter)?.volume === previous.volume);
-  if (summaries.length === 0) return null;
+  if (outline === "" && summaries.length === 0) return null;
   return {
     volume: previous.volume,
-    summary: summaries.map((s) => `第 ${s.chapter} 章：${s.text}`).join("\n"),
+    summary: outline !== "" ? outline : summaries.map((s) => `第 ${s.chapter} 章：${s.text}`).join("\n"),
     endState: ctx.characters.filter((c) => c.tier === "protagonist" || c.tier === "major")
       .map((c) => `${c.name}：${c.state.condition || c.state.vital}`).join("；"),
   };

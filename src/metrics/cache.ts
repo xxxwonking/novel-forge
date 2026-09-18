@@ -39,6 +39,12 @@ export interface CacheRecord extends CacheMetrics {
  * 所以拿 cache_read 去和各段的累计和比对，找到最接近的那个 k，
  * 第 k 段就是第一个冷掉的段。比逐个排查快得多。
  */
+/** 命中量落在这个比例之上就算整段命中 —— 上游计数有抖动，不能要求严格相等。 */
+const HIT_TOLERANCE = 0.9;
+
+/** 最后一个可缓存段（段 4 是易变段，永不缓存）。 */
+const LAST_CACHEABLE_SEGMENT = 3;
+
 export function inferInvalidatedAt(
   cacheRead: number,
   segmentTokens: readonly [number, number, number, number, number],
@@ -48,23 +54,23 @@ export function inferInvalidatedAt(
   // 段 0-3 是可缓存段，段 4 永不缓存。
   const cumulative: number[] = [];
   let sum = 0;
-  for (let i = 0; i <= 3; i += 1) {
+  for (let i = 0; i <= LAST_CACHEABLE_SEGMENT; i += 1) {
     sum += segmentTokens[i] ?? 0;
     cumulative.push(sum);
   }
 
   // 全部可缓存段都命中
-  const total = cumulative[3] ?? 0;
-  if (cacheRead >= total * 0.9) return null;
+  const total = cumulative[LAST_CACHEABLE_SEGMENT] ?? 0;
+  if (cacheRead >= total * HIT_TOLERANCE) return null;
 
   // 找 cacheRead 落在哪两个累计点之间 → 下一段就是失效起点
-  for (let k = 0; k <= 3; k += 1) {
+  for (let k = 0; k <= LAST_CACHEABLE_SEGMENT; k += 1) {
     const upTo = cumulative[k] ?? 0;
-    if (cacheRead < upTo * 0.9) {
+    if (cacheRead < upTo * HIT_TOLERANCE) {
       return k as Exclude<ContextSegment, 4>;
     }
   }
-  return 3;
+  return LAST_CACHEABLE_SEGMENT;
 }
 
 export function recordCacheMetrics(input: RecordInput, trustworthy: boolean): CacheRecord {

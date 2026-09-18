@@ -8,6 +8,7 @@
 import { describe, expect, it } from "vitest";
 import { parseC5, type ParseContext } from "../src/chapter/c5-schema.js";
 import { checkPromisedResolutions, crossCheckC5 } from "../src/chapter/c5-crosscheck.js";
+import { loadRules } from "../src/rules/load.js";
 import type { ForeshadowId } from "../src/types/primitives.js";
 import { commitDeclaration, EventStream } from "../src/store/event-stream.js";
 import { projectCharacterState } from "../src/store/project.js";
@@ -285,12 +286,14 @@ describe("crossCheckC5：用自洽性抓虚报", () => {
 });
 
 describe("checkPromisedResolutions：节拍表承诺 vs 实际声明", () => {
+  /** 补写区间只能来自 rules.yaml —— 这里写死一个数就会和闸门读的那份静默分歧。 */
+  const PATCH_WORDS = loadRules().resolutionPatchWords;
   it("承诺的收束都被声明时无 block", () => {
     const { declaration } = parseC5(validRaw, ctx);
     const findings = checkPromisedResolutions(declaration, [
       { foreshadowId: "F03", completeness: "full" },
       { foreshadowId: "F11", completeness: "partial" },
-    ]);
+    ], PATCH_WORDS);
     expect(findings.filter((f) => f.level === "block")).toHaveLength(0);
   });
 
@@ -298,17 +301,19 @@ describe("checkPromisedResolutions：节拍表承诺 vs 实际声明", () => {
     const { declaration } = parseC5(validRaw, ctx);
     const findings = checkPromisedResolutions(declaration, [
       { foreshadowId: "F07", completeness: "full" },
-    ]);
+    ], PATCH_WORDS);
     const blocked = findings.find((f) => f.rule === "resolution_missing");
     expect(blocked?.level).toBe("block");
     expect(blocked?.message).toContain("补写");
+    // 区间跟着 rules 走，不跟着这段文字走。
+    expect(blocked?.message).toContain(`${PATCH_WORDS[0]}-${PATCH_WORDS[1]} 字`);
   });
 
   it("计划完全收束但只做到部分 → warn", () => {
     const { declaration } = parseC5(validRaw, ctx);
     const findings = checkPromisedResolutions(declaration, [
       { foreshadowId: "F11", completeness: "full" },
-    ]);
+    ], PATCH_WORDS);
     expect(findings.some((f) => f.rule === "resolution_downgraded")).toBe(true);
   });
 
@@ -316,7 +321,7 @@ describe("checkPromisedResolutions：节拍表承诺 vs 实际声明", () => {
     const { declaration } = parseC5(validRaw, ctx);
     const findings = checkPromisedResolutions(declaration, [
       { foreshadowId: "F03", completeness: "full" },
-    ]);
+    ], PATCH_WORDS);
     const extra = findings.find((f) => f.rule === "resolution_unplanned");
     expect(extra?.level).toBe("info");
   });

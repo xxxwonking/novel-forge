@@ -32,7 +32,7 @@ import { readProjectFile, recoverFileTransaction, withFileTransaction, writeProj
 import type { StructuralEvent } from "../types/events.js";
 import type { ChapterBeat, WorkProfile } from "../types/beat.js";
 import type { CharacterCard } from "../types/character.js";
-import type { WorkSetting, WritingDiscipline } from "../types/work.js";
+import type { VolumeCard, WorkSetting, WritingDiscipline } from "../types/work.js";
 import type { SettingCard } from "../context/select-l3.js";
 import { WRITING_DISCIPLINE } from "../context/discipline.js";
 import type { AlertState } from "../types/projections.js";
@@ -61,6 +61,7 @@ export interface ProjectSnapshot {
   readonly profile: WorkProfile;
   readonly characters: readonly Omit<CharacterCard, "state">[];
   readonly plotLines: readonly PlotLineDef[];
+  readonly volumes: readonly VolumeCard[];
   readonly beats: readonly ChapterBeat[];
   readonly alertStates: readonly AlertState[];
   readonly events: readonly StructuralEvent[];
@@ -68,8 +69,8 @@ export interface ProjectSnapshot {
 }
 
 /** 兼容尚未提供写章资料的旧建库/演示调用方；读取总是返回完整快照。 */
-type ProjectSaveInput = Omit<ProjectSnapshot, "discipline" | "settings"> &
-  Partial<Pick<ProjectSnapshot, "discipline" | "settings">>;
+type ProjectSaveInput = Omit<ProjectSnapshot, "discipline" | "settings" | "volumes"> &
+  Partial<Pick<ProjectSnapshot, "discipline" | "settings" | "volumes">>;
 
 const FILES = {
   setting: "setting.json",
@@ -78,6 +79,7 @@ const FILES = {
   profile: "profile.json",
   characters: "characters.json",
   plotLines: "plotlines.json",
+  volumes: "volumes.json",
   beats: "beats.json",
   alertStates: "alert-states.json",
   review: "review.json",
@@ -107,6 +109,7 @@ export class ProjectStore {
       profile: this.readJson<WorkProfile>(FILES.profile),
       characters: this.readJsonOr<readonly Omit<CharacterCard, "state">[]>(FILES.characters, []),
       plotLines: this.readJsonOr<readonly PlotLineDef[]>(FILES.plotLines, []),
+      volumes: this.readJsonOr<readonly VolumeCard[]>(FILES.volumes, []),
       beats: this.readJsonOr<readonly ChapterBeat[]>(FILES.beats, []),
       alertStates: this.readJsonOr<readonly AlertState[]>(FILES.alertStates, []),
       events: this.loadEvents(),
@@ -168,6 +171,7 @@ export class ProjectStore {
       this.writeJson(FILES.profile, snapshot.profile);
       this.writeJson(FILES.characters, snapshot.characters);
       this.writeJson(FILES.plotLines, snapshot.plotLines);
+      this.writeJson(FILES.volumes, snapshot.volumes ?? []);
       this.writeJson(FILES.beats, snapshot.beats);
       this.writeJson(FILES.alertStates, snapshot.alertStates);
       this.rewriteEvents(snapshot.events);
@@ -253,6 +257,7 @@ export class ProjectStore {
       this.writeCharacters(content.characters);
       this.writeSettings(content.settings);
       this.writeJson(FILES.plotLines, content.plotLines);
+      this.writeJson(FILES.volumes, content.volumes);
       this.writeBeats(content.beats);
     });
   }

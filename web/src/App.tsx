@@ -24,6 +24,7 @@ import { Preparation } from "./pages/Preparation.js";
 import { Drafts } from "./pages/Drafts.js";
 import { Export } from "./pages/Export.js";
 import { Inference } from "./pages/Inference.js";
+import { Revision } from "./pages/Revision.js";
 import { PlanningActionDialog, type EditablePlanningAction } from "./components/PlanningActionDialog.js";
 
 const VIEWS = [
@@ -156,6 +157,12 @@ function ProjectApp(): React.ReactElement {
         ))}
 
         <div className="rail-group">正文</div>
+        {/* 有未处理的返修就该一眼看见：它挡着连写，也意味着后面的章建立在旧事实上。 */}
+        {(overview.data?.counts.revisionPending ?? 0) > 0 && (
+          <Link route={route} to="/revision" go={go} count={overview.data?.counts.revisionPending}>
+            跨章返修
+          </Link>
+        )}
         <Link route={route} to="/export" go={go}>导出正文</Link>
         <Link route={route} to={`/chapter/${Math.max(overview.data?.currentChapter ?? 1, 1)}`} go={go}>
           章节与体检
@@ -218,6 +225,7 @@ function Routed({ route, overview, onAction, onIgnore, onJump, refresh, tasks, r
   }
   if (path === "/export") return <Export exportId={query.get("id")} />;
   if (path === "/inference") return <Inference refresh={refresh} />;
+  if (path === "/revision") return <Revision refresh={refresh} />;
   if (path?.startsWith("/draft/")) {
     const [, , chapter, draftId] = path.split("/");
     return <Drafts key={`${chapter}/${draftId}`} chapter={Number(chapter)} draftId={draftId ?? ""} refresh={refresh} task={tasks.find((t) => t.draftId === draftId)} reloadTasks={reloadTasks} />;

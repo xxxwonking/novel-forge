@@ -29,8 +29,6 @@ export const MINOR_CHARACTER_WINDOW = 20;
 /** §13.4 距离衰减的两个分界。 */
 export const SYNOPSIS_DECAY = { recent: 8, mid: 30, midBucket: 5, farBucket: 15 } as const;
 
-/** 伏笔"临近截止"的提前告警窗口（章）。 */
-export const DUE_SOON_WINDOW = 5;
 
 export interface L2BuildInput {
   /** 当前章号 —— 已写完的最后一章。裁剪与衰减都相对它计算。 */
@@ -38,11 +36,22 @@ export interface L2BuildInput {
   readonly characters: readonly CharacterCard[];
   /** 逐章梗概，一句话。索引即章号，缺章允许（用 null 占位）。 */
   readonly chapterSynopses: readonly { readonly chapter: ChapterNo; readonly text: string }[];
-  /** 卷纲，31 章以外的远距离梗概靠它兜底。 */
-  readonly volumeSummaries: readonly { readonly volume: number; readonly text: string }[];
+  /**
+   * 卷纲。远距离梗概**由它顶替**，不是在它之外再加一份 —— 见 `buildSynopsisRows`。
+   * `from`/`to` 是这一卷覆盖的章号闭区间，由节拍表的 volume 推出。
+   */
+  readonly volumeSummaries: readonly { readonly volume: number; readonly text: string; readonly from: ChapterNo; readonly to: ChapterNo }[];
   readonly foreshadows: readonly ForeshadowTimelineItem[];
   readonly plotLines: readonly PlotLineTrack[];
   readonly pendingAppend: readonly L2AppendEntry[];
+  /**
+   * 伏笔「临近截止」的提前量（章）。
+   *
+   * 由调用方从 `rules.crossChapter.foreshadowDueSoon` 传进来。**别在这里写死一个数** ——
+   * 这里曾经是 `DUE_SOON_WINDOW = 5`，而 gate 与告警读的是 rules 里的 3，于是模型在
+   * 索引里看到的「临近」比代码判的早两章，两边静默分歧了很久。
+   */
+  readonly dueSoonWindow: number;
 }
 
 // ── 人物名录 ────────────────────────────────────────────────────────────
@@ -87,12 +96,26 @@ function condense(texts: readonly string[]): string {
   return texts.map((t) => t.split(/[。！？]/)[0] ?? t).join("；");
 }
 
+function range(from: ChapterNo, to: ChapterNo): ChapterNo[] {
+  const out: ChapterNo[] = [];
+  for (let n = from; n <= to; n += 1) out.push(n);
+  return out;
+}
+
 function bucketRange(from: ChapterNo, to: ChapterNo): string {
   return from === to ? `ch${from}` : `ch${from}-${to}`;
 }
 
 /**
- * §13.4 三档粒度。200 章从 8000 tok 压到 ~1000 tok 的唯一办法。
+ * §13.4 三档粒度 + 卷纲顶替。
+ *
+ * ⚠ **分桶本身不压缩内容**：`condense` 只取每章梗概的第一句再拼起来，梗概本就是
+ * 一句话时 15 章一桶等于原样保留 15 句，只少了几个换行。所以三档减的是行数，
+ * 不是字数 —— 光靠它，L2 随章数线性涨且没有上限（实测每章约 7 tok，400 章 ≈ 3000 tok，
+ * 而 L2 是最大的可缓存前缀，它涨则每章的缓存创建成本跟着涨）。
+ *
+ * **真正压下去的是卷纲**：有卷纲的章段整段换成一句话。所以卷纲是顶替而不是叠加 ——
+ * 这里原先两者都往 rows 里推，加了卷纲 L2 反而更大，正好与它的用意相反。
  *
  * 分桶用**绝对章号**对齐（`floor(ch / bucket)`）而非相对当前章的偏移量 ——
  * 相对分桶会让每写一章所有桶边界都平移，整个梗概区重新排布，
@@ -100,7 +123,7 @@ function bucketRange(from: ChapterNo, to: ChapterNo): string {
  */
 function buildSynopsisRows(
   synopses: readonly { readonly chapter: ChapterNo; readonly text: string }[],
-  volumeSummaries: readonly { readonly volume: number; readonly text: string }[],
+  volumeSummaries: L2BuildInput["volumeSummaries"],
   currentChapter: ChapterNo,
 ): readonly L2SynopsisRow[] {
   const sorted = [...synopses].sort((a, b) => a.chapter - b.chapter);
@@ -113,11 +136,18 @@ function buildSynopsisRows(
   const mid = sorted.filter((s) => s.chapter >= midFrom && s.chapter < recentFrom);
   const recent = sorted.filter((s) => s.chapter >= recentFrom);
 
-  // 远距离：卷纲优先，其次每 15 章一桶
-  for (const v of volumeSummaries) {
+  // 远距离：卷纲**顶替**它覆盖的那几章，剩下的才每 15 章一桶。
+  //
+  // 只顶替整卷都落在远距离区的卷 —— 一卷横跨远/中两区时，中区那几章仍要逐章或按 5 章
+  // 给出，此时把远区那半截换成卷纲会让同一卷的内容出现两次、粒度还不一样。
+  const applied = [...volumeSummaries]
+    .filter((v) => v.text.trim() !== "" && v.to < midFrom)
+    .sort((a, b) => a.volume - b.volume);
+  const covered = new Set(applied.flatMap((v) => range(v.from, v.to)));
+  for (const v of applied) {
     rows.push({ granularity: "per_15", range: `卷${v.volume}`, text: v.text });
   }
-  rows.push(...bucketize(far, SYNOPSIS_DECAY.farBucket, "per_15"));
+  rows.push(...bucketize(far.filter((s) => !covered.has(s.chapter)), SYNOPSIS_DECAY.farBucket, "per_15"));
   rows.push(...bucketize(mid, SYNOPSIS_DECAY.midBucket, "per_5"));
   for (const s of recent) {
     rows.push({ granularity: "per_chapter", range: `ch${s.chapter}`, text: s.text });
@@ -158,6 +188,7 @@ function bucketize(
 function buildForeshadowRows(
   items: readonly ForeshadowTimelineItem[],
   currentChapter: ChapterNo,
+  dueSoonWindow: number,
 ): {
   rows: readonly L2ForeshadowRow[];
   counts: Readonly<Record<ForeshadowWeight, number>>;
@@ -174,15 +205,15 @@ function buildForeshadowRows(
       label: f.label,
       planted: `ch${f.plantedAt}埋`,
       expectation: `预期ch${f.expectedBy}`,
-      flag: overdueFlag(f.expectedBy, currentChapter),
+      flag: overdueFlag(f.expectedBy, currentChapter, dueSoonWindow),
     }));
 
   return { rows, counts };
 }
 
-function overdueFlag(expectedBy: ChapterNo, currentChapter: ChapterNo): "overdue" | "due_soon" | null {
+function overdueFlag(expectedBy: ChapterNo, currentChapter: ChapterNo, dueSoonWindow: number): "overdue" | "due_soon" | null {
   if (currentChapter > expectedBy) return "overdue";
-  if (expectedBy - currentChapter <= DUE_SOON_WINDOW) return "due_soon";
+  if (expectedBy - currentChapter <= dueSoonWindow) return "due_soon";
   return null;
 }
 
@@ -206,7 +237,7 @@ export function buildL2Snapshot(input: L2BuildInput): L2Snapshot {
     formatVersion: 1,
     characters: buildCharacterRows(input.characters, input.currentChapter),
     synopsis: buildSynopsisRows(input.chapterSynopses, input.volumeSummaries, input.currentChapter),
-    foreshadows: buildForeshadowRows(input.foreshadows, input.currentChapter),
+    foreshadows: buildForeshadowRows(input.foreshadows, input.currentChapter, input.dueSoonWindow),
     plotLines: buildPlotLineRows(input.plotLines),
     pendingAppend: input.pendingAppend,
   };

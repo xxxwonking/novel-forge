@@ -70,7 +70,13 @@ export interface RenderedCharacter {
   readonly mode: "full" | "compressed" | "index_line";
 }
 
-/** 粗略 token 估算：中文按 1 字 ≈ 0.6 token，ASCII 按 4 字符 ≈ 1 token。 */
+/** token 估算系数：中文按 1 字 ≈ 0.6 token，ASCII 按 4 字符 ≈ 1 token。估算法用，不是产品阈值。 */
+const CJK_TOKENS_PER_CHAR = 0.6;
+
+/** 预算溢出降级时，给埋设片段留的字符数上限。 */
+const EXCERPT_MAX_CHARS = 80;
+
+/** 粗略 token 估算。 */
 export function estimateTokens(text: string): number {
   let cjk = 0;
   let other = 0;
@@ -78,7 +84,7 @@ export function estimateTokens(text: string): number {
     if (ch.charCodeAt(0) > 0x2e7f) cjk += 1;
     else other += 1;
   }
-  return Math.ceil(cjk * 0.6 + other / 4);
+  return Math.ceil(cjk * CJK_TOKENS_PER_CHAR + other / 4);
 }
 
 /**
@@ -131,7 +137,7 @@ function applyTrim(input: L3Input, stage: TrimStage): L3Selection {
   const plantedExcerpts =
     stage === "none" || stage === "minor_cards_to_index" || stage === "settings_to_primary"
       ? input.plantedExcerpts
-      : input.plantedExcerpts.map((p) => ({ ...p, excerpt: truncate(p.excerpt, 80) }));
+      : input.plantedExcerpts.map((p) => ({ ...p, excerpt: truncate(p.excerpt, EXCERPT_MAX_CHARS) }));
 
   return {
     characters,

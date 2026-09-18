@@ -23,7 +23,7 @@ import { loadRules } from "../rules/load.js";
 import type { ReviewRules, Rules } from "../rules/schema.js";
 import type { AlertAction, AlertState } from "../types/projections.js";
 import type { ChapterBeat, WorkProfile } from "../types/beat.js";
-import type { WorkSetting, WritingDiscipline } from "../types/work.js";
+import type { VolumeCard, WorkSetting, WritingDiscipline } from "../types/work.js";
 import type { SettingCard } from "../context/select-l3.js";
 import type { CharacterCard } from "../types/character.js";
 import type { AlertId, ChapterNo, CharacterId, ForeshadowId, PlotLineId } from "../types/primitives.js";
@@ -57,6 +57,7 @@ import { TextExportService } from "../export/service.js";
 import { ImportService } from "../import/service.js";
 import { InferenceService } from "../import/inference.js";
 import { ContinuousRunService, adoptionToken } from "../run/service.js";
+import { ReviseService } from "../revise/service.js";
 
 export interface SessionDerived {
   readonly projections: Projections;
@@ -95,6 +96,7 @@ export class ProjectSession {
   readonly imports: ImportService;
   readonly inference: InferenceService;
   readonly run: ContinuousRunService;
+  readonly revise: ReviseService;
   private readonly store: ProjectStore;
   private readonly drafts: DraftStore;
   private readonly writer: ChapterWriter;
@@ -106,10 +108,13 @@ export class ProjectSession {
   private profile: WorkProfile;
   private characters: readonly Omit<CharacterCard, "state">[];
   private plotLines: readonly PlotLineDef[];
+  private volumes: readonly VolumeCard[];
   private beats: readonly ChapterBeat[];
   private alertStates: Map<AlertId, AlertState>;
   private chapters: Map<ChapterNo, string>;
   private cache: SessionDerived | null = null;
+  /** 处理进度与 derived 同源同失效点，但没有理由每问一次就重算一遍（它遍历全部事件与节拍表）。 */
+  private progress: ReturnType<typeof buildStoryProgress> | null = null;
   private readonly conversation: ConversationStore;
   private modelClient: ModelClient | undefined;
 
@@ -127,6 +132,7 @@ export class ProjectSession {
     this.profile = snap.profile;
     this.characters = snap.characters;
     this.plotLines = snap.plotLines;
+    this.volumes = snap.volumes;
     this.beats = snap.beats;
     this.alertStates = new Map(snap.alertStates.map((s) => [s.id, s]));
     this.chapters = new Map(snap.chapters);
@@ -146,10 +152,14 @@ export class ProjectSession {
     this.inference = new InferenceService(root, {
       source: this, client: () => this.getModelClient(), transaction: (operation) => this.transact(operation),
     });
+    this.revise = new ReviseService(root, {
+      source: this, client: () => this.getModelClient(), transaction: (operation) => this.transact(operation),
+    });
     this.run = new ContinuousRunService(root, {
       nextChapter: () => this.nextChapter,
       maxBatchChapters: this.rules.task.maxBatchChapters,
-      assertCanStart: () => this.writer.prepareModelTask(),
+      // 改早章留下的硬矛盾没处理完就不开连写：接下来每一章都会建立在错的基准上。
+      assertCanStart: () => { this.revise.assertNoConflicts(); this.writer.prepareModelTask(); },
       writeChapter: (chapter, requestId) => this.writer.write({ chapter, requestId }),
       adopt: (chapter, draft) => { this.adopt(chapter, draft.draftId, { revisionToken: adoptionToken(draft) }); },
     });
@@ -192,6 +202,7 @@ export class ProjectSession {
     readonly beats: readonly ChapterBeat[];
     readonly characters: readonly Omit<CharacterCard, "state">[];
     readonly plotLines: readonly PlotLineDef[];
+    readonly volumes: readonly VolumeCard[];
   } {
     return {
       setting: this.setting,
@@ -204,6 +215,7 @@ export class ProjectSession {
       beats: this.beats,
       characters: this.characters,
       plotLines: this.plotLines,
+      volumes: this.volumes,
     };
   }
 
@@ -227,13 +239,13 @@ export class ProjectSession {
     return this.alertStates.get(id);
   }
 
-  storyProgress(): ReturnType<typeof buildStoryProgress> { return buildStoryProgress(this); }
+  storyProgress(): ReturnType<typeof buildStoryProgress> { return (this.progress ??= buildStoryProgress(this)); }
 
   // ── 写 ────────────────────────────────────────────────────────────────
 
   private snapshot(): ProjectSnapshot {
     return { setting: this.setting, discipline: this.discipline, settings: this.settings, profile: this.profile,
-      characters: this.characters, plotLines: this.plotLines, beats: this.beats,
+      characters: this.characters, plotLines: this.plotLines, volumes: this.volumes, beats: this.beats,
       events: this.stream.all(), chapters: this.chapters, alertStates: [...this.alertStates.values()] };
   }
 
@@ -455,7 +467,7 @@ export class ProjectSession {
           const input = buildChapterRunInput(this, chapter);
           const checked = checkChapter(input, draft.body, draft.declaration, [
             ...crossCheckC5({ declaration: draft.declaration, chapterText: draft.body }),
-            ...checkPromisedResolutions(draft.declaration, input.promisedResolutions),
+            ...checkPromisedResolutions(draft.declaration, input.promisedResolutions, input.patchWords),
           ]);
           if (!checked.acceptable) throw new ChapterWriteError(409, `选定资料后仍有必须处理项，本次采用未完成：${checked.findings.filter(f => f.level === "block").map(f => f.message).join("；")}`);
           findings = checked.findings;
@@ -465,7 +477,12 @@ export class ProjectSession {
           proposalAdoption: { sourceToken: draftRevisionToken(draft), selected, options: prepared.options, at: now },
         });
       }
-      return adoptDraft(
+      // 改的是更早的章：先留下这一章原本的结构记录，采用后拿它比出差异。
+      // 必须在 commitDraftDeclaration 作废旧事件之前取，之后就读不到了。
+      const downstream = chapter < this.currentChapter;
+      const before = downstream ? this.revise.adoptedDeclaration(chapter) : null;
+      const proseChanged = downstream && this.chapterText(chapter) !== draft.body;
+      const result = adoptDraft(
       {
         draftStore: this.drafts,
         commitDeclaration: (ch, decl) => this.commitDraftDeclaration(ch, decl),
@@ -474,13 +491,15 @@ export class ProjectSession {
       chapter,
       draftId,
       );
+      if (downstream && result.changed) this.revise.record(chapter, before, draft.declaration, proseChanged);
+      return result;
     });
   }
 
   /** 文件失败时也恢复内存；各写入口只替换状态引用，不原地修改旧对象。 */
   private transact<T>(operation: () => T): T {
     const before = { setting: this.setting, discipline: this.discipline, settings: this.settings,
-      profile: this.profile, characters: this.characters, plotLines: this.plotLines, beats: this.beats,
+      profile: this.profile, characters: this.characters, plotLines: this.plotLines, volumes: this.volumes, beats: this.beats,
       alertStates: this.alertStates, chapters: this.chapters, stream: this.stream };
     try {
       return withFileTransaction(this.root, operation);
@@ -856,6 +875,7 @@ export class ProjectSession {
 
   private invalidate(): void {
     this.cache = null;
+    this.progress = null;
   }
 
   private recompute(): SessionDerived {

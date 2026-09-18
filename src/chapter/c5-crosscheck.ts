@@ -132,6 +132,12 @@ export function crossCheckC5(input: CrossCheckInput): readonly GateFinding[] {
 export function checkPromisedResolutions(
   declaration: C5Declaration,
   promised: readonly { readonly foreshadowId: string; readonly completeness: "full" | "partial" }[],
+  /**
+   * `rules.resolutionPatchWords`。由调用方传入而不是在这里写死 —— 这里曾经写死
+   * 「300-400 字」，而 gate/route.ts 读的是 rules：改了规则，这句给模型的提示
+   * 就开始撒谎，模型按它补写会反复卡在闸门上。
+   */
+  patchWords: readonly [number, number],
 ): readonly GateFinding[] {
   const findings: GateFinding[] = [];
   const declared = new Map(declaration.foreshadowResolved.map((r) => [r.foreshadowId as string, r]));
@@ -142,7 +148,7 @@ export function checkPromisedResolutions(
       findings.push({
         rule: "resolution_missing",
         level: "block",
-        message: `节拍表承诺本章收束 ${p.foreshadowId}，但结构声明里没有 —— 补写该条收束 300-400 字，或把节拍表改为不收`,
+        message: `节拍表承诺本章收束 ${p.foreshadowId}，但结构声明里没有 —— 补写该条收束 ${patchWords[0]}-${patchWords[1]} 字，或把节拍表改为不收`,
       });
       continue;
     }

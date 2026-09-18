@@ -9,6 +9,7 @@ import { describe, expect, it } from "vitest";
 import { EXPECTED_TOOL_ORDER, WRITING_TOOLS } from "../src/context/tools.js";
 import { L1_FORBIDDEN_PATTERN, renderL1 } from "../src/context/render-l1.js";
 import { renderL2, renderL2Append } from "../src/context/render-l2.js";
+import { loadRules } from "../src/rules/load.js";
 import { buildL2Snapshot, type L2BuildInput } from "../src/context/build-l2.js";
 import { renderL3, selectL3 } from "../src/context/select-l3.js";
 import { renderVolatile } from "../src/context/render-volatile.js";
@@ -33,6 +34,7 @@ const l2Input: L2BuildInput = {
   characters,
   chapterSynopses,
   volumeSummaries: [...volumeSummaries],
+  dueSoonWindow: loadRules().crossChapter.foreshadowDueSoon,
   foreshadows,
   plotLines,
   pendingAppend: [],
@@ -291,5 +293,20 @@ describe("装配：四段布局与 breakpoint", () => {
     const blocks = Array.isArray(content) ? content.length : 0;
     // L3 为空 → 只有 L2 + 易变区两个 block
     expect(blocks).toBe(2);
+  });
+});
+
+describe("L2 的临近截止标记", () => {
+  it("跟着传进来的窗口走，不跟着某个写死的数走", () => {
+    // 第 52 章，预期第 56 章收 —— 差 4 章。窗口 5 算临近，窗口 3 不算。
+    // 这条曾经是 build-l2.ts 里的 `DUE_SOON_WINDOW = 5`，而 gate 与告警读的是
+    // rules 里的 3：模型在索引里看到的「临近」比代码判的早两章。
+    const far = { ...foreshadows[0]!, expectedBy: 56 as never };
+    const flag = (dueSoonWindow: number) =>
+      buildL2Snapshot({ ...l2Input, foreshadows: [far], dueSoonWindow }).foreshadows.rows[0]?.flag;
+    expect(flag(5)).toBe("due_soon");
+    expect(flag(3)).toBeNull();
+    // 生产路径传的就是 rules 里那一个，两份口径从此只有一个来源。
+    expect(flag(loadRules().crossChapter.foreshadowDueSoon)).toBeNull();
   });
 });

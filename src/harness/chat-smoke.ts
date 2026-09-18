@@ -36,6 +36,7 @@ function snapshot(now: string): ProjectSnapshot {
     settings: [{ id: "S01", name: "旧账库", kind: "location", description: "河港账房的砖木库房，雨夜正在清空旧账。", facts: ["库内木架靠墙排列，装订工具留在窗边", "顾青负责看守，沈砚获准查账"] }],
     characters: [character("C01", "沈砚", "年轻账房，负责核对河运账目", "在旧账清空前找到失踪账页"), character("C02", "顾青", "旧账库守夜人", "守住账库并查明有人擅动旧账的缘由")],
     plotLines: [{ id: "P01", label: "失踪账页", weight: "main" }],
+    volumes: [],
     beats: [{ chapter: 1, volume: 1, provenance: "authored", updatedAt: now, budget: null, plan: {
       chapterType: "event", coreEvent: "沈砚在旧账库找到失踪账页，并核实搬运记录被人伪造。", secondaryThread: null,
       stageFeedback: "沈砚取出账页，找到与搬运记录不符的日期。", hook: "账页背面写着顾青父亲的名字。",

@@ -116,7 +116,9 @@ export class DraftRevisions {
     this.writer.assertNotRunning(options.chapter, options.draftId);
     if (source.status === "discarded") throw new ChapterWriteError(409, "此稿已丢弃，请从保留的当前版本继续");
     if (draftRevisionToken(source) !== options.revisionToken) throw new ChapterWriteError(409, "源稿已变化，请同步最新结果后重新提交修改");
-    if (source.chapter !== this.session.currentChapter && source.chapter !== this.session.nextChapter) throw new ChapterWriteError(409, "首版支持当前未采用稿和最新已采用章；更早章节需先分析后续影响，不能直接返修");
+    // 早章返修在「跨多章返修」这一批解锁：改完采用时会算出受影响的后续章并落清单，
+    // 未处理的硬矛盾挡住连写。挡在这里反而让作者无从改起。
+    if (source.chapter > this.session.nextChapter) throw new ChapterWriteError(409, "这一章还没写到，不能在它上面返修");
     if (source.status === "adopted" && this.session.currentAdoptedDraftId(source.chapter) !== source.draftId) throw new ChapterWriteError(409, "当前正式章节已采用其他版本，请先打开最新正式版本");
     return source;
   }

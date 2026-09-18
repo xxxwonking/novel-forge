@@ -149,7 +149,61 @@ export interface Overview {
     openForeshadows: number;
     overdueForeshadows: number;
     brokenPlotLines: number;
+    /** 改早章之后还没复核的后续章；conflicts 是其中的硬矛盾，挡着连写。 */
+    revisionPending: number;
+    revisionConflicts: number;
   };
+}
+
+// ── 跨多章返修 ─────────────────────────────────────────────────────────
+
+/** 一条被改动的结构事实。与后端 FactChange 一一对应。 */
+export interface FactChange {
+  kind: "foreshadow_planted" | "foreshadow_resolved" | "character_state" | "relation" | "plot_event" | "prose";
+  direction: "removed" | "added" | "changed";
+  subject: string;
+  text: string;
+}
+
+export interface ImpactReason {
+  severity: "conflict" | "review";
+  rule: string;
+  text: string;
+}
+
+export interface RevisionPassage {
+  quote: string;
+  why: string;
+  suggestion: string;
+}
+
+export interface RevisionChapter {
+  chapter: number;
+  state: "pending" | "located" | "resolved";
+  severity: "conflict" | "review";
+  triggers: { chapter: number; at: string }[];
+  changes: string[];
+  reasons: ImpactReason[];
+  passages: RevisionPassage[];
+  notes: string[];
+  outdated: boolean;
+  at: string;
+}
+
+export interface RevisionView {
+  chapters: RevisionChapter[];
+  pending: number;
+  conflicts: number;
+  latest: { chapter: number; at: string; changes: string[] } | null;
+  /** 清单文件读不出来时的原因；非 null 时上面几项都是空值。 */
+  error: string | null;
+}
+
+/** 采用前的只读预览：这一稿会牵连到哪些章。 */
+export interface RevisionImpact {
+  source: number;
+  changes: FactChange[];
+  chapters: { chapter: number; severity: "conflict" | "review"; reasons: ImpactReason[] }[];
 }
 
 export interface AlertsPayload {
@@ -458,6 +512,14 @@ export interface AdoptResponse {
 export type { CharacterRecord, CharacterAttribute, SpeechProfile, CharacterInput, SettingInput, PlotLineInput, BeatInput, BeatRecord, ChapterPlanInput, PreparationChanges } from "./preparation-changes.js";
 export type CharacterCard = CharacterRecord;
 
+/** 卷名与卷纲。章号范围不在这里 —— 由节拍表的 volume 推出。 */
+export interface VolumeCard {
+  volume: number;
+  title: string;
+  summary: string;
+  updatedAt: string;
+}
+
 export interface PreparationContent {
   setting: { title: string; genre: string; platform: string; premise: string; centralConflict: string; openingSituation: string; pov: string; tense: string; protagonistTraits: string[]; protagonistForbidden: string[]; specialAbility: string; abilityLimits: string[]; worldRules: string[]; styleKeywords: string[]; romanceLine: string; taboos: string[] };
   profile: { genre: string; platform: string; targetWords: number };
@@ -465,6 +527,7 @@ export interface PreparationContent {
   characters: CharacterRecord[];
   settings: SettingInput[];
   plotLines: PlotLineInput[];
+  volumes: VolumeCard[];
   beats: (ChapterBeat & { provenance: string })[];
 }
 
@@ -590,6 +653,12 @@ export const api = {
   /** 让 AI 起草资料。apply=false 只交回草稿供表单试填，不落任何文件。 */
   draftPreparation: (input: { focus: "characters" | "full" | "chapters"; apply: boolean; brief?: string; count?: number }) =>
     post<PreparationDraftResult>("/api/preparation/draft", input),
+  /** 跨章返修：清单只读；定位要花一次模型调用，所以由作者一章一章地点。 */
+  revisionView: () => request<RevisionView>("/api/revision"),
+  rebuildRevision: () => post<{ archived: string | null; view: RevisionView }>("/api/revision/rebuild", {}),
+  previewRevision: (chapter: number, draftId: string) => post<RevisionImpact>("/api/revision/preview", { chapter, draftId }),
+  locateRevision: (chapter: number) => post<RevisionChapter>("/api/revision/locate", { chapter }),
+  resolveRevision: (chapter: number) => post<RevisionChapter>("/api/revision/resolve", { chapter }),
   /** 连写：启动登记授权并起后台循环；停下在章与章之间生效；知道了把停下状态清回空闲。 */
   run: () => request<RunView>("/api/run"),
   startRun: (through: number) => post<RunView>("/api/run/start", { through }),

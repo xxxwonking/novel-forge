@@ -66,6 +66,7 @@ export const PREPARATION_CHANGES_SCHEMA = object({
   writingRules: strings, characters: array(character),
   settings: array(object({ id: id("S"), name: nonempty, kind: enumeration("location", "organization"), description: nonempty, facts: strings })),
   plotLines: array(object({ id: id("P"), label: nonempty, weight })),
+  volumes: array(object({ volume: integer(1), title: nonempty, summary: text })),
   beats: array(object({ chapter: integer(1), volume: integer(1), plan })),
 }, true);
 

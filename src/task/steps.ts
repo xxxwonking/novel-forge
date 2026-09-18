@@ -152,7 +152,7 @@ export async function declareStructure(
   if (parse.errors.length > 0) return { kind: "failed", detail: `C5 结构记录需要核对：${parse.errors.join("；")}` };
   const c5Findings = [
     ...crossCheckC5({ declaration: parse.declaration, chapterText: write.body }),
-    ...checkPromisedResolutions(parse.declaration, input.promisedResolutions),
+    ...checkPromisedResolutions(parse.declaration, input.promisedResolutions, input.patchWords),
   ];
   return { kind: "ok", parse, c5Findings };
 }

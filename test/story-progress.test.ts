@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type Anthropic from "@anthropic-ai/sdk";
 import { ProjectStore } from "../src/store/persist.js";
+import { EventStream } from "../src/store/event-stream.js";
 import { ProjectSession } from "../src/server/state.js";
 import { buildChapterReadSource } from "../src/server/chapter-input.js";
 import { handle } from "../src/server/api.js";
@@ -372,5 +373,54 @@ describe("作者可见的处理进度", () => {
     if (result?.type !== "tool_result" || typeof result.content !== "string") throw new Error("没有进度工具结果");
     expect(result.is_error).not.toBe(true);
     expect(JSON.parse(result.content)).toContainEqual(expect.objectContaining({ id: "foreshadow:F01", state: "scheduled" }));
+  });
+});
+
+describe("处理进度的缓存", () => {
+  it("反复查询复用同一份结果，写入之后自动失效", () => {
+    const { session } = fixture();
+    const first = session.storyProgress();
+    // 它遍历全部事件与全部节拍表，问一次算一次在长篇下是白烧的。
+    expect(session.storyProgress()).toBe(first);
+    action(session, resolution);
+    const after = session.storyProgress();
+    expect(after).not.toBe(first);
+    expect(after.find(p => p.id === "foreshadow:F01")?.state).toBe("scheduled");
+  });
+});
+
+describe("处理进度·按名称排的埋设安排", () => {
+  /**
+   * 计划中但还没在正文里埋下的伏笔，安排只能按**名称**认（节拍表里 plants 只有 label）。
+   * 这条路径此前一条测试都没有 —— 而它正是 buildStoryProgress 分桶改写里最绕的一处。
+   */
+  function planned(label: string, foreshadowId: string, resolveById = false): { session: ProjectSession } {
+    const root = mkdtempSync(join(tmpdir(), "nf-story-progress-")); roots.push(root);
+    const snapshot = writingSnapshot();
+    const stream = EventStream.restore([...snapshot.events]);
+    // P4_outline 的埋设 = 作者确认的**未来**规划，正文里还没有 → 状态是 planned。
+    stream.append({ chapter: 1, origin: "P4_outline", provenance: "authored", payload: {
+      type: "foreshadow_planted", foreshadowId: foreshadowId as never, label, intent: "第三卷揭出母亲的下落。",
+      weight: "sub", visibility: "covert", expectedBy: 40 as never,
+      anchor: { chapter: 1, quote: "一枚青铜钥匙放在桌上", offsetHint: 0, occurrence: 0 } as never,
+    } });
+    const plan = {
+      ...WRITE_BEAT.plan, chapterType: "setup" as const, plants: [{ label, weight: "sub" as const }],
+      resolves: resolveById ? [{ foreshadowId: foreshadowId as never, weight: "sub" as const, completeness: "full" as const }] : [],
+    };
+    new ProjectStore(root).save({ ...snapshot, events: stream.all(), beats: [snapshot.beats[0]!, { ...WRITE_BEAT, chapter: 4, plan }] });
+    return { session: new ProjectSession(root, undefined, { client: fakeClient([]).client }) };
+  }
+
+  it("未来节拍按名称埋设时，安排里给的是「埋设伏笔」", () => {
+    const entry = progress(planned("母亲的旧信", "F09").session).find((p) => p.id === "foreshadow:F09")!;
+    // 状态仍是 planned —— 正文里还没埋；安排只是说明「已经排了」。
+    expect(entry.state).toBe("planned");
+    expect(entry.arrangements).toEqual([{ chapter: 4, goal: "埋设伏笔" }]);
+  });
+
+  it("同一节拍既按编号兑现又按名称埋设时，同一个伏笔只出一条，兑现优先", () => {
+    const entry = progress(planned("母亲的旧信", "F09", true).session).find((p) => p.id === "foreshadow:F09")!;
+    expect(entry.arrangements).toEqual([{ chapter: 4, goal: "完整兑现" }]);
   });
 });

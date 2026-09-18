@@ -1,10 +1,10 @@
 import { useState } from "react";
 import { Button, Input } from "antd";
 import { Chip } from "../components/Chip.js";
-import { BeatEditor, CharacterEditor, DraftDialog, PlotLineEditor, SettingEditor, type Editing } from "../components/PreparationEditors.js";
+import { BeatEditor, CharacterEditor, DraftDialog, PlotLineEditor, SettingEditor, VolumeEditor, type Editing } from "../components/PreparationEditors.js";
 import { ImportChapters } from "../components/ImportChapters.js";
 import { ReviewSettings } from "../components/ReviewSettings.js";
-import { api, type CharacterRecord, type PreparationContent, type PreparationPayload, type PreparationProposal, type SettingInput, type PlotLineInput } from "../api.js";
+import { api, type CharacterRecord, type PreparationContent, type PreparationPayload, type PreparationProposal, type SettingInput, type PlotLineInput, type VolumeCard } from "../api.js";
 import { useFetch, useRouteActive } from "../hooks.js";
 
 const discuss = (prompt: string): string => `#/chat?prompt=${encodeURIComponent(prompt)}`;
@@ -96,6 +96,15 @@ export function Preparation({ refresh, proposalId }: { refresh: () => void; prop
     {entity?.kind === "character" && <CharacterEditor base={entity.base as CharacterRecord | null} characters={view.confirmed.characters} fingerprint={view.fingerprint} onSaved={saved} onClose={() => setEntity(null)} />}
     {entity?.kind === "setting" && <SettingEditor base={entity.base as SettingInput | null} fingerprint={view.fingerprint} onSaved={saved} onClose={() => setEntity(null)} />}
     {entity?.kind === "plotLine" && <PlotLineEditor base={entity.base as PlotLineInput | null} fingerprint={view.fingerprint} onSaved={saved} onClose={() => setEntity(null)} />}
+    {entity?.kind === "volume" && (() => {
+      const base = entity.base as VolumeCard | null;
+      const volume = base?.volume ?? Math.max(0, ...view.confirmed.beats.map((b) => b.volume)) + 1;
+      const chapters = view.confirmed.beats.filter((b) => b.volume === volume).map((b) => b.chapter);
+      return <VolumeEditor base={base === null ? null : { volume: base.volume, title: base.title, summary: base.summary }}
+        volume={volume} span={chapters.length === 0 ? null : { from: Math.min(...chapters), to: Math.max(...chapters) }}
+        written={chapters.length > 0 && Math.min(...chapters) < view.nextChapter}
+        fingerprint={view.fingerprint} onSaved={saved} onClose={() => setEntity(null)} />;
+    })()}
     {drafting !== null && <DraftDialog focus={drafting} onClose={() => setDrafting(null)} onProposed={(proposalId) => { setDrafting(null); setEntity(null); setEditing(false); setSelected(proposalId); setNotice("AI 起草了一份方案，请核对后决定是否确认。"); data.reload(); }} />}
     {importing && <ImportChapters onClose={() => setImporting(false)} onImported={(result) => {
       setImporting(false); setEntity(null); setEditing(false); setSelected(null);
@@ -140,6 +149,29 @@ function Content({ content, onEdit, onDraft, expanded }: { content: PreparationC
     <section className="prep-section"><div className="section-head"><h2>人物档案 <small>{content.characters.length}</small></h2><div className="row">{draft("让 AI 起草人物")}{add("character", "手工补一个")}</div></div>{content.characters.length === 0 && <p className="muted">还没有人物档案。可以先在对话里让 Agent 起草，也可以直接手填。</p>}<div className="prep-card-grid">{content.characters.map((c) => <article className="prep-character" key={c.id}><div className="row"><h3>{c.name}</h3><Chip>{c.provenance === "proposed" ? "建议" : c.tier === "protagonist" ? "主角" : "已确认"}</Chip></div><p>{c.profile.role}</p><p className="muted">{c.profile.traits.join(" · ")}</p><dl className="prep-facts"><div><dt>想要什么</dt><dd>{c.profile.wants || "尚未指定"}</dd></div><div><dt>害怕什么</dt><dd>{c.profile.fears || "尚未指定"}</dd></div><div><dt>背景</dt><dd>{c.profile.background || "尚未指定"}</dd></div></dl><details open={expanded === true}><summary>外貌与说话方式</summary><p>{c.profile.appearance.map((a) => `${a.key}：${a.value}`).join("；")}</p>{c.speech.exemplars.map((line, i) => <blockquote key={i}>{line}</blockquote>)}{c.speech.forbiddenLexicon.length > 0 && <p>不使用：{c.speech.forbiddenLexicon.join("、")}</p>}</details>{edit("character", c, `「${c.name}」`)}</article>)}</div></section>
     <section className="prep-section"><div className="section-head"><h2>地点与组织</h2>{add("setting", "新增地点／组织")}</div>{content.settings.length === 0 && <p className="muted">还没有地点或组织设定。</p>}{content.settings.map((place) => <article className="prep-place" key={place.id}><div className="row"><h3>{place.name} <span className="muted">{place.kind === "organization" ? "组织" : "地点"}</span></h3>{edit("setting", place, "设定")}</div><p>{place.description}</p>{place.facts.length > 0 && <ul>{place.facts.map((fact, i) => <li key={i}>{fact}</li>)}</ul>}</article>)}</section>
     <section className="prep-section"><div className="section-head"><h2>情节方向</h2>{add("plotLine", "新增情节线")}</div>{content.plotLines.length === 0 ? <p className="muted">还没有情节线规划。</p> : <ul>{content.plotLines.map((line) => <li key={line.id}><Chip>{line.weight === "main" ? "主线" : line.weight === "sub" ? "支线" : "细节"}</Chip> {line.label}{edit("plotLine", line, "情节线")}</li>)}</ul>}</section>
+    <section className="prep-section"><div className="section-head"><h2>卷</h2>{add("volume", "新增一卷")}</div>
+      <p className="muted">卷纲会顶替这几章的逐章梗概进入模型上下文 —— 章数一多，它是唯一能把远处的篇幅压下去的东西。哪几章属于哪一卷由下面章节计划的卷号决定。</p>
+      {(() => {
+        const spans = new Map<number, number[]>();
+        for (const beat of content.beats) spans.set(beat.volume, [...(spans.get(beat.volume) ?? []), beat.chapter]);
+        const volumes = [...new Set([...spans.keys(), ...content.volumes.map((v) => v.volume)])].sort((a, b) => a - b);
+        if (volumes.length === 0) return <p className="muted">还没有章节计划，也就还没有卷。</p>;
+        return volumes.map((volume) => {
+          const card = content.volumes.find((v) => v.volume === volume) ?? null;
+          const chapters = spans.get(volume) ?? [];
+          const range = chapters.length === 0 ? "还没有章节" : `第 ${Math.min(...chapters)}–${Math.max(...chapters)} 章`;
+          return <article className="prep-beat" key={volume}>
+            <div className="row"><h3>卷 {volume}{card?.title ? `·${card.title}` : ""}</h3>
+              <Chip>{card?.summary.trim() ? "有卷纲" : "缺卷纲"}</Chip>
+              <span className="muted">{range}{chapters.length > 0 ? ` · ${chapters.length} 章` : ""}</span>
+              <span className="push-right">{edit("volume", card ?? { volume, title: "", summary: "", updatedAt: "" }, "这一卷")}</span></div>
+            {card?.summary.trim()
+              ? <p>{card.summary}</p>
+              : <p className="muted">还没写卷纲。写完这一卷之后补上，前面这几章在上下文里就能压成一句话。</p>}
+          </article>;
+        });
+      })()}
+    </section>
     <section className="prep-section"><div className="section-head"><h2>章节计划</h2>{add("beat", "新增章计划")}</div>{content.beats.length === 0 && <p className="muted">还没有章节计划。先明确这一章的目标、冲突和结束位置。</p>}{content.beats.map((beat) => <article className="prep-beat" key={beat.chapter}><div className="row"><h3>第 {beat.chapter} 章</h3><Chip>{beat.provenance === "proposed" ? "建议计划" : "已确认计划"}</Chip>{beat.budget && <span className="muted">{beat.budget.words.min}–{beat.budget.words.max} 字</span>}<span className="push-right">{edit("beat", beat, "计划")}</span></div><strong>{beat.plan.coreEvent}</strong><dl className="prep-facts"><div><dt>本章兑现</dt><dd>{beat.plan.stageFeedback}</dd></div><div><dt>结束位置</dt><dd>{beat.plan.hook}</dd></div><div><dt>出场人物</dt><dd>{beat.plan.characters.map((id) => content.characters.find((c) => c.id === id)?.name ?? id).join("、")}</dd></div><div><dt>地点</dt><dd>{beat.plan.locations.map((id) => content.settings.find((s) => s.id === id)?.name ?? id).join("、")}</dd></div>{beat.plan.secondaryThread && <div><dt>次级推进</dt><dd>{beat.plan.secondaryThread}</dd></div>}</dl>{beat.plan.resolves.length > 0 && <p>计划兑现：{beat.plan.resolves.map((r) => `${r.foreshadowId}（${r.completeness === "partial" ? "部分" : "完整"}）`).join("、")}</p>}</article>)}</section>
     <section className="prep-section"><h2>写作规则与偏好</h2><ul>{content.discipline.rules.map((rule, i) => <li key={i}>{rule}</li>)}</ul></section>
     {/* 方案预览里不显示 —— 它是这本书的设置，不属于某一份候选资料。 */}

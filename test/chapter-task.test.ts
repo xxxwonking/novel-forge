@@ -18,6 +18,7 @@ import { adoptDraft } from "../src/task/adopt.js";
 import { EventStream, commitDeclaration } from "../src/store/event-stream.js";
 import { ClaudeClient, type CallOptions, type CallResult } from "../src/client/claude.js";
 import type { ChapterRunInput } from "../src/chapter/pipeline.js";
+import { loadRules } from "../src/rules/load.js";
 import { buildL2Snapshot } from "../src/context/build-l2.js";
 import { selectL3 } from "../src/context/select-l3.js";
 import { WRITING_DISCIPLINE } from "../src/context/discipline.js";
@@ -103,7 +104,7 @@ function runInput(): ChapterRunInput {
     chapter: 53,
     assembleInput: {
       l1: { setting: workSetting, discipline: WRITING_DISCIPLINE },
-      l2: buildL2Snapshot({ currentChapter: 52, characters, chapterSynopses, volumeSummaries: [...volumeSummaries], foreshadows, plotLines, pendingAppend: [] }),
+      l2: buildL2Snapshot({ currentChapter: 52, characters, chapterSynopses, volumeSummaries: [...volumeSummaries], foreshadows, plotLines, pendingAppend: [], dueSoonWindow: loadRules().crossChapter.foreshadowDueSoon }),
       l3: selectL3({ beat, characters: characters.filter((c) => beat.plan.characters.includes(c.id)), settings: settings.filter((s) => beat.plan.locations.includes(s.id)), volumeBoundary: null, plantedExcerpts: [] }),
       volatile: { previous: { chapter: 52, headSummary: null, tailText: previousChapterText }, beat, resolves: [], avoid: [], task: "写第 53 章。" },
     },
@@ -120,6 +121,7 @@ function runInput(): ChapterRunInput {
       { foreshadowId: "F07", completeness: "full" },
       { foreshadowId: "F11", completeness: "partial" },
     ],
+    patchWords: loadRules().resolutionPatchWords,
   };
 }
 

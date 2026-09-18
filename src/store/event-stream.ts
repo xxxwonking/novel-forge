@@ -223,3 +223,23 @@ export function commitDeclaration(
     stream.append({ chapter, origin, provenance: "proposed", payload }),
   );
 }
+
+/**
+ * `commitDeclaration` 的逆向：把一批事件还原成一份声明。
+ *
+ * 两处要用它 —— 旧稿反推把待确认事件回显给作者看，跨章返修拿「改动前的那一份」
+ * 去比差异。逆向是安全的：`commitDeclaration` 只是把六个数组摊平，没有丢字段。
+ * `plot_advance` 由投影器派生、不属于声明，这里自然也不会捡回来。
+ */
+export function declarationOf(events: readonly StructuralEvent[]): C5Declaration {
+  const of = <T extends C5Declaration[keyof C5Declaration][number]["type"]>(type: T): Extract<StructuralEventPayload, { type: T }>[] =>
+    events.flatMap((e) => e.payload.type === type ? [e.payload as Extract<StructuralEventPayload, { type: T }>] : []);
+  return {
+    events: of("plot_event"),
+    foreshadowPlanted: of("foreshadow_planted"),
+    foreshadowResolved: of("foreshadow_resolved"),
+    relationsChanged: of("relation_changed"),
+    characterStates: of("character_state_changed"),
+    characterPresence: of("character_presence"),
+  };
+}
