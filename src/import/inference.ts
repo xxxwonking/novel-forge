@@ -20,6 +20,7 @@ import type { ProjectSession } from "../server/state.js";
 import { ChapterWriteError, foreshadowAllocator } from "../server/chapter-input.js";
 import { countWords } from "../text/measure.js";
 import type { ModelClient } from "../client/model.js";
+import { declarationOf } from "../store/event-stream.js";
 import type { C5Declaration, StructuralEvent } from "../types/events.js";
 import type { ChapterNo, ForeshadowId } from "../types/primitives.js";
 import { inferChapterStructure, SYNOPSIS_WINDOW, type PendingForeshadow } from "./infer.js";
@@ -244,20 +245,6 @@ export class InferenceService {
     return [...byChapter.entries()].sort(([a], [b]) => a - b).slice(-SYNOPSIS_WINDOW)
       .map(([n, texts]) => ({ chapter: n, text: texts.join("；") }));
   }
-}
-
-/** 把该章的待确认事件还原成一份声明，供界面展示与确认。 */
-function declarationOf(events: readonly StructuralEvent[]): C5Declaration {
-  const of = <T extends C5Declaration[keyof C5Declaration][number]["type"]>(type: T): Extract<StructuralEvent["payload"], { type: T }>[] =>
-    events.flatMap((e) => e.payload.type === type ? [e.payload as Extract<StructuralEvent["payload"], { type: T }>] : []);
-  return {
-    events: of("plot_event"),
-    foreshadowPlanted: of("foreshadow_planted"),
-    foreshadowResolved: of("foreshadow_resolved"),
-    relationsChanged: of("relation_changed"),
-    characterStates: of("character_state_changed"),
-    characterPresence: of("character_presence"),
-  };
 }
 
 function parseChapter(raw: unknown): ChapterNo {

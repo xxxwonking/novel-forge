@@ -24,6 +24,12 @@ export function Drafts({ chapter, draftId, refresh, task, reloadTasks }: { chapt
   const [anchor, setAnchor] = useState<TextAnchor | null>(null);
   const [runThrough, setRunThrough] = useState<number | null>(null);
   const runLimit = useFetch(() => api.run(), [chapter, draftId]);
+  /** 采用前先看这一稿会牵连哪些后续章：只读、不调模型。最新章没有下游，自然是空的。 */
+  const impact = useFetch(
+    () => query.data?.declaration != null && query.data.status !== "adopted" && query.data.status !== "discarded"
+      ? api.previewRevision(chapter, draftId) : Promise.resolve(null),
+    [chapter, draftId, query.data?.revisionToken],
+  );
   const prose = useRef<HTMLElement | null>(null);
   useEffect(() => { query.reload(); versions.reload(); }, [task?.updatedAt, task?.status, task?.draftStatus, query.reload, versions.reload]);
   useEffect(() => { setEditor(null); setError(null); setNotice(null); setAnchor(null); }, [chapter, draftId]);
@@ -34,7 +40,10 @@ export function Drafts({ chapter, draftId, refresh, task, reloadTasks }: { chapt
   const dependency = preparation.data?.proposals.find((p) => p.id === draft.preparationProposalId);
   const names = dependency?.content.characters ?? preparation.data?.confirmed.characters ?? [];
   const name = (id: string): string => names.find((c) => c.id === id)?.name ?? id;
-  const reload = (): void => { if (isCurrent()) { query.reload(); versions.reload(); preparation.reload(); } reloadTasks(); refresh(); };
+  const reload = (): void => { if (isCurrent()) { query.reload(); versions.reload(); preparation.reload(); impact.reload(); } reloadTasks(); refresh(); };
+  const impacted = impact.data?.chapters ?? [];
+  /** 采用之后要立刻说清后面哪几章要复核 —— 否则作者会接着往下写。 */
+  const impactNotice = impacted.length === 0 ? "" : `后面第 ${impacted.map((c) => c.chapter).join("、")} 章需要复核，已列入「跨章返修」。`;
   const goDraft = (n: number, id: string): void => { if (isCurrent()) { window.location.hash = `/draft/${n}/${id}`; setAnchor(null); } };
   const saved = (next: DraftView): void => { if (isCurrent()) { setEditor(null); goDraft(next.chapter, next.draftId); } reload(); };
   const editable = draft.status !== "discarded" && (draft.status !== "adopted" || draft.isCurrentAdopted) && !taskRunning(task);
@@ -61,7 +70,7 @@ export function Drafts({ chapter, draftId, refresh, task, reloadTasks }: { chapt
       }
       if (action === "adopt" || action === "continue") {
         await api.adopt(chapter, draftId, { revisionToken: draft.revisionToken, selectedProposals }); adopted = true; reload();
-        if (isCurrent()) setNotice(`已采用第 ${chapter} 章。${action === "continue" ? "正在准备下一章…" : "它已成为后续创作依据。"}`);
+        if (isCurrent()) setNotice(`已采用第 ${chapter} 章。${action === "continue" ? "正在准备下一章…" : "它已成为后续创作依据。"}${impactNotice}`);
       }
       if (action === "discard") { await api.discard(chapter, draftId); if (isCurrent()) setNotice("草稿已丢弃，历史内容仍可查看。"); }
       if (action === "resume" || action === "new" || action === "continue") {
@@ -89,6 +98,15 @@ export function Drafts({ chapter, draftId, refresh, task, reloadTasks }: { chapt
     <div className="draft-toolbar"><Chip color={draft.status === "needs_revision" ? "orange" : draft.status === "ready" ? "cyan" : undefined}>{draft.status === "adopted" ? draft.isCurrentAdopted ? "当前正式版本" : "历史采用版本" : states[draft.status] ?? draft.status}</Chip><span>{draft.words} 字</span><label>版本 <Select aria-label="稿件版本" value={draftId} popupMatchSelectWidth={false} onChange={(value) => goDraft(chapter, value)}
       options={(versions.data ?? [draft]).map((d) => ({ value: d.draftId, label: `${d.draftId} · ${d.isCurrentAdopted ? "当前正式版本" : states[d.status] ?? d.status}` }))} /></label><a href="#/preparation">作品资料</a></div>
     {draft.preparationProposalId !== null && <div className="prep-readiness"><div><strong>依赖方案：{dependency?.summary ?? "正在读取"}</strong><p>{dependency?.status === "confirmed" ? "此方案已确认。" : "这份草稿使用了尚未确认的建议设定。采用章节时会一并确认该方案。"}</p></div><a href={`#/preparation?proposal=${encodeURIComponent(draft.preparationProposalId)}`}>查看依赖</a></div>}
+    {impacted.length > 0 && <div className="prep-readiness">
+      <div>
+        <strong>采用这一稿会牵连后面 {impacted.length} 章</strong>
+        <p>{impacted.filter((c) => c.severity === "conflict").length > 0
+          ? `第 ${impacted.filter((c) => c.severity === "conflict").map((c) => c.chapter).join("、")} 章的事实会直接对不上，必须处理；未处理完不能开始连写。`
+          : `第 ${impacted.map((c) => c.chapter).join("、")} 章引用了这里改动的东西，采用后值得再读一遍。`}</p>
+      </div>
+      <a className="prep-link" href="#/revision">查看跨章返修 →</a>
+    </div>}
     {(error ?? query.error) && <div className="finding" data-level="block" role="alert">{error ?? query.error}</div>}
     {notice && <p className="prep-notice" role="status">{notice}</p>}
     {draft.review?.adoptionError && <p className="finding" data-level="block" role="alert">检查已完成，但采用未完成：{draft.review.adoptionError}。稿件仍保留，可核对后重试采用。</p>}

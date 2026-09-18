@@ -53,6 +53,13 @@ export async function handleAsync(session: ProjectSession, req: ApiRequest): Pro
     return conversationSend(session, req.body);
   }
   // 旧稿反推：逐章读正文补结构。放在 handleAsync —— 它 await 模型。
+  if (req.method === "POST" && req.path === "/api/revision/locate") {
+    try { return ok(await session.revise.locate(req.body)); }
+    catch (error) {
+      if (error instanceof ChapterWriteError) return { status: error.status, body: { error: error.message } };
+      throw error;
+    }
+  }
   if (req.method === "POST" && req.path === "/api/import/infer") {
     try { return ok(await session.inference.infer(req.body)); }
     catch (error) {
@@ -97,6 +104,14 @@ export function handle(session: ProjectSession, req: ApiRequest): ApiResponse {
   }
 
   // 连写：启动只是登记授权并起后台循环，本身不等模型，留在同步入口。
+  if (path === "/api/revision" && method === "GET") return ok(session.revise.view());
+  if (method === "POST" && (path === "/api/revision/preview" || path === "/api/revision/resolve")) {
+    try { return ok(path === "/api/revision/preview" ? session.revise.preview(req.body) : session.revise.resolve(req.body)); }
+    catch (error) {
+      if (error instanceof ChapterWriteError) return { status: error.status, body: { error: error.message } };
+      throw error;
+    }
+  }
   if (path === "/api/run" && method === "GET") return ok(session.run.view());
   if (method === "POST" && (path === "/api/run/start" || path === "/api/run/stop" || path === "/api/run/acknowledge")) {
     try { return ok(path.endsWith("start") ? session.run.start(req.body) : path.endsWith("stop") ? session.run.stop() : session.run.acknowledge()); }
@@ -241,6 +256,7 @@ export function handle(session: ProjectSession, req: ApiRequest): ApiResponse {
 function overview(session: ProjectSession): unknown {
   const { setting, profile, currentChapter, nextChapter, chapterCount } = session.meta;
   const { selection, projections } = session.derived;
+  const revision = session.revise.view();
 
   return {
     title: setting.title,
@@ -263,6 +279,9 @@ function overview(session: ProjectSession): unknown {
       brokenPlotLines: projections.plotLines.filter(
         (p) => p.lastAdvancedAt > 0 && (p.currentGap as number) > (p.gapLimit as number),
       ).length,
+      // 改早章之后还没复核的章。放在这里是为了让导航上一眼看得见 —— 它挡着连写。
+      revisionPending: revision.pending,
+      revisionConflicts: revision.conflicts,
     },
   };
 }

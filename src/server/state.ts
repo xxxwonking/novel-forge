@@ -57,6 +57,7 @@ import { TextExportService } from "../export/service.js";
 import { ImportService } from "../import/service.js";
 import { InferenceService } from "../import/inference.js";
 import { ContinuousRunService, adoptionToken } from "../run/service.js";
+import { ReviseService } from "../revise/service.js";
 
 export interface SessionDerived {
   readonly projections: Projections;
@@ -95,6 +96,7 @@ export class ProjectSession {
   readonly imports: ImportService;
   readonly inference: InferenceService;
   readonly run: ContinuousRunService;
+  readonly revise: ReviseService;
   private readonly store: ProjectStore;
   private readonly drafts: DraftStore;
   private readonly writer: ChapterWriter;
@@ -146,10 +148,14 @@ export class ProjectSession {
     this.inference = new InferenceService(root, {
       source: this, client: () => this.getModelClient(), transaction: (operation) => this.transact(operation),
     });
+    this.revise = new ReviseService(root, {
+      source: this, client: () => this.getModelClient(), transaction: (operation) => this.transact(operation),
+    });
     this.run = new ContinuousRunService(root, {
       nextChapter: () => this.nextChapter,
       maxBatchChapters: this.rules.task.maxBatchChapters,
-      assertCanStart: () => this.writer.prepareModelTask(),
+      // 改早章留下的硬矛盾没处理完就不开连写：接下来每一章都会建立在错的基准上。
+      assertCanStart: () => { this.revise.assertNoConflicts(); this.writer.prepareModelTask(); },
       writeChapter: (chapter, requestId) => this.writer.write({ chapter, requestId }),
       adopt: (chapter, draft) => { this.adopt(chapter, draft.draftId, { revisionToken: adoptionToken(draft) }); },
     });
@@ -465,7 +471,12 @@ export class ProjectSession {
           proposalAdoption: { sourceToken: draftRevisionToken(draft), selected, options: prepared.options, at: now },
         });
       }
-      return adoptDraft(
+      // 改的是更早的章：先留下这一章原本的结构记录，采用后拿它比出差异。
+      // 必须在 commitDraftDeclaration 作废旧事件之前取，之后就读不到了。
+      const downstream = chapter < this.currentChapter;
+      const before = downstream ? this.revise.adoptedDeclaration(chapter) : null;
+      const proseChanged = downstream && this.chapterText(chapter) !== draft.body;
+      const result = adoptDraft(
       {
         draftStore: this.drafts,
         commitDeclaration: (ch, decl) => this.commitDraftDeclaration(ch, decl),
@@ -474,6 +485,8 @@ export class ProjectSession {
       chapter,
       draftId,
       );
+      if (downstream && result.changed) this.revise.record(chapter, before, draft.declaration, proseChanged);
+      return result;
     });
   }
 
