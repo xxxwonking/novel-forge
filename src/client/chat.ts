@@ -1,12 +1,12 @@
 import { createHash } from "node:crypto";
-import type { CallOptions, CallResult, ClientError } from "./claude.js";
+import { describeTiming, startTiming, type CallOptions, type CallResult, type CallTiming, type ClientError } from "./claude.js";
 import type { ModelClient } from "./model.js";
 import { chatRequest, chatResult, isRecord, parseChatCompletion, type JsonRecord } from "./chat-wire.js";
 import { ChatStreamError, readChatStream } from "./chat-stream.js";
 import { resolveChatCapabilities, type ChatCapabilities, type ChatConnectionOptions } from "./chat-config.js";
 
 export interface ChatClientOptions extends ChatConnectionOptions {
-  readonly onUsage?: (record: { readonly model: string; readonly stream: boolean; readonly usage: JsonRecord | null }) => void;
+  readonly onUsage?: (record: { readonly model: string; readonly stream: boolean; readonly usage: JsonRecord | null; readonly timing: CallTiming }) => void;
 }
 
 const STREAMING_THRESHOLD = 8192;
@@ -33,6 +33,7 @@ export class ChatClient implements ModelClient {
   }
 
   async call(options: CallOptions): Promise<CallResult> {
+    const elapsed = startTiming();
     try {
       if (!Number.isSafeInteger(options.maxTokens) || options.maxTokens < 1) throw new Error("chat maxTokens 必须是正整数");
       const maxTokens = Math.min(options.maxTokens, this.capabilities.maxOutputTokens ?? options.maxTokens);
@@ -47,15 +48,17 @@ export class ChatClient implements ModelClient {
         const payload: unknown = await response.json().catch(() => null);
         const detail = isRecord(payload) && isRecord(payload.error) && typeof payload.error.message === "string" ? payload.error.message : `chat HTTP ${response.status}`;
         const type: ClientError["type"] = response.status === 404 ? "not_found" : response.status === 429 ? "rate_limit" : "status";
-        return { kind: "error", error: { type, status: response.status, message: this.safeError(detail), retryable: response.status === 429 || response.status >= 500 } };
+        return { kind: "error", error: { type, status: response.status, message: this.safeError(detail), retryable: response.status === 429 || response.status >= 500, timing: elapsed() } };
       }
       const result = response.headers.get("content-type")?.includes("text/event-stream") ? await readChatStream(response, options.onTextDelta) : parseChatCompletion(await response.json());
-      this.options.onUsage?.({ model: result.model ?? this.options.model, stream, usage: result.usage ?? null });
+      this.options.onUsage?.({ model: result.model ?? this.options.model, stream, usage: result.usage ?? null, timing: elapsed() });
       return chatResult(result, this.options.model, this.conversationKey);
     } catch (error) {
       const cause = error instanceof ChatStreamError ? error.cause : error;
       const connection = cause instanceof Error && ["TypeError", "AbortError", "TimeoutError"].includes(cause.name);
-      return { kind: "error", error: { type: connection ? "connection" : "unknown", status: null, retryable: connection, message: this.safeError(error instanceof Error ? error.message : "chat 请求失败") },
+      const timing = elapsed();
+      const detail = this.safeError(error instanceof Error ? error.message : "chat 请求失败");
+      return { kind: "error", error: { type: connection ? "connection" : "unknown", status: null, retryable: connection, message: connection ? `${detail}（${describeTiming(timing)}）` : detail, timing },
         ...(error instanceof ChatStreamError && error.partialText.trim() !== "" ? { partialText: error.partialText } : {}) };
     }
   }

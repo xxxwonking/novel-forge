@@ -84,6 +84,46 @@ export interface ClientError {
   readonly status: number | null;
   readonly message: string;
   readonly retryable: boolean;
+  /**
+   * 这次调用耗了多久。**两个钟都记。**
+   *
+   * `monotonicMs` 是 `AbortSignal.timeout` 实际计的那一个；`wallMs` 是日志与作者
+   * 感受到的那一个。平时两者只差几毫秒，所以平时看哪个都行 —— 但真机上出现过
+   * 一次「配置 300 秒、日志记 940 秒」，三种读法都算不平账。只记一个钟就永远说不清
+   * 那 640 秒去哪了；两个一起记，**分叉本身就是结论**（机器睡了或进程被冻结）。
+   */
+  readonly timing?: CallTiming;
+}
+
+export interface CallTiming {
+  /** 单调钟。进程被挂起时它是否继续走，取决于平台 —— 这正是要测的。 */
+  readonly monotonicMs: number;
+  /** 墙钟。跨越机器睡眠时它照常前进。 */
+  readonly wallMs: number;
+}
+
+/** 一次调用的起点。两个钟同时取，之后才能比得出分叉。 */
+export function startTiming(): () => CallTiming {
+  const mono = performance.now();
+  const wall = Date.now();
+  return () => ({ monotonicMs: Math.round(performance.now() - mono), wallMs: Date.now() - wall });
+}
+
+/** 两个钟分叉多少才值得说。低于这个数是正常抖动。 */
+const DRIFT_FLOOR_MS = 2_000;
+
+/**
+ * 把时长写进报错文案。**只给连接类错误补**：状态码错误是秒回的，写时长只是噪音。
+ *
+ * 分叉要单独说出来。「等了 940 秒」会让人以为超时没生效去改超时；
+ * 「等了 940 秒，其中 640 秒机器没在运行」才指得到真正发生的事。
+ */
+export function describeTiming(timing: CallTiming): string {
+  const show = (ms: number): string => ms < 1_000 ? `${ms}ms` : `${(ms / 1_000).toFixed(1)} 秒`;
+  const drift = timing.wallMs - timing.monotonicMs;
+  return drift > DRIFT_FLOOR_MS
+    ? `等了 ${show(timing.wallMs)}，其中约 ${show(drift)}机器没在运行；超时按运行中的 ${show(timing.monotonicMs)}计`
+    : `等了 ${show(timing.wallMs)}`;
 }
 
 /** 超过这个值必须走 streaming（§9.5）。 */
@@ -121,6 +161,7 @@ export class ClaudeClient {
 
   async call(opts: CallOptions): Promise<CallResult> {
     const params = buildParams(opts);
+    const elapsed = startTiming();
     let partialText = "";
     try {
       let message: Anthropic.Message;
@@ -137,7 +178,9 @@ export class ClaudeClient {
       const error = toClientError(err);
       const message = (this.opts.apiKey === "" ? error.message : error.message.split(this.opts.apiKey).join("[REDACTED]"))
         .replace(/Bearer\s+[^\s"']+/giu, "Bearer [REDACTED]").slice(0, 1000);
-      return { kind: "error", error: { ...error, message }, ...(partialText.trim() ? { partialText } : {}) };
+      const timing = elapsed();
+      const detail = error.type === "connection" ? `${message}（${describeTiming(timing)}）` : message;
+      return { kind: "error", error: { ...error, message: detail, timing }, ...(partialText.trim() ? { partialText } : {}) };
     }
   }
 }
