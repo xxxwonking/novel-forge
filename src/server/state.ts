@@ -23,7 +23,7 @@ import { loadRules } from "../rules/load.js";
 import type { ReviewRules, Rules } from "../rules/schema.js";
 import type { AlertAction, AlertState } from "../types/projections.js";
 import type { ChapterBeat, WorkProfile } from "../types/beat.js";
-import type { WorkSetting, WritingDiscipline } from "../types/work.js";
+import type { VolumeCard, WorkSetting, WritingDiscipline } from "../types/work.js";
 import type { SettingCard } from "../context/select-l3.js";
 import type { CharacterCard } from "../types/character.js";
 import type { AlertId, ChapterNo, CharacterId, ForeshadowId, PlotLineId } from "../types/primitives.js";
@@ -108,6 +108,7 @@ export class ProjectSession {
   private profile: WorkProfile;
   private characters: readonly Omit<CharacterCard, "state">[];
   private plotLines: readonly PlotLineDef[];
+  private volumes: readonly VolumeCard[];
   private beats: readonly ChapterBeat[];
   private alertStates: Map<AlertId, AlertState>;
   private chapters: Map<ChapterNo, string>;
@@ -131,6 +132,7 @@ export class ProjectSession {
     this.profile = snap.profile;
     this.characters = snap.characters;
     this.plotLines = snap.plotLines;
+    this.volumes = snap.volumes;
     this.beats = snap.beats;
     this.alertStates = new Map(snap.alertStates.map((s) => [s.id, s]));
     this.chapters = new Map(snap.chapters);
@@ -200,6 +202,7 @@ export class ProjectSession {
     readonly beats: readonly ChapterBeat[];
     readonly characters: readonly Omit<CharacterCard, "state">[];
     readonly plotLines: readonly PlotLineDef[];
+    readonly volumes: readonly VolumeCard[];
   } {
     return {
       setting: this.setting,
@@ -212,6 +215,7 @@ export class ProjectSession {
       beats: this.beats,
       characters: this.characters,
       plotLines: this.plotLines,
+      volumes: this.volumes,
     };
   }
 
@@ -241,7 +245,7 @@ export class ProjectSession {
 
   private snapshot(): ProjectSnapshot {
     return { setting: this.setting, discipline: this.discipline, settings: this.settings, profile: this.profile,
-      characters: this.characters, plotLines: this.plotLines, beats: this.beats,
+      characters: this.characters, plotLines: this.plotLines, volumes: this.volumes, beats: this.beats,
       events: this.stream.all(), chapters: this.chapters, alertStates: [...this.alertStates.values()] };
   }
 
@@ -495,7 +499,7 @@ export class ProjectSession {
   /** 文件失败时也恢复内存；各写入口只替换状态引用，不原地修改旧对象。 */
   private transact<T>(operation: () => T): T {
     const before = { setting: this.setting, discipline: this.discipline, settings: this.settings,
-      profile: this.profile, characters: this.characters, plotLines: this.plotLines, beats: this.beats,
+      profile: this.profile, characters: this.characters, plotLines: this.plotLines, volumes: this.volumes, beats: this.beats,
       alertStates: this.alertStates, chapters: this.chapters, stream: this.stream };
     try {
       return withFileTransaction(this.root, operation);

@@ -76,7 +76,7 @@ export const MAIN_AGENT_TOOLS: readonly Anthropic.Tool[] = [
   },
   {
     name: "propose_preparation",
-    description: "保存一份有编号的资料/章节计划建议，不改变正式资料。changes 只填要改的类别，人物/地点/情节线按 ID 更新，章节按 chapter 更新；writingRules 是完整规则列表，更新偏好时保留仍适用的旧规则。人物 profile 和 speech 必须完整，未发生的出场不得编造。预算与来源由系统生成。先 get_preparation，再提交 baseFingerprint。展示建议后等待作者选择，不自行确认。",
+    description: "保存一份有编号的资料/章节计划建议，不改变正式资料。changes 只填要改的类别，人物/地点/情节线按 ID 更新，章节按 chapter 更新，卷名与卷纲按 volume 更新（卷纲只写这一卷已经写完的内容，一到三句；哪几章属于哪一卷由章节的 volume 决定，不在卷里填章号）；writingRules 是完整规则列表，更新偏好时保留仍适用的旧规则。人物 profile 和 speech 必须完整，未发生的出场不得编造。预算与来源由系统生成。先 get_preparation，再提交 baseFingerprint。展示建议后等待作者选择，不自行确认。",
     input_schema: PREPARATION_INPUT_SCHEMA,
   },
   {

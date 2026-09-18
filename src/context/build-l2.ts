@@ -36,8 +36,11 @@ export interface L2BuildInput {
   readonly characters: readonly CharacterCard[];
   /** 逐章梗概，一句话。索引即章号，缺章允许（用 null 占位）。 */
   readonly chapterSynopses: readonly { readonly chapter: ChapterNo; readonly text: string }[];
-  /** 卷纲，31 章以外的远距离梗概靠它兜底。 */
-  readonly volumeSummaries: readonly { readonly volume: number; readonly text: string }[];
+  /**
+   * 卷纲。远距离梗概**由它顶替**，不是在它之外再加一份 —— 见 `buildSynopsisRows`。
+   * `from`/`to` 是这一卷覆盖的章号闭区间，由节拍表的 volume 推出。
+   */
+  readonly volumeSummaries: readonly { readonly volume: number; readonly text: string; readonly from: ChapterNo; readonly to: ChapterNo }[];
   readonly foreshadows: readonly ForeshadowTimelineItem[];
   readonly plotLines: readonly PlotLineTrack[];
   readonly pendingAppend: readonly L2AppendEntry[];
@@ -93,12 +96,26 @@ function condense(texts: readonly string[]): string {
   return texts.map((t) => t.split(/[。！？]/)[0] ?? t).join("；");
 }
 
+function range(from: ChapterNo, to: ChapterNo): ChapterNo[] {
+  const out: ChapterNo[] = [];
+  for (let n = from; n <= to; n += 1) out.push(n);
+  return out;
+}
+
 function bucketRange(from: ChapterNo, to: ChapterNo): string {
   return from === to ? `ch${from}` : `ch${from}-${to}`;
 }
 
 /**
- * §13.4 三档粒度。200 章从 8000 tok 压到 ~1000 tok 的唯一办法。
+ * §13.4 三档粒度 + 卷纲顶替。
+ *
+ * ⚠ **分桶本身不压缩内容**：`condense` 只取每章梗概的第一句再拼起来，梗概本就是
+ * 一句话时 15 章一桶等于原样保留 15 句，只少了几个换行。所以三档减的是行数，
+ * 不是字数 —— 光靠它，L2 随章数线性涨且没有上限（实测每章约 7 tok，400 章 ≈ 3000 tok，
+ * 而 L2 是最大的可缓存前缀，它涨则每章的缓存创建成本跟着涨）。
+ *
+ * **真正压下去的是卷纲**：有卷纲的章段整段换成一句话。所以卷纲是顶替而不是叠加 ——
+ * 这里原先两者都往 rows 里推，加了卷纲 L2 反而更大，正好与它的用意相反。
  *
  * 分桶用**绝对章号**对齐（`floor(ch / bucket)`）而非相对当前章的偏移量 ——
  * 相对分桶会让每写一章所有桶边界都平移，整个梗概区重新排布，
@@ -106,7 +123,7 @@ function bucketRange(from: ChapterNo, to: ChapterNo): string {
  */
 function buildSynopsisRows(
   synopses: readonly { readonly chapter: ChapterNo; readonly text: string }[],
-  volumeSummaries: readonly { readonly volume: number; readonly text: string }[],
+  volumeSummaries: L2BuildInput["volumeSummaries"],
   currentChapter: ChapterNo,
 ): readonly L2SynopsisRow[] {
   const sorted = [...synopses].sort((a, b) => a.chapter - b.chapter);
@@ -119,11 +136,18 @@ function buildSynopsisRows(
   const mid = sorted.filter((s) => s.chapter >= midFrom && s.chapter < recentFrom);
   const recent = sorted.filter((s) => s.chapter >= recentFrom);
 
-  // 远距离：卷纲优先，其次每 15 章一桶
-  for (const v of volumeSummaries) {
+  // 远距离：卷纲**顶替**它覆盖的那几章，剩下的才每 15 章一桶。
+  //
+  // 只顶替整卷都落在远距离区的卷 —— 一卷横跨远/中两区时，中区那几章仍要逐章或按 5 章
+  // 给出，此时把远区那半截换成卷纲会让同一卷的内容出现两次、粒度还不一样。
+  const applied = [...volumeSummaries]
+    .filter((v) => v.text.trim() !== "" && v.to < midFrom)
+    .sort((a, b) => a.volume - b.volume);
+  const covered = new Set(applied.flatMap((v) => range(v.from, v.to)));
+  for (const v of applied) {
     rows.push({ granularity: "per_15", range: `卷${v.volume}`, text: v.text });
   }
-  rows.push(...bucketize(far, SYNOPSIS_DECAY.farBucket, "per_15"));
+  rows.push(...bucketize(far.filter((s) => !covered.has(s.chapter)), SYNOPSIS_DECAY.farBucket, "per_15"));
   rows.push(...bucketize(mid, SYNOPSIS_DECAY.midBucket, "per_5"));
   for (const s of recent) {
     rows.push({ granularity: "per_chapter", range: `ch${s.chapter}`, text: s.text });

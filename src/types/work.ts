@@ -8,6 +8,7 @@
  */
 
 import type { Genre, Platform } from "./beat.js";
+import type { IsoTimestamp, VolumeNo } from "./primitives.js";
 
 /** 叙事视角。POV 纪律是 L1 里最重要的一条约束。 */
 export type NarrativePov = "first" | "third_limited" | "third_omniscient";
@@ -61,4 +62,23 @@ export interface WritingDiscipline {
   /** 纪律文本的版本号。变更即全体缓存冷一次，所以要攒着一起发。 */
   readonly version: string;
   readonly rules: readonly string[];
+}
+
+/**
+ * 一卷的名目与卷纲。
+ *
+ * **卷的边界不存在这里** —— 哪一章属于哪一卷由 `Beat.volume` 说了算，这里只有
+ * 名目与摘要。存两份边界必然分歧，而节拍表本来就是按章排的，它才是那份真相。
+ * 卷的章号范围由节拍表推出（见 `volumeRanges`）。
+ *
+ * 卷纲的用处是**给 L2 止血**：远距离梗概原本每 15 章一桶，桶内只是把各章第一句
+ * 拼起来，字数一点没少 —— 章数一多 L2 就无上限地涨，而 L2 是最大的可缓存前缀。
+ * 有卷纲的章段改用一句卷纲顶替，那一段才真的被压下去。
+ */
+export interface VolumeCard {
+  readonly volume: VolumeNo;
+  readonly title: string;
+  /** 卷纲：这一卷发生了什么，一到三句。空串表示还没写，L2 不会用它顶替。 */
+  readonly summary: string;
+  readonly updatedAt: IsoTimestamp;
 }

@@ -87,6 +87,7 @@ function snapshot(): ProjectSnapshot {
     profile: workProfile,
     characters: settingBlocks(),
     plotLines: [{ id: "P01", label: "复仇主线", weight: "main" }],
+    volumes: [],
     beats: [beat],
     alertStates: [initialAlertState(id, NOW)],
     events: seedStream().all(),

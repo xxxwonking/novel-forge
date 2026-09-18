@@ -70,6 +70,7 @@ export function writingSnapshot(): ProjectSnapshot {
     profile: workProfile,
     characters: characters.slice(0, 2).map(({ state: _state, ...card }) => ({ ...card, introducedAt: 1 })),
     plotLines: [{ id: "P01", label: "追查旧案", weight: "main" }],
+    volumes: [],
     beats: [{ ...WRITE_BEAT, chapter: 2, volume: 1 }, WRITE_BEAT],
     alertStates: [],
     events: stream.all(),

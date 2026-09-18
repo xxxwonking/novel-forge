@@ -16,11 +16,11 @@ import { useRef, useState } from "react";
 import { Button, Input, InputNumber, Modal, Select } from "antd";
 import { api, type CharacterRecord, type PreparationProposal, type ChapterBeat } from "../api.js";
 import {
-  beatInput, characterInput, plotLineInput, settingInput, emptyCharacter, emptySetting, emptyPlotLine, emptyBeat,
-  type BeatInput, type BeatRecord, type CharacterInput, type EventKind, type PlotLineInput, type SettingInput, type Weight,
+  beatInput, characterInput, plotLineInput, settingInput, volumeInput, emptyCharacter, emptySetting, emptyPlotLine, emptyBeat, emptyVolume,
+  type BeatInput, type BeatRecord, type CharacterInput, type EventKind, type PlotLineInput, type SettingInput, type VolumeInput, type Weight,
 } from "../preparation-changes.js";
 
-type Kind = "character" | "setting" | "plotLine" | "beat";
+type Kind = "character" | "setting" | "plotLine" | "beat" | "volume";
 /** 编辑既有条目时带上原对象；新增时 base 为 null。 */
 export type Editing = { readonly kind: Kind; readonly base: unknown | null };
 
@@ -314,6 +314,43 @@ export function PlotLineEditor({ base, fingerprint, onSaved, onClose }: {
       <Field label="名称"><Input value={label} onChange={(e) => setLabel(e.target.value)} /></Field>
       <Field label="权重"><Select value={weight} onChange={setWeight} options={options(WEIGHTS)} /></Field>
     </div>
+  </Frame>;
+}
+
+// ── 卷 ──────────────────────────────────────────────────────────────────
+
+/**
+ * 卷名与卷纲。
+ *
+ * 这里**不问章号**：哪几章属于这一卷由章节计划的卷号决定，那是唯一的一份边界。
+ * 所以表单里给出当前推出来的范围供核对，但它是只读的。
+ *
+ * 卷纲不是装饰 —— 远距离的逐章梗概会被它整段顶替。章数一多，那一段本来是按每 15 章
+ * 一桶原样堆着的，卷纲是唯一真正把它压下去的东西。
+ */
+export function VolumeEditor({ base, volume, span, written, fingerprint, onSaved, onClose }: {
+  base: VolumeInput | null; volume: number; span: { from: number; to: number } | null; written: boolean;
+  fingerprint: string; onSaved: (proposal: PreparationProposal) => void; onClose: () => void;
+}): React.ReactElement {
+  const seed = base ?? emptyVolume(volume);
+  const [title, setTitle] = useState(seed.title);
+  const [summary, setSummary] = useState(seed.summary);
+  const { busy, error, save } = useSave(fingerprint, onSaved);
+  const range = span === null ? "还没有章节排进这一卷" : span.from === span.to ? `第 ${span.from} 章` : `第 ${span.from}–${span.to} 章`;
+  return <Frame title={base === null ? `新增卷 ${volume}` : `编辑卷 ${volume}`}
+    hint="卷纲只写这一卷已经写完的内容。它会顶替这几章的逐章梗概进入模型上下文 —— 写得含糊，后面的章就看不清前面发生过什么。"
+    busy={busy} error={error} disabled={busy} onClose={onClose}
+    onSubmit={() => void save(base === null ? `作者新增卷 ${volume}「${title}」` : `作者修改卷 ${volume}「${title}」`, { volumes: [volumeInput({ volume, title, summary })] })}>
+    <div className="prep-grid">
+      <Field label="卷号"><InputNumber value={volume} disabled /></Field>
+      <Field label="卷名"><Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="风起青州" /></Field>
+    </div>
+    <Field label="覆盖章节（由章节计划的卷号决定，改卷界请去改那几章的计划）" wide><Input value={range} disabled /></Field>
+    <Field label="卷纲（一到三句，写这一卷实际发生了什么）" wide>
+      <Input.TextArea rows={4} value={summary} onChange={(e) => setSummary(e.target.value)}
+        placeholder="被逐出师门到查明师父死于内应之手。" />
+    </Field>
+    {!written && summary.trim() !== "" && <p className="finding" data-level="warn">这一卷还没有写完的章节。卷纲只写已经发生的事 —— 现在保存会被退回。</p>}
   </Frame>;
 }
 

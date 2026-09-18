@@ -27,8 +27,8 @@ const same = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.str
 const accepted = (provenance: string): boolean => provenance === "committed" || provenance === "authored";
 
 export function preparationContent(snapshot: ProjectSnapshot): PreparationContent {
-  const { setting, discipline, profile, characters, settings, plotLines, beats } = snapshot;
-  return { setting, discipline, profile, characters, settings, plotLines, beats };
+  const { setting, discipline, profile, characters, settings, plotLines, volumes, beats } = snapshot;
+  return { setting, discipline, profile, characters, settings, plotLines, volumes, beats };
 }
 
 export class PreparationService {
@@ -158,6 +158,8 @@ function build(snapshot: ProjectSnapshot, changes: PreparationChanges, now: stri
   const characters = upsert(snapshot.characters, (changes.characters ?? []).map((c) => ({ ...c, provenance: "proposed" as const, introducedAt: snapshot.characters.find((old) => old.id === c.id)?.introducedAt ?? 0, updatedAt: now })), (c) => c.id);
   const settings = upsert(snapshot.settings, changes.settings ?? [], (s) => s.id);
   const plotLines = upsert(snapshot.plotLines, changes.plotLines ?? [], (p) => p.id);
+  const volumes = upsert(snapshot.volumes, (changes.volumes ?? []).map((v) => ({ ...v, updatedAt: now })), (v) => v.volume)
+    .slice().sort((a, b) => a.volume - b.volume);
   const beats = upsert(snapshot.beats, (changes.beats ?? []).map((b) => ({ ...b, provenance: "proposed" as const, updatedAt: now, budget: deriveBudget(b.plan, profile, rules, { now }) })), (b) => b.chapter).slice().sort((a, b) => a.chapter - b.chapter);
   const discipline = changes.writingRules === undefined ? snapshot.discipline : { rules: changes.writingRules, version: `author-${hash(changes.writingRules).slice(0, 12)}` };
   const findings: GateFinding[] = [];
@@ -180,7 +182,15 @@ function build(snapshot: ProjectSnapshot, changes: PreparationChanges, now: stri
   if ((changes.beats?.length ?? 0) > 0) findings.push(...validateVolume({ beats: beats.filter((b) => (changes.beats ?? []).some((p) => p.chapter === b.chapter)), dueInVolume: projection.foreshadows.filter((f) => f.status === "open").map((f) => ({ foreshadowId: f.id, label: f.label, expectedBy: f.expectedBy })) }, rules));
   const blocks = findings.filter((f) => f.level === "block");
   if (blocks.length > 0) fail(blocks.map((f) => f.message).join("\n"));
-  const content = { setting, profile, characters, settings, plotLines, beats, discipline };
+  // 卷纲只描述已经写完的卷。给还没写到的卷写纲，等于把规划当成已发生的剧情喂进 L2。
+  const lastChapter = Math.max(0, ...snapshot.chapters.keys());
+  for (const v of changes.volumes ?? []) {
+    if (v.summary.trim() === "") continue;
+    const covered = beats.filter((b) => b.volume === v.volume).map((b) => b.chapter);
+    if (covered.length === 0) fail(`卷 ${v.volume} 还没有任何章节，不能写卷纲`);
+    if (Math.min(...covered) > lastChapter) fail(`卷 ${v.volume} 一章都还没写出来，卷纲只写已经发生的事`);
+  }
+  const content = { setting, profile, characters, settings, plotLines, volumes, beats, discipline };
   return { content, findings, impacts: impacts(snapshot, changes) };
 }
 
@@ -203,6 +213,16 @@ function impacts(snapshot: ProjectSnapshot, changes: PreparationChanges): Prepar
     if (chapters.length > 0) impacts.push({ message: `「${before.name}」的设定变化需核对正文`, chapters });
   }
   for (const b of changes.beats ?? []) if (snapshot.chapters.has(b.chapter) && !same(snapshot.beats.find((old) => old.chapter === b.chapter)?.plan, b.plan)) impacts.push({ message: `第 ${b.chapter} 章已采用，计划修改需随候选修订处理`, chapters: [b.chapter] });
+  // 改卷界会让已写好的卷纲描述错的章段：那份纲是按旧范围写的。
+  const moved = (changes.beats ?? []).filter((b) => {
+    const before = snapshot.beats.find((old) => old.chapter === b.chapter);
+    return before !== undefined && before.volume !== b.volume;
+  });
+  for (const volume of new Set(moved.flatMap((b) => [b.volume, snapshot.beats.find((old) => old.chapter === b.chapter)!.volume]))) {
+    if (snapshot.volumes.find((card) => card.volume === volume)?.summary.trim()) {
+      impacts.push({ message: `卷 ${volume} 的范围变了，它的卷纲要重写`, chapters: moved.map((b) => b.chapter).sort((x, y) => x - y) });
+    }
+  }
   return impacts;
 }
 

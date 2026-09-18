@@ -2,7 +2,7 @@ import type { ProjectSnapshot } from "../store/persist.js";
 import type { ChapterPlan, GateFinding, WorkProfile } from "../types/beat.js";
 import type { WorkSetting } from "../types/work.js";
 
-export type PreparationContent = Pick<ProjectSnapshot, "setting" | "discipline" | "profile" | "characters" | "settings" | "plotLines" | "beats">;
+export type PreparationContent = Pick<ProjectSnapshot, "setting" | "discipline" | "profile" | "characters" | "settings" | "plotLines" | "volumes" | "beats">;
 export type CharacterInput = Omit<ProjectSnapshot["characters"][number], "provenance" | "updatedAt" | "introducedAt">;
 
 /** 只允许修改资料与规划；来源、预算、正式故事事件均不能由模型填写。数组按 ID/章号更新。 */
@@ -13,6 +13,8 @@ export interface PreparationChanges {
   readonly characters?: readonly CharacterInput[];
   readonly settings?: ProjectSnapshot["settings"];
   readonly plotLines?: ProjectSnapshot["plotLines"];
+  /** 卷名与卷纲，按卷号更新。卷的边界不在这里 —— 那是 beats 的 volume。 */
+  readonly volumes?: readonly { readonly volume: number; readonly title: string; readonly summary: string }[];
   readonly beats?: readonly { readonly chapter: number; readonly volume: number; readonly plan: ChapterPlan }[];
 }
 

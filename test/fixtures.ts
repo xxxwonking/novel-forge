@@ -355,9 +355,10 @@ export const chapterSynopses: readonly { chapter: number; text: string }[] = Arr
   }),
 );
 
+/** 卷纲带章号范围：L2 靠它决定顶替掉哪几章的逐章梗概。 */
 export const volumeSummaries = [
-  { volume: 1, text: "被逐出师门到查明师父死于内应之手。" },
-  { volume: 2, text: "结识血刀客，得知青云门灭门旧案。" },
+  { volume: 1, text: "被逐出师门到查明师父死于内应之手。", from: 1, to: 20 },
+  { volume: 2, text: "结识血刀客，得知青云门灭门旧案。", from: 21, to: 40 },
 ] as const;
 
 const budget: ChapterBudget = {

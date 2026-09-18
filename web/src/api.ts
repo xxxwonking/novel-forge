@@ -512,6 +512,14 @@ export interface AdoptResponse {
 export type { CharacterRecord, CharacterAttribute, SpeechProfile, CharacterInput, SettingInput, PlotLineInput, BeatInput, BeatRecord, ChapterPlanInput, PreparationChanges } from "./preparation-changes.js";
 export type CharacterCard = CharacterRecord;
 
+/** 卷名与卷纲。章号范围不在这里 —— 由节拍表的 volume 推出。 */
+export interface VolumeCard {
+  volume: number;
+  title: string;
+  summary: string;
+  updatedAt: string;
+}
+
 export interface PreparationContent {
   setting: { title: string; genre: string; platform: string; premise: string; centralConflict: string; openingSituation: string; pov: string; tense: string; protagonistTraits: string[]; protagonistForbidden: string[]; specialAbility: string; abilityLimits: string[]; worldRules: string[]; styleKeywords: string[]; romanceLine: string; taboos: string[] };
   profile: { genre: string; platform: string; targetWords: number };
@@ -519,6 +527,7 @@ export interface PreparationContent {
   characters: CharacterRecord[];
   settings: SettingInput[];
   plotLines: PlotLineInput[];
+  volumes: VolumeCard[];
   beats: (ChapterBeat & { provenance: string })[];
 }
 

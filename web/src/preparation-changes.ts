@@ -126,6 +126,12 @@ export interface CharacterRecord extends CharacterInput {
   updatedAt: string;
 }
 
+export interface VolumeInput {
+  volume: number;
+  title: string;
+  summary: string;
+}
+
 /** 服务端读回的节拍：比可编辑部分多一个派生预算。 */
 export interface BeatRecord {
   chapter: number;
@@ -181,6 +187,15 @@ export function settingInput(card: SettingInput): SettingInput {
 
 export function plotLineInput(def: PlotLineInput): PlotLineInput {
   return { id: def.id, label: def.label, weight: def.weight };
+}
+
+/** 裁剪卷：`updatedAt` 由服务端盖章，回传它会被当成不允许的字段。 */
+export function volumeInput(card: VolumeInput): VolumeInput {
+  return { volume: card.volume, title: card.title, summary: card.summary };
+}
+
+export function emptyVolume(volume: number): VolumeInput {
+  return { volume, title: "", summary: "" };
 }
 
 /** 裁剪节拍：`budget` 是纯代码派生的产物，回传它等于让客户端伪造预算。 */
