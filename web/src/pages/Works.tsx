@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
-import { Button, Collapse, Form, Input, InputNumber, Popconfirm, Select } from "antd";
-import { ArrowRightOutlined, DeleteOutlined, ReloadOutlined, UndoOutlined } from "@ant-design/icons";
+import { Button, Collapse, Form, Input, InputNumber, Modal, Popconfirm, Select, Space } from "antd";
+import { ArrowRightOutlined, DeleteOutlined, DownloadOutlined, ImportOutlined, ReloadOutlined, UndoOutlined } from "@ant-design/icons";
 import { api, workUrl, type RemovedWork, type WorkSummary } from "../api.js";
 import { useFetch } from "../hooks.js";
 import { GENRE_LABELS, PLATFORM_LABELS, genreLabel, toOptions } from "../labels.js";
@@ -21,6 +21,11 @@ export function Works(): React.ReactElement {
   const [shelfError, setShelfError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [pending, setPending] = useState<string | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importTarget, setImportTarget] = useState("");
+  const [importError, setImportError] = useState<string | null>(null);
   const lastRequest = useRef<{ content: string; id: string } | null>(null);
 
   // 想法留空是合法起点：建好后直接进谋篇模式，由对话把书想出来，而不是把作者拦在门外。
@@ -51,14 +56,38 @@ export function Works(): React.ReactElement {
     catch (e) { setShelfError((e as Error).message); }
     finally { setPending(null); }
   };
-  const remove = (work: WorkSummary): Promise<void> => shelf(work.id, async () => {
+  const remove = (work: WorkSummary): Promise<void> => shelf(`remove:${work.id}`, async () => {
     const removed = await api.removeWork(work.id);
     return `《${removed.title}》已移入回收站，随时可以恢复；归档目录 data/.trash/${removed.archive}。`;
   });
-  const restore = (work: RemovedWork): Promise<void> => shelf(work.archive, async () => {
+  const restore = (work: RemovedWork): Promise<void> => shelf(`restore:${work.archive}`, async () => {
     const restored = await api.restoreWork(work.archive);
     return `《${restored.title}》已恢复。`;
   });
+  const backup = async (key: string, source: { id: string } | { archive: string }, title: string): Promise<void> => {
+    if (pending !== null) return;
+    setPending(`backup:${key}`); setShelfError(null); setNotice(null);
+    try {
+      const file = await api.downloadWorkBackup(source);
+      const url = URL.createObjectURL(file.blob);
+      const anchor = document.createElement("a");
+      anchor.href = url; anchor.download = file.filename; anchor.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 0);
+      setNotice(`《${title}》的备份已下载。`);
+    } catch (e) { setShelfError((e as Error).message); }
+    finally { setPending(null); }
+  };
+  const importBackup = async (): Promise<void> => {
+    if (importing) return;
+    if (importFile === null) { setImportError("请先选择一个 .nforge 备份文件"); return; }
+    setImporting(true); setImportError(null); setShelfError(null); setNotice(null);
+    try {
+      const work = await api.importWorkBackup(importFile, importTarget.trim() || undefined);
+      setNotice(`《${work.title}》已导入为 ${work.id}。`);
+      setImportOpen(false); setImportFile(null); setImportTarget(""); workspace.reload();
+    } catch (e) { setImportError((e as Error).message); }
+    finally { setImporting(false); }
+  };
 
   const count = workspace.data?.projects.length ?? 0;
   const removed = workspace.data?.removed ?? [];
@@ -80,7 +109,10 @@ export function Works(): React.ReactElement {
           </header>
           <div className="section-head">
             <h2>我的作品 <span>{String(count).padStart(2, "0")}</span></h2>
-            <Button type="text" size="small" icon={<ReloadOutlined />} loading={workspace.loading && workspace.data !== null} onClick={workspace.reload}>刷新</Button>
+            <Space size="small">
+              <Button type="text" size="small" icon={<ImportOutlined />} disabled={pending !== null || importing} onClick={() => { setImportError(null); setShelfError(null); setImportOpen(true); }}>导入备份</Button>
+              <Button type="text" size="small" icon={<ReloadOutlined />} loading={workspace.loading && workspace.data !== null} onClick={workspace.reload}>刷新</Button>
+            </Space>
           </div>
           {workspace.error !== null && <p role="alert" className="finding" data-level="block">{workspace.error}</p>}
           {workspace.loading && workspace.data === null && <div className="empty">载入作品…</div>}
@@ -93,7 +125,16 @@ export function Works(): React.ReactElement {
           )}
           {shelfError !== null && <p role="alert" className="finding" data-level="block">{shelfError}</p>}
           {notice !== null && <p role="status" className="prep-notice">{notice}</p>}
-          <div className="book-grid">{workspace.data?.projects.map((work, index) => <Book key={work.id} work={work} index={index} busy={pending === work.id} onRemove={() => void remove(work)} />)}</div>
+          <div className="book-grid">{workspace.data?.projects.map((work, index) => (
+            <Book
+              key={work.id} work={work} index={index}
+              removeBusy={pending === `remove:${work.id}`}
+              backupBusy={pending === `backup:${work.id}`}
+              disabled={pending !== null || importing}
+              onRemove={() => void remove(work)}
+              onBackup={() => void backup(work.id, { id: work.id }, work.title)}
+            />
+          ))}</div>
           {removed.length > 0 && (
             <Collapse ghost size="small" className="trash" items={[{
               key: "trash", label: `回收站 ${removed.length}`, children: (
@@ -104,7 +145,10 @@ export function Works(): React.ReactElement {
                         <strong>{work.title}</strong>
                         <p>{new Date(work.deletedAt).toLocaleString("zh-CN")} 删除 · 归档在 data/.trash/{work.archive}</p>
                       </div>
-                      <Button size="small" icon={<UndoOutlined />} loading={pending === work.archive} onClick={() => void restore(work)}>恢复</Button>
+                      <Space size="small">
+                        <Button size="small" icon={<DownloadOutlined />} loading={pending === `backup:${work.archive}`} disabled={pending !== null || importing} onClick={() => void backup(work.archive, { archive: work.archive }, work.title)}>备份</Button>
+                        <Button size="small" icon={<UndoOutlined />} loading={pending === `restore:${work.archive}`} disabled={pending !== null || importing} onClick={() => void restore(work)}>恢复</Button>
+                      </Space>
                     </li>
                   ))}
                 </ul>
@@ -155,11 +199,44 @@ export function Works(): React.ReactElement {
           </Form>
         </section>
       </div>
+      <Modal
+        title="导入作品备份"
+        open={importOpen}
+        okText="校验并导入"
+        cancelText="取消"
+        confirmLoading={importing}
+        onOk={() => { void importBackup(); }}
+        onCancel={() => {
+          if (!importing) { setImportOpen(false); setImportFile(null); setImportTarget(""); setImportError(null); }
+        }}
+        destroyOnHidden
+      >
+        <div className="backup-import-form">
+          <label>
+            <span>备份文件</span>
+            <input type="file" accept=".nforge,application/vnd.novel-forge.backup" onChange={(event) => setImportFile(event.target.files?.[0] ?? null)} />
+          </label>
+          <label>
+            <span>导入后的作品 ID <small>选填；留空沿用备份中的原 ID</small></span>
+            <Input value={importTarget} maxLength={128} placeholder="例如 rain-city-copy" onChange={(event) => setImportTarget(event.target.value)} />
+          </label>
+          {importError !== null && <p role="alert" className="finding" data-level="block">{importError}</p>}
+          <p>导入前会完整校验；若 ID 已存在会拒绝，不会覆盖或留下半本作品。</p>
+        </div>
+      </Modal>
     </main>
   );
 }
 
-function Book({ work, index, busy, onRemove }: { work: WorkSummary; index: number; busy: boolean; onRemove: () => void }): React.ReactElement {
+function Book({ work, index, removeBusy, backupBusy, disabled, onRemove, onBackup }: {
+  work: WorkSummary;
+  index: number;
+  removeBusy: boolean;
+  backupBusy: boolean;
+  disabled: boolean;
+  onRemove: () => void;
+  onBackup: () => void;
+}): React.ReactElement {
   const content = (
     <>
       <div className="book-spine" aria-hidden="true"><span>{String(index + 1).padStart(2, "0")}</span><span>{genreLabel(work.genre)}</span></div>
@@ -183,14 +260,17 @@ function Book({ work, index, busy, onRemove }: { work: WorkSummary; index: numbe
       {work.error === null
         ? <a className="book-card" href={workUrl(work.id)}>{content}</a>
         : <div className="book-card" data-error="true">{content}</div>}
-      <Popconfirm
-        title={`删除《${work.title}》`}
-        description="会移入回收站，随时可以恢复，磁盘上的文件一字不改。"
-        okText="移入回收站" cancelText="取消" placement="bottomRight"
-        onConfirm={onRemove}
-      >
-        <Button className="book-remove" type="text" size="small" icon={<DeleteOutlined />} loading={busy} aria-label={`删除《${work.title}》`} />
-      </Popconfirm>
+      <div className="book-tools">
+        <Button type="text" size="small" icon={<DownloadOutlined />} loading={backupBusy} disabled={disabled} onClick={onBackup} aria-label={`备份《${work.title}》`} />
+        <Popconfirm
+          title={`删除《${work.title}》`}
+          description="会移入回收站，随时可以恢复，磁盘上的文件一字不改。"
+          okText="移入回收站" cancelText="取消" placement="bottomRight"
+          onConfirm={onRemove}
+        >
+          <Button type="text" size="small" icon={<DeleteOutlined />} loading={removeBusy} disabled={disabled} aria-label={`删除《${work.title}》`} />
+        </Popconfirm>
+      </div>
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { request as httpRequest, type Server } from "node:http";
+import { request as httpRequest, type IncomingHttpHeaders, type Server } from "node:http";
 import { once } from "node:events";
 import type { AddressInfo } from "node:net";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
@@ -27,12 +27,17 @@ async function start() {
   servers.push(server); await once(server, "listening");
   const port = (server.address() as AddressInfo).port;
   const origin = `http://127.0.0.1:${port}`;
-  const request = (path: string, body?: string, headers: Record<string, string> = {}): Promise<{ status: number; text: string }> => new Promise((resolve, reject) => {
+  const request = (path: string, body?: string | Buffer, headers: Record<string, string> = {}): Promise<{ status: number; text: string; bytes: Buffer; headers: IncomingHttpHeaders }> => new Promise((resolve, reject) => {
     const req = httpRequest({ hostname: "127.0.0.1", port, path, method: body === undefined ? "GET" : "POST", headers: {
       ...(body === undefined ? {} : { "content-type": "application/json" }), ...headers,
     } }, res => {
-      let text = ""; res.setEncoding("utf8"); res.on("data", chunk => { text += chunk; });
-      res.on("end", () => resolve({ status: res.statusCode!, text })); res.on("error", reject);
+      const chunks: Buffer[] = [];
+      res.on("data", chunk => { chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)); });
+      res.on("end", () => {
+        const bytes = Buffer.concat(chunks);
+        resolve({ status: res.statusCode!, text: bytes.toString("utf8"), bytes, headers: res.headers });
+      });
+      res.on("error", reject);
     });
     req.on("error", reject); req.end(body);
   });
@@ -91,5 +96,36 @@ describe("本地 HTTP 请求边界", () => {
     const service = await start();
     expect((await service.request("/%broken")).status).toBe(400);
     expect((await service.request("/")).text).toContain("Novel Forge");
+  });
+
+  it("作品备份以二进制附件下载，并能上传为另一份作品", async () => {
+    const service = await start();
+    const created = JSON.parse((await service.request("/api/works", idea)).text) as { id: string };
+
+    const download = await service.request(`/api/works/backup?id=${encodeURIComponent(created.id)}`);
+    expect(download.status).toBe(200);
+    expect(download.headers["content-type"]).toBe("application/vnd.novel-forge.backup");
+    expect(download.headers["content-disposition"]).toContain("attachment");
+    expect(download.headers["x-content-sha256"]).toMatch(/^[0-9a-f]{64}$/u);
+    expect(download.bytes.subarray(0, 2)).toEqual(Buffer.from([0x1f, 0x8b]));
+
+    const imported = await service.request("/api/works/import?targetId=copy-book", download.bytes, {
+      "content-type": "application/vnd.novel-forge.backup",
+    });
+    expect(imported.status).toBe(201);
+    expect(JSON.parse(imported.text)).toMatchObject({ id: "copy-book", title: "边界测试" });
+    expect(JSON.parse((await service.request("/api/workspace")).text).projects.map((work: { id: string }) => work.id).sort()).toEqual(["copy-book", created.id].sort());
+  });
+
+  it("导入接口拒绝错误媒体类型、损坏包和外部 Origin", async () => {
+    const service = await start();
+    const broken = Buffer.from("not a backup");
+    expect((await service.request("/api/works/import", broken, { "content-type": "application/json" })).status).toBe(415);
+    expect((await service.request("/api/works/import", broken, { "content-type": "application/vnd.novel-forge.backup" })).status).toBe(400);
+    expect((await service.request("/api/works/import", broken, {
+      "content-type": "application/vnd.novel-forge.backup",
+      origin: "https://external.example",
+    })).status).toBe(403);
+    expect(JSON.parse((await service.request("/api/workspace")).text).projects).toEqual([]);
   });
 });

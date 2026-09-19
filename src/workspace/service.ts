@@ -10,6 +10,7 @@ import { ChapterWriteError } from "../server/chapter-input.js";
 import type { ChapterWriterOptions } from "../server/chapter-writer.js";
 import type { Genre, Platform } from "../types/beat.js";
 import type { WorkSetting } from "../types/work.js";
+import { createBackupPackage, parseBackupPackage, writeBackupFiles } from "./backup.js";
 
 /** 已删除作品的归档条目。`archive` 是 `.trash/` 下的目录名，也是作者能在磁盘上找到它的凭据。 */
 export interface RemovedWork extends WorkSummary {
@@ -28,6 +29,13 @@ export interface WorkSummary {
   readonly pendingDrafts: number;
   readonly updatedAt: string;
   readonly error: string | null;
+}
+
+export interface WorkBackupArtifact {
+  readonly sourceId: string;
+  readonly filename: string;
+  readonly sha256: string;
+  readonly bytes: Buffer;
 }
 
 interface WorkspaceOptions extends ChapterWriterOptions {
@@ -188,6 +196,64 @@ export class Workspace {
     return this.describe(entry.id);
   }
 
+  /** 活动作品与回收站归档共用同一种包；打包期间不允许后台任务继续落盘。 */
+  backup(raw: unknown): WorkBackupArtifact {
+    const { id, archive } = parseRef(raw);
+    if ((id === undefined) === (archive === undefined)) throw new ChapterWriteError(400, "备份时必须且只能指定作品 ID 或归档名");
+    let sourceId: string;
+    let root: string;
+    if (id !== undefined) {
+      root = this.projectPath(id);
+      sourceId = id;
+      this.assertSettled(root, "备份");
+    } else {
+      const entry = this.readArchive(archive as string);
+      if (entry === null) throw new ChapterWriteError(404, "回收站里没有这份归档");
+      sourceId = entry.id;
+      root = join(this.root, TRASH_DIR, entry.archive);
+    }
+    const bytes = createBackupPackage(root, sourceId);
+    return {
+      sourceId,
+      filename: `${sourceId}.nforge`,
+      sha256: createHash("sha256").update(bytes).digest("hex"),
+      bytes,
+    };
+  }
+
+  /** 完整校验后写入私有临时目录，最后一次改名才让新作品对列表可见。 */
+  importBackup(bytes: Uint8Array, raw: unknown): WorkSummary {
+    const backup = parseBackupPackage(bytes);
+    const targetId = parseImportOptions(raw).targetId ?? backup.sourceId;
+    if (!validId(targetId)) throw new ChapterWriteError(400, "导入目标作品 ID 无效");
+    const target = resolve(this.root, targetId);
+    if (existsSync(target) || (targetId === this.defaultProjectId && this.openedRoot !== undefined)) {
+      throw new ChapterWriteError(409, `已有作品占用目标位置（${targetId}），请换一个新 ID`);
+    }
+
+    mkdirSync(this.root, { recursive: true });
+    const staging = mkdtempSync(join(this.root, ".importing-"));
+    try {
+      writeBackupFiles(staging, backup);
+      new ProjectStore(staging).load();
+      describeWork(staging, targetId);
+      if (existsSync(target)) throw new ChapterWriteError(409, `已有作品占用目标位置（${targetId}），请换一个新 ID`);
+      renameSync(staging, target);
+    } finally {
+      if (existsSync(staging)) rmSync(staging, { recursive: true, force: true });
+    }
+    return this.describe(targetId);
+  }
+
+  private assertSettled(root: string, action: string): void {
+    const session = this.sessions.get(realpathSync.native(root));
+    if (session === undefined) return;
+    if (session.chapterTasks().some((task) => ["running", "pausing", "ending"].includes(task.status))) {
+      throw new ChapterWriteError(409, `这本作品有章节任务尚未停稳，请等待任务完成后再${action}`);
+    }
+    if (session.run.view().status === "running") throw new ChapterWriteError(409, `这本作品正在连写，请先停下再${action}`);
+  }
+
   private readArchive(archive: string): RemovedWork | null {
     const parsed = ARCHIVE_NAME.exec(archive);
     const id = parsed?.[8];
@@ -254,6 +320,14 @@ function parseRef(raw: unknown): { readonly id: string | undefined; readonly arc
     throw new ChapterWriteError(400, message);
   };
   return { id: text("id", "作品 ID 无效"), archive: text("archive", "归档名无效") };
+}
+
+function parseImportOptions(raw: unknown): { readonly targetId: string | undefined } {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) throw new ChapterWriteError(400, "导入参数必须是对象");
+  const value = (raw as Record<string, unknown>)["targetId"];
+  if (value === undefined) return { targetId: undefined };
+  if (typeof value !== "string" || value === "") throw new ChapterWriteError(400, "导入目标作品 ID 无效");
+  return { targetId: value };
 }
 
 function parseNewWork(raw: unknown): NewWorkInput {
