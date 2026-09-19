@@ -1740,3 +1740,30 @@ review:
 - 新增 `test/workspace-backup.test.ts` 27 项，覆盖普通/未知/二进制文件往返、凭据与临时文件排除、第三方包保留路径拒绝、路径穿越、大小写重复、版本、gzip/JSON、base64/长度/哈希篡改、符号链接、活动作品与归档、默认/显式 ID、碰撞不覆盖、坏作品不留半成品，以及 `running/pausing/ending` 期间拒绝备份。
 - HTTP 边界新增 2 个端到端用例：真实下载二进制再上传为另一作品；错误媒体类型、损坏包与外部 Origin 均被拒绝。
 - 全量验证：65 个测试文件，**1211 passed / 1 skipped**；`npm run typecheck` 与 `npm run web:build` 通过，构建只有既有的 Vite 500 kB chunk 警告。
+
+## 41. 2026-09-19 富格式导出：正文、分卷与设定集共用固定快照（差距第 8 项）
+
+分支 `codex/rich-export-formats`（base `master`）。实现计划：`docs/superpowers/plans/2026-09-19-rich-export-formats.md`。
+
+### 一份快照，多种产物
+
+- 正文预览一次生成 TXT、EPUB 3 和 DOCX；设定集预览一次生成结构化 JSON 与可读 DOCX。所有产物连同文件名、媒体类型、字节数和 SHA-256 写入同一份 v2 清单，二进制以 base64 保存，下载只读已固定文件，不从当前作品重建。
+- v1 TXT 清单继续可读；读取任何 v2 预览时会校验整组产物，缺失、长度变化或哈希不符一律 409，不能拿当前内容冒充旧快照。
+- EPUB/DOCX 的 ZIP 条目使用固定时间和稳定顺序，重复输入得到相同字节。EPUB 的 `mimetype` 是首项且不压缩；DOCX 使用 Letter 纸张、标题页、章节分页、中文字体和首行缩进。
+
+### 范围与设定集口径
+
+- 正文支持全部、连续章号和按卷。按卷只认 `Beat.volume`，没有对应节拍表的卷拒绝导出，不从卷名卡片猜边界；范围里的缺章与未采用稿仍只做提示，不自动补写或采用。
+- 设定集只取已确认的 `source.meta`：作品设定、写作配置与纪律、人物、地点/组织、情节线、卷卡、节拍表；不带草稿、候选方案、任务状态、凭据或运行时派生人物状态。JSON 额外保存由节拍表推导的 `volumeRanges`，Word 把同一边界写进“分卷”章节。
+- 导出标识由内容清单决定，`createdAt` 不参与身份；同一选择和内容重试复用旧快照。选择条件改变后，页面会标出旧预览并禁用下载，直到重新预览。
+
+### HTTP 与界面
+
+- `GET /api/export/download?id=...&format=...` 在当前作品边界内返回已保存字节，带准确的 `Content-Type`、`Content-Length`、RFC 5987 文件名和 `X-Content-SHA256`；旧 `/api/export/file` TXT 接口保留。
+- 导出页现在可切正文/设定集、全部/连续范围/按卷，并按快照列出 TXT、EPUB、Word 或 JSON 下载。对话工具继续只准备正文预览，支持卷号；设定集由页面直接准备。
+
+### 验证
+
+- 渲染测试覆盖 TXT BOM、EPUB 容器与转义、DOCX OOXML/样式/分页、确定性字节；服务与 HTTP 测试覆盖卷选择、v1 兼容、快照复用、二进制损坏、作品隔离和真实下载响应。
+- 用真实产品导出的中文正文 DOCX（3 页）和设定集 DOCX（17 页）逐页渲染检查，字体、分页、边距、层级、截断和重叠均正常；导出页完成桌面与 390px 移动视口操作检查，浏览器控制台无错误。
+- 全量验证：66 个测试文件，**1225 passed / 1 skipped**；`npm run typecheck` 与 `npm run web:build` 通过，`npm audit` 为 0 漏洞，构建只有既有的 Vite 500 kB chunk 警告。

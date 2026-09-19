@@ -99,7 +99,7 @@ export function Reader({ chapter, quote }: ReaderProps): React.ReactElement {
           <Tooltip title={next === undefined ? "已是最后一章" : `第 ${next.chapter} 章`}>
             <Button type="text" icon={<RightOutlined />} disabled={next === undefined} onClick={() => next && go(next.chapter)} aria-label="下一章" />
           </Tooltip>
-          <a className="export-link" href="#/export">导出已采用正文</a>
+          <a className="export-link" href="#/export">导出作品</a>
         </div>
         <div className="reader-progress" aria-hidden="true"><i style={{ transform: `scaleX(${progress})` }} /></div>
       </div>
