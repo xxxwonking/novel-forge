@@ -13,7 +13,7 @@
  */
 
 import { useRef, useState } from "react";
-import { Button, Input, InputNumber, Modal, Select } from "antd";
+import { Button, Input, InputNumber, Modal, Popconfirm, Select } from "antd";
 import { api, type CharacterRecord, type PreparationProposal, type ChapterBeat } from "../api.js";
 import {
   beatInput, characterInput, plotLineInput, settingInput, volumeInput, emptyCharacter, emptySetting, emptyPlotLine, emptyBeat, emptyVolume,
@@ -56,12 +56,22 @@ function useSave(fingerprint: string, onSaved: (proposal: PreparationProposal) =
   return { busy, error, save, setError };
 }
 
-function Frame({ title, hint, busy, error, disabled, onSubmit, onClose, children }: {
+function Frame({ title, hint, busy, error, disabled, remove, onSubmit, onClose, children }: {
   title: string; hint?: string; busy: boolean; error: string | null; disabled: boolean;
+  /** 只有编辑既有条目时才给：删除入口与「保存」分处页脚两端，不混进主按钮堆里。 */
+  remove?: { label: string; note: string; onConfirm: () => void };
   onSubmit: () => void; onClose: () => void; children: React.ReactNode;
 }): React.ReactElement {
   return <Modal open className="prep-editor" title={title} width={720} onCancel={() => { if (!busy) onClose(); }} maskClosable={!busy}
-    footer={[<Button key="cancel" disabled={busy} onClick={onClose}>取消</Button>, <Button key="ok" type="primary" loading={busy} disabled={disabled} onClick={onSubmit}>保存</Button>]}>
+    footer={<div className="prep-editor-footer">
+      {remove === undefined ? <span /> : <Popconfirm title={remove.label} description={remove.note} okText="删除" cancelText="取消" okButtonProps={{ danger: true }} placement="topLeft" onConfirm={remove.onConfirm}>
+        <Button type="text" danger disabled={busy}>{remove.label}</Button>
+      </Popconfirm>}
+      <span className="row">
+        <Button disabled={busy} onClick={onClose}>取消</Button>
+        <Button type="primary" loading={busy} disabled={disabled} onClick={onSubmit}>保存</Button>
+      </span>
+    </div>}>
     {hint !== undefined && <p className="muted">{hint}</p>}
     {error !== null && <div className="finding" role="alert" data-level="block">{error}</div>}
     <div className="prep-editor-body">{children}</div>
@@ -206,6 +216,7 @@ export function CharacterEditor({ base, characters, fingerprint, onSaved, onClos
 
   const setRow = <T,>(rows: T[], n: number, next: T): T[] => rows.map((row, i) => i === n ? next : row);
   return <Frame title={base === null ? "新增人物" : `编辑人物「${base.name}」`}
+    {...(base === null ? {} : { remove: { label: `删除人物「${base.name}」`, note: "删掉后还能再建一条；如果它还被章节计划、称谓或正式事件引用，会先告诉你要改哪里。", onConfirm: () => void save(`作者删除人物「${base.name}」`, { removals: { characters: [base.id] } }) } })}
     hint="这里是你审阅 AI 的推断的地方：只改你不同意的，拿不准的可以留着让 AI 定。" busy={busy} error={error} disabled={busy} onSubmit={submit} onClose={onClose}>
     <div className="prep-ai-bar">
       <Button size="small" loading={drafting} disabled={busy} onClick={() => void aiFill()}>让 AI 起草这位人物</Button>
@@ -284,6 +295,7 @@ export function SettingEditor({ base, fingerprint, onSaved, onClose }: {
   const [facts, setFacts] = useState(text(seed.facts));
   const { busy, error, save } = useSave(fingerprint, onSaved);
   return <Frame title={base === null ? "新增地点或组织" : `编辑「${base.name}」`}
+    {...(base === null ? {} : { remove: { label: `删除「${base.name}」`, note: "删掉后还能再建一条；如果它还被章节计划、称谓或正式事件引用，会先告诉你要改哪里。", onConfirm: () => void save(`作者删除设定「${base.name}」`, { removals: { settings: [base.id] } }) } })}
     hint="写章装配按节拍表点名的地点取用这里的描述与要点。" busy={busy} error={error} disabled={busy} onClose={onClose}
     onSubmit={() => void save(base === null ? `作者新增设定「${name}」` : `作者修改设定「${name}」`, { settings: [settingInput({ id, name, kind: kind as SettingInput["kind"], description, facts: lines(facts) })] })}>
     <div className="prep-grid">
@@ -307,6 +319,7 @@ export function PlotLineEditor({ base, fingerprint, onSaved, onClose }: {
   const [weight, setWeight] = useState<string>(seed.weight);
   const { busy, error, save } = useSave(fingerprint, onSaved);
   return <Frame title={base === null ? "新增情节线" : `编辑情节线「${base.label}」`}
+    {...(base === null ? {} : { remove: { label: `删除情节线「${base.label}」`, note: "删掉后还能再建一条；如果它还被章节计划、称谓或正式事件引用，会先告诉你要改哪里。", onConfirm: () => void save(`作者删除情节线「${base.label}」`, { removals: { plotLines: [base.id] } }) } })}
     hint="节拍表里的事件要挂到情节线上；主线权重会影响字数预算与密度校验。" busy={busy} error={error} disabled={busy} onClose={onClose}
     onSubmit={() => void save(base === null ? `作者新增情节线「${label}」` : `作者修改情节线「${label}」`, { plotLines: [plotLineInput({ id, label, weight: weight as Weight })] })}>
     <div className="prep-grid">
@@ -338,6 +351,7 @@ export function VolumeEditor({ base, volume, span, written, fingerprint, onSaved
   const { busy, error, save } = useSave(fingerprint, onSaved);
   const range = span === null ? "还没有章节排进这一卷" : span.from === span.to ? `第 ${span.from} 章` : `第 ${span.from}–${span.to} 章`;
   return <Frame title={base === null ? `新增卷 ${volume}` : `编辑卷 ${volume}`}
+    {...(base === null ? {} : { remove: { label: `删除卷 ${volume} 的卷名与卷纲`, note: "只去掉这张卡片；哪几章属于这一卷由章节自己的卷号决定，不受影响。", onConfirm: () => void save(`作者删除卷 ${volume} 的卷名与卷纲`, { removals: { volumes: [volume] } }) } })}
     hint="卷纲只写这一卷已经写完的内容。它会顶替这几章的逐章梗概进入模型上下文 —— 写得含糊，后面的章就看不清前面发生过什么。"
     busy={busy} error={error} disabled={busy} onClose={onClose}
     onSubmit={() => void save(base === null ? `作者新增卷 ${volume}「${title}」` : `作者修改卷 ${volume}「${title}」`, { volumes: [volumeInput({ volume, title, summary })] })}>
@@ -375,6 +389,7 @@ export function BeatEditor({ base, chapter, characters, settings, plotLines, fin
   const patch = (next: Partial<typeof plan>): void => setPlan({ ...plan, ...next });
   const setRow = <T,>(rows: T[], n: number, next: T): T[] => rows.map((row, i) => i === n ? next : row);
   return <Frame title={base === null ? `新增第 ${seed.chapter} 章计划` : `编辑第 ${seed.chapter} 章计划`}
+    {...(base === null ? {} : { remove: { label: `删除第 ${base.chapter} 章计划`, note: "已经写出正文的章节不能删掉计划 —— 那是这一章的依据。", onConfirm: () => void save(`作者删除第 ${base.chapter} 章计划`, { removals: { beats: [base.chapter] } }) } })}
     hint="核心事件、阶段反馈、章末钩子都不能是「继续铺垫」这类推迟的说法，也不要用「更大的风暴」这类空钩。" busy={busy} error={error} disabled={busy} onSubmit={submit} onClose={onClose}>
     <div className="prep-grid">
       <Field label="卷号"><InputNumber value={volume} min={1} onChange={(v) => setVolume(num(v, 1))} /></Field>

@@ -5,6 +5,7 @@ import { BeatEditor, CharacterEditor, DraftDialog, PlotLineEditor, SettingEditor
 import { ImportChapters } from "../components/ImportChapters.js";
 import { ReviewSettings } from "../components/ReviewSettings.js";
 import { api, type CharacterRecord, type PreparationContent, type PreparationPayload, type PreparationProposal, type SettingInput, type PlotLineInput, type VolumeCard } from "../api.js";
+import type { Removals } from "../preparation-changes.js";
 import { useFetch, useRouteActive } from "../hooks.js";
 
 const discuss = (prompt: string): string => `#/chat?prompt=${encodeURIComponent(prompt)}`;
@@ -30,7 +31,8 @@ export function Preparation({ refresh, proposalId }: { refresh: () => void; prop
   const saved = (proposal: PreparationProposal): void => {
     setEntity(null); setEditing(false);
     setSelected(proposal.status === "proposed" ? proposal.id : null);
-    setNotice(proposal.status === "confirmed" ? "作者设定已更新。" : "修改涉及已有正文，已保存为候选，请查看影响。");
+    const removed = Object.values(proposal.changes.removals ?? {}).some((list) => list.length > 0);
+    setNotice(proposal.status === "confirmed" ? removed ? "已删除。" : "作者设定已更新。" : "修改涉及已有正文，已保存为候选，请查看影响。");
     data.reload(); refresh();
   };
 
@@ -82,6 +84,7 @@ export function Preparation({ refresh, proposalId }: { refresh: () => void; prop
         </> : <>
           <div className="prep-proposal-head"><Chip color={candidate.stale ? "orange" : "cyan"}>{status(candidate)}</Chip><h2>{candidate.summary}</h2><p className="muted">{candidate.source === "author" ? "作者指定的修改" : "Agent 提出的建议"} · {new Date(candidate.createdAt).toLocaleString("zh-CN")}</p></div>
           {candidate.stale && <p className="finding" data-level="warn">这份方案依据的资料已改变。请回到对话重新整理，避免覆盖你的新选择。</p>}
+          <RemovalList removals={candidate.changes.removals} current={view.confirmed} />
           {candidate.impacts.map((impact, index) => <div key={index} className="finding" data-level="warn"><strong>{impact.message}</strong><div>{impact.chapters.map((n) => <a key={n} href={`#/chapter/${n}`}>第 {n} 章　</a>)}</div><p>先形成相应章节的候选修改，再核对这些设定。</p></div>)}
           {candidate.findings.map((finding, index) => <div key={index} className="finding" data-level={finding.level}>{finding.message}</div>)}
           {candidate.status === "proposed" && <div className="prep-proposal-actions">
@@ -132,6 +135,28 @@ function AuthorForm({ view, onSaved }: { view: PreparationPayload; onSaved: (pro
     if (Object.keys(changes).length === 0) { setError("没有需要保存的修改。"); setBusy(false); return; }
     void api.recordAuthorDetails({ summary: "作者修改基本设定与写作偏好", baseFingerprint: view.fingerprint, changes }).then(onSaved).catch((e: Error) => setError(e.message)).finally(() => setBusy(false));
   }}><fieldset disabled={busy}>{(Object.keys(labels) as (keyof typeof values)[]).map((key) => <label key={key}>{labels[key]}{key === "title" ? <Input required value={values[key]} onChange={(e) => setValues({ ...values, [key]: e.target.value })} /> : <Input.TextArea required={key === "premise"} rows={key === "writingRules" ? 6 : 3} value={values[key]} onChange={(e) => setValues({ ...values, [key]: e.target.value })} />}</label>)}{error && <p role="alert" className="finding" data-level="block">{error}</p>}<Button type="primary" htmlType="submit" loading={busy}>保存作者设定</Button></fieldset></form>;
+}
+
+/**
+ * 方案里的删除。
+ *
+ * 必须单独列出来：下面的预览是**删除之后**的资料，少了一条和从来没有过长得一模一样。
+ * 名字要从当前已确认资料里找 —— 方案自己的 content 里已经没有它了。
+ */
+function RemovalList({ removals, current }: { removals: Removals | undefined; current: PreparationContent }): React.ReactElement | null {
+  const items = [
+    ...(removals?.characters ?? []).map((id) => `人物「${current.characters.find((c) => c.id === id)?.name ?? id}」`),
+    ...(removals?.settings ?? []).map((id) => `地点／组织「${current.settings.find((s) => s.id === id)?.name ?? id}」`),
+    ...(removals?.plotLines ?? []).map((id) => `情节线「${current.plotLines.find((p) => p.id === id)?.label ?? id}」`),
+    ...(removals?.volumes ?? []).map((volume) => `卷 ${volume} 的卷名与卷纲`),
+    ...(removals?.beats ?? []).map((chapter) => `第 ${chapter} 章计划`),
+  ];
+  if (items.length === 0) return null;
+  return <div className="finding" data-level="warn">
+    <strong>这份方案会删掉 {items.length} 条资料</strong>
+    <p>{items.join("、")}</p>
+    <p className="muted">下方预览是删除之后的样子，被删掉的条目不会出现在里面。</p>
+  </div>;
 }
 
 /** 只读资料视图。传入 `onEdit` 时才出现手改入口 —— 方案预览复用本组件，那里不能编辑。 */
