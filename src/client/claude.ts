@@ -115,14 +115,16 @@ const DRIFT_FLOOR_MS = 2_000;
 /**
  * 把时长写进报错文案。**只给连接类错误补**：状态码错误是秒回的，写时长只是噪音。
  *
- * 分叉要单独说出来。「等了 940 秒」会让人以为超时没生效去改超时；
- * 「等了 940 秒，其中 640 秒机器没在运行」才指得到真正发生的事。
+ * 分叉要单独说出来，但**只报事实不断因**。2026-09-19 隔夜实测：这台机器睡了两个多
+ * 小时，两个钟累计只差 7 秒 —— Darwin 上 libuv 用的是含睡眠的连续时钟，所以
+ * 「机器睡着了」并不会造成分叉，唯一见到的一次分叉是唤醒时墙钟被 NTP 往回校了 6 秒。
+ * 既然已知的成因不止一种，这里就不替读者认定是哪一种。
  */
 export function describeTiming(timing: CallTiming): string {
   const show = (ms: number): string => ms < 1_000 ? `${ms}ms` : `${(ms / 1_000).toFixed(1)} 秒`;
-  const drift = timing.wallMs - timing.monotonicMs;
+  const drift = Math.abs(timing.wallMs - timing.monotonicMs);
   return drift > DRIFT_FLOOR_MS
-    ? `等了 ${show(timing.wallMs)}，其中约 ${show(drift)}机器没在运行；超时按运行中的 ${show(timing.monotonicMs)}计`
+    ? `等了 ${show(timing.wallMs)}；计时的两个钟差了 ${show(drift)}（超时按 ${show(timing.monotonicMs)}计），这台机器的系统时间在这期间被调整过`
     : `等了 ${show(timing.wallMs)}`;
 }
 

@@ -21,12 +21,19 @@ describe("两个钟的读数", () => {
     expect(describeTiming({ monotonicMs: 3_009, wallMs: 3_010 })).toBe("等了 3.0 秒");
   });
 
-  it("分叉大的时候把「机器没在运行」单独说出来", () => {
-    // 这正是 940 秒那件事该有的样子：超时生效了，只是没算睡着的那段。
+  it("分叉大的时候把两个钟都说出来，但不替读者断因", () => {
+    // 2026-09-19 隔夜实测：Darwin 上的单调钟含睡眠（11.9 小时里机器睡了两个多小时，
+    // 两个钟累计只差 7 秒），所以分叉不等于「机器睡了」—— 唤醒时的 NTP 校正也会造成
+    // 分叉，实测见到的那一次正是。已知成因不止一种，文案就只报事实。
     const text = describeTiming({ monotonicMs: 300_000, wallMs: 940_959 });
     expect(text).toContain("941.0 秒");
-    expect(text).toContain("机器没在运行");
+    expect(text).toContain("两个钟差了");
     expect(text).toContain("300.0 秒");
+    expect(text).not.toContain("机器没在运行");
+  });
+
+  it("墙钟被往回校时也算分叉，不会因为是负数就漏掉", () => {
+    expect(describeTiming({ monotonicMs: 10_000, wallMs: 3_000 })).toContain("两个钟差了 7.0 秒");
   });
 });
 
