@@ -169,3 +169,56 @@ describe("章节草稿端点", () => {
     expect(get(session, "/api/chapter/drafts").status).toBe(400);
   });
 });
+
+describe("丢弃草稿的恢复", () => {
+  it("恢复回到丢弃前的状态，正文与声明原样保留", () => {
+    const { session } = seed();
+    post(session, "/api/chapter/discard", { chapter: 53, draftId: "ch53d1" });
+    const res = post(session, "/api/chapter/restore", { chapter: 53, draftId: "ch53d1" });
+    expect(res.status).toBe(200);
+    expect((res.body as ChapterDraft).status).toBe("ready");
+    const draft = session.getDraft(53, "ch53d1");
+    expect(draft?.status).toBe("ready");
+    expect(draft?.body).toBe("正文A");
+    expect(draft?.declaration).toEqual(decl("A"));
+  });
+
+  it("丢弃前是什么状态就恢复成什么，不凭空变成待采用", () => {
+    const { session, drafts } = seed();
+    drafts.saveDraft({ ...ready("ch53d3", "半成品", "C"), status: "needs_revision", acceptable: false });
+    post(session, "/api/chapter/discard", { chapter: 53, draftId: "ch53d3" });
+    post(session, "/api/chapter/restore", { chapter: 53, draftId: "ch53d3" });
+    expect(session.getDraft(53, "ch53d3")?.status).toBe("needs_revision");
+  });
+
+  it("连点两次丢弃后仍能恢复回原状态", () => {
+    const { session } = seed();
+    post(session, "/api/chapter/discard", { chapter: 53, draftId: "ch53d1" });
+    expect(post(session, "/api/chapter/discard", { chapter: 53, draftId: "ch53d1" }).status).toBe(200);
+    post(session, "/api/chapter/restore", { chapter: 53, draftId: "ch53d1" });
+    expect(session.getDraft(53, "ch53d1")?.status).toBe("ready");
+  });
+
+  it("期间依据已变的稿恢复成 stale，而不是直接可采用", () => {
+    const { session } = seed();
+    post(session, "/api/chapter/discard", { chapter: 53, draftId: "ch53d1" });
+    post(session, "/api/chapter/adopt", { chapter: 53, draftId: "ch53d2" });
+    const res = post(session, "/api/chapter/restore", { chapter: 53, draftId: "ch53d1" });
+    expect(res.status).toBe(200);
+    expect((res.body as ChapterDraft).status).toBe("stale");
+    expect(post(session, "/api/chapter/adopt", { chapter: 53, draftId: "ch53d1" }).status).toBe(409);
+    expect(session.chapterText(53)).toBe("正文B");
+  });
+
+  it("没丢弃过的稿不能恢复，已采用正文不受影响", () => {
+    const { session } = seed();
+    expect(post(session, "/api/chapter/restore", { chapter: 53, draftId: "ch53d1" }).status).toBe(409);
+    expect(session.getDraft(53, "ch53d1")?.status).toBe("ready");
+  });
+
+  it("不存在的稿恢复 → 404，缺参数 → 400", () => {
+    const { session } = seed();
+    expect(post(session, "/api/chapter/restore", { chapter: 53, draftId: "ch53d9" }).status).toBe(404);
+    expect(post(session, "/api/chapter/restore", { chapter: 53 }).status).toBe(400);
+  });
+});

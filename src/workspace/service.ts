@@ -11,6 +11,12 @@ import type { ChapterWriterOptions } from "../server/chapter-writer.js";
 import type { Genre, Platform } from "../types/beat.js";
 import type { WorkSetting } from "../types/work.js";
 
+/** 已删除作品的归档条目。`archive` 是 `.trash/` 下的目录名，也是作者能在磁盘上找到它的凭据。 */
+export interface RemovedWork extends WorkSummary {
+  readonly archive: string;
+  readonly deletedAt: string;
+}
+
 export interface WorkSummary {
   readonly id: string;
   readonly title: string;
@@ -39,6 +45,10 @@ interface NewWorkInput {
 
 const GENRES: readonly Genre[] = ["xuanhuan", "xianxia", "urban", "scifi", "mystery", "rulehorror"];
 const PLATFORMS: readonly Platform[] = ["fanqie", "feilu", "qidian", "unpublished"];
+/** 回收站。点号开头，因此天然不满足 `validId`，不会被当成作品列出或打开。 */
+const TRASH_DIR = ".trash";
+/** 归档目录名：定长时间戳 + 原 ID，解析无歧义（ID 自身可含 `-` 与 `.`）。 */
+const ARCHIVE_NAME = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})(\d{3})Z-(.+)$/u;
 const validId = (id: string): boolean => /^[\p{L}\p{N}][\p{L}\p{N} ._-]{0,127}$/u.test(id) && !/[. ]$/u.test(id);
 
 export class Workspace {
@@ -63,10 +73,8 @@ export class Workspace {
       }
     }
     return [...ids].map((id) => {
-      try { return this.describe(id); }
-      catch (error) {
-        return { id, title: id, premise: "", genre: "", platform: "", currentChapter: 0, chapterCount: 0, pendingDrafts: 0, updatedAt: "", error: error instanceof Error ? error.message : String(error) };
-      }
+      try { return summarize(this.projectPath(id), id); }
+      catch (error) { return failedSummary(id, error); }
     }).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.id.localeCompare(b.id));
   }
 
@@ -121,6 +129,75 @@ export class Workspace {
     return this.describe(id);
   }
 
+  /**
+   * 删除 = 把作品目录整体移进 `.trash/`，内容一字不改。
+   *
+   * 不做真删除有两个理由：作品是作者攒了几十万字的资产，误删不可逆；归档目录本身
+   * 就是一本完整的作品，拷出去即可用，恢复只是把它改名移回来（沿用 §35
+   * `revision/rebuild` 的「改名留档」口径）。
+   */
+  remove(raw: unknown): RemovedWork {
+    const id = parseRef(raw).id;
+    if (id === undefined) throw new ChapterWriteError(400, "缺少作品 ID");
+    const root = this.projectPath(id);
+    if (id === this.defaultProjectId && this.openedRoot !== undefined) {
+      throw new ChapterWriteError(400, "这本作品是启动时用 --project 打开的，不在工作区的管理范围内，请直接在文件系统中处理");
+    }
+    const canonicalRoot = realpathSync.native(root);
+    const session = this.sessions.get(canonicalRoot);
+    if (session !== undefined) {
+      if (session.chapterTasks().some((task) => ["running", "pausing", "ending"].includes(task.status))) {
+        throw new ChapterWriteError(409, "这本作品有章节任务尚未停稳，请先等待暂停、结束或任务完成后再删除");
+      }
+      if (session.run.view().status === "running") throw new ChapterWriteError(409, "这本作品正在连写，请先停下再删除");
+    }
+
+    const summary = summarize(root, id);
+    const deletedAt = new Date();
+    const archive = `${stamp(deletedAt)}-${id}`;
+    const trash = join(this.root, TRASH_DIR);
+    mkdirSync(trash, { recursive: true });
+    const target = join(trash, archive);
+    if (existsSync(target)) throw new ChapterWriteError(409, "同名归档已存在，请稍后重试");
+    renameSync(root, target);
+    // 会话缓存按目录键，留着它会让后续请求继续写到已经改名的旧路径。
+    this.sessions.delete(canonicalRoot);
+    return { ...summary, archive, deletedAt: deletedAt.toISOString() };
+  }
+
+  /** 回收站，按删除时间倒序。 */
+  listRemoved(): readonly RemovedWork[] {
+    const trash = join(this.root, TRASH_DIR);
+    if (!existsSync(trash)) return [];
+    return readdirSync(trash, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && !entry.isSymbolicLink())
+      .map((entry) => this.readArchive(entry.name))
+      .filter((work): work is RemovedWork => work !== null)
+      .sort((a, b) => b.deletedAt.localeCompare(a.deletedAt) || a.id.localeCompare(b.id));
+  }
+
+  /** 把归档移回原 ID。`archive` 指定具体哪一份，省略时取该 ID 最近删除的一份。 */
+  restore(raw: unknown): WorkSummary {
+    const { id, archive } = parseRef(raw);
+    const entry = archive === undefined ? this.listRemoved().find((work) => work.id === id) ?? null : this.readArchive(archive);
+    if (entry === null || (id !== undefined && entry.id !== id)) throw new ChapterWriteError(404, "回收站里没有这本作品");
+
+    const target = resolve(this.root, entry.id);
+    if (existsSync(target)) throw new ChapterWriteError(409, `已经有一本作品占用了原来的位置（${entry.id}），请先处理它再恢复`);
+    renameSync(join(this.root, TRASH_DIR, entry.archive), target);
+    return this.describe(entry.id);
+  }
+
+  private readArchive(archive: string): RemovedWork | null {
+    const parsed = ARCHIVE_NAME.exec(archive);
+    const id = parsed?.[8];
+    if (parsed === null || id === undefined || !validId(id)) return null;
+    const root = join(this.root, TRASH_DIR, archive);
+    if (!existsSync(join(root, "setting.json"))) return null;
+    const deletedAt = `${parsed[1]}-${parsed[2]}-${parsed[3]}T${parsed[4]}:${parsed[5]}:${parsed[6]}.${parsed[7]}Z`;
+    return { ...summarize(root, id), archive, deletedAt };
+  }
+
   private projectPath(id: string): string {
     if (!validId(id)) throw new ChapterWriteError(400, "作品 ID 无效");
     if (id === this.defaultProjectId && this.openedRoot !== undefined) return this.openedRoot;
@@ -133,21 +210,50 @@ export class Workspace {
   }
 
   private describe(id: string): WorkSummary {
-    const root = this.projectPath(id);
-    const snapshot = new ProjectStore(root).load();
-    const drafts = new DraftStore(root);
-    const allDrafts = drafts.chaptersWithDrafts().flatMap((n) => drafts.listDrafts(n));
-    const dates = [statSync(join(root, "setting.json")).mtime.toISOString(),
-      ...snapshot.beats.map((b) => b.updatedAt), ...allDrafts.map((d) => d.updatedAt),
-      ...[...snapshot.chapters.keys()].map((n) => statSync(join(root, "chapters", `ch${n}.txt`)).mtime.toISOString())];
-    return {
-      id, title: snapshot.setting.title, premise: snapshot.setting.premise,
-      genre: snapshot.profile.genre, platform: snapshot.profile.platform,
-      currentChapter: Math.max(0, ...snapshot.chapters.keys()), chapterCount: snapshot.chapters.size,
-      pendingDrafts: allDrafts.filter((d) => d.status !== "adopted" && d.status !== "discarded").length,
-      updatedAt: dates.sort().at(-1) ?? "", error: null,
-    };
+    return describeWork(this.projectPath(id), id);
   }
+}
+
+function describeWork(root: string, id: string): WorkSummary {
+  const snapshot = new ProjectStore(root).load();
+  const drafts = new DraftStore(root);
+  const allDrafts = drafts.chaptersWithDrafts().flatMap((n) => drafts.listDrafts(n));
+  const dates = [statSync(join(root, "setting.json")).mtime.toISOString(),
+    ...snapshot.beats.map((b) => b.updatedAt), ...allDrafts.map((d) => d.updatedAt),
+    ...[...snapshot.chapters.keys()].map((n) => statSync(join(root, "chapters", `ch${n}.txt`)).mtime.toISOString())];
+  return {
+    id, title: snapshot.setting.title, premise: snapshot.setting.premise,
+    genre: snapshot.profile.genre, platform: snapshot.profile.platform,
+    currentChapter: Math.max(0, ...snapshot.chapters.keys()), chapterCount: snapshot.chapters.size,
+    pendingDrafts: allDrafts.filter((d) => d.status !== "adopted" && d.status !== "discarded").length,
+    updatedAt: dates.sort().at(-1) ?? "", error: null,
+  };
+}
+
+/** 读不出来的作品仍要列出来并说明原因，否则作者看不到它、也就无从修复。 */
+function summarize(root: string, id: string): WorkSummary {
+  try { return describeWork(root, id); }
+  catch (error) { return failedSummary(id, error); }
+}
+
+function failedSummary(id: string, error: unknown): WorkSummary {
+  return { id, title: id, premise: "", genre: "", platform: "", currentChapter: 0, chapterCount: 0, pendingDrafts: 0, updatedAt: "", error: error instanceof Error ? error.message : String(error) };
+}
+
+/** `20260919T102804123Z`：定长且人能读，作者在磁盘上一眼看得出哪份是哪天删的。 */
+function stamp(at: Date): string {
+  return at.toISOString().replace(/[-:]/gu, "").replace(".", "");
+}
+
+function parseRef(raw: unknown): { readonly id: string | undefined; readonly archive: string | undefined } {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) throw new ChapterWriteError(400, "参数必须是对象");
+  const input = raw as Record<string, unknown>;
+  const text = (key: string, message: string): string | undefined => {
+    const value = input[key];
+    if (value === undefined || (typeof value === "string" && value !== "")) return value as string | undefined;
+    throw new ChapterWriteError(400, message);
+  };
+  return { id: text("id", "作品 ID 无效"), archive: text("archive", "归档名无效") };
 }
 
 function parseNewWork(raw: unknown): NewWorkInput {
