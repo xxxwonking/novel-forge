@@ -640,6 +640,37 @@ function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null;
 }
 
+const BACKUP_MIME = "application/vnd.novel-forge.backup";
+
+async function responseError(res: Response): Promise<never> {
+  const body: unknown = await res.json().catch(() => ({}));
+  const message = isRecord(body) && typeof body["error"] === "string" ? body["error"] : `HTTP ${res.status}`;
+  throw new Error(message);
+}
+
+async function downloadWorkBackup(source: { id: string } | { archive: string }): Promise<{ blob: Blob; filename: string }> {
+  const query = new URLSearchParams(source);
+  const res = await fetch(`/api/works/backup?${query.toString()}`);
+  if (!res.ok) return responseError(res);
+  const disposition = res.headers.get("content-disposition") ?? "";
+  const encoded = /filename\*=UTF-8''([^;]+)/iu.exec(disposition)?.[1];
+  let filename = "novel-forge-backup.nforge";
+  if (encoded !== undefined) {
+    try { filename = decodeURIComponent(encoded); }
+    catch { /* 保留安全的默认文件名。 */ }
+  }
+  return { blob: await res.blob(), filename };
+}
+
+async function importWorkBackup(file: File, targetId?: string): Promise<WorkSummary> {
+  const query = new URLSearchParams();
+  if (targetId !== undefined) query.set("targetId", targetId);
+  const suffix = query.size === 0 ? "" : `?${query.toString()}`;
+  const res = await fetch(`/api/works/import${suffix}`, { method: "POST", headers: { "content-type": BACKUP_MIME }, body: file });
+  if (!res.ok) return responseError(res);
+  return await res.json() as WorkSummary;
+}
+
 export const api = {
   /** 导入旧作：只入正文，不反推结构。预览与落盘用同一份文本，服务端不暂存。 */
   importPreview: (input: { text: string }) => post<ImportPreview>("/api/import/preview", input),
@@ -680,6 +711,8 @@ export const api = {
   createWork: (input: CreateWorkInput) => post<WorkSummary>("/api/works", input),
   removeWork: (id: string) => post<RemovedWork>("/api/works/delete", { id }),
   restoreWork: (archive: string) => post<WorkSummary>("/api/works/restore", { archive }),
+  downloadWorkBackup,
+  importWorkBackup,
   overview: () => request<Overview>("/api/overview"),
   views: () => request<Views>("/api/views"),
   alerts: () => request<AlertsPayload>("/api/alerts"),
