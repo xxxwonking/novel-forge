@@ -6,7 +6,8 @@ import { gunzipSync, gzipSync } from "node:zlib";
 import { ProjectStore } from "../src/store/persist.js";
 import { createBackupPackage, parseBackupPackage, writeBackupFiles } from "../src/workspace/backup.js";
 import { Workspace } from "../src/workspace/service.js";
-import { writingSnapshot } from "./writing-fixtures.js";
+import type { CallResult } from "../src/client/claude.js";
+import { C5_JSON, PROSE, modelText, writingSnapshot } from "./writing-fixtures.js";
 
 const roots: string[] = [];
 
@@ -33,6 +34,12 @@ function packageFixture(): { root: string; bytes: Buffer; value: any } {
   writeFileSync(join(root, "setting.json"), "{}\n", "utf8");
   const bytes = createBackupPackage(root, "book-a");
   return { root, bytes, value: manifest(bytes) };
+}
+
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => { resolve = done; });
+  return { promise, resolve };
 }
 
 describe("作品备份包", () => {
@@ -187,6 +194,29 @@ describe("工作区备份与迁移", () => {
     expect(() => workspace.importBackup(bytes, { targetId: "book-a" })).toThrow();
     expect(existsSync(join(root, "book-a"))).toBe(false);
     expect(readdirNames(root).filter((name) => name.startsWith(".importing-"))).toEqual([]);
+  });
+
+  it("章节任务仍可能落盘时拒绝备份，真正结束后才放行", async () => {
+    const root = directory("nf-backup-running");
+    new ProjectStore(join(root, "book-a")).save(writingSnapshot());
+    const waiting = deferred<CallResult>();
+    let calls = 0;
+    const workspace = new Workspace(root, {
+      client: { official: false, call: async () => ++calls === 1 ? waiting.promise : modelText(C5_JSON) },
+    });
+    const session = workspace.project("book-a");
+    const started = session.startChapter({ chapter: 3 });
+
+    expect(() => workspace.backup({ id: "book-a" })).toThrow(/尚未停稳/u);
+    expect(session.controlChapter(3, started.draftId, "pause").status).toBe("pausing");
+    expect(() => workspace.backup({ id: "book-a" })).toThrow(/尚未停稳/u);
+    expect(session.controlChapter(3, started.draftId, "end").status).toBe("ending");
+    expect(() => workspace.backup({ id: "book-a" })).toThrow(/尚未停稳/u);
+
+    const completed = session.writeChapter({ chapter: 3, draftId: started.draftId });
+    waiting.resolve(modelText(PROSE));
+    await completed.catch(() => undefined);
+    expect(() => workspace.backup({ id: "book-a" })).not.toThrow();
   });
 });
 
