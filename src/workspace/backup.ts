@@ -118,6 +118,7 @@ export function parseBackupPackage(input: Uint8Array): ParsedWorkBackup {
     if (!record(candidate)) invalid("备份包文件条目无效");
     const path = candidate["path"];
     assertSafePath(path);
+    if (excluded(path)) invalid(`备份包不能包含凭据或事务临时文件：${path}`);
     const key = path.normalize("NFC").toLocaleLowerCase("en-US");
     if (seen.has(key)) invalid(`备份包含有重复文件路径：${path}`);
     seen.add(key);

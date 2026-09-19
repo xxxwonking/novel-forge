@@ -1737,6 +1737,6 @@ review:
 
 ### 验证
 
-- 新增 `test/workspace-backup.test.ts` 22 项，覆盖普通/未知/二进制文件往返、凭据与临时文件排除、路径穿越、大小写重复、版本、gzip/JSON、base64/长度/哈希篡改、符号链接、活动作品与归档、默认/显式 ID、碰撞不覆盖、坏作品不留半成品，以及 `running/pausing/ending` 期间拒绝备份。
+- 新增 `test/workspace-backup.test.ts` 27 项，覆盖普通/未知/二进制文件往返、凭据与临时文件排除、第三方包保留路径拒绝、路径穿越、大小写重复、版本、gzip/JSON、base64/长度/哈希篡改、符号链接、活动作品与归档、默认/显式 ID、碰撞不覆盖、坏作品不留半成品，以及 `running/pausing/ending` 期间拒绝备份。
 - HTTP 边界新增 2 个端到端用例：真实下载二进制再上传为另一作品；错误媒体类型、损坏包与外部 Origin 均被拒绝。
-- 全量验证：65 个测试文件，**1206 passed / 1 skipped**；`npm run typecheck` 与 `npm run web:build` 通过，构建只有既有的 Vite 500 kB chunk 警告。
+- 全量验证：65 个测试文件，**1211 passed / 1 skipped**；`npm run typecheck` 与 `npm run web:build` 通过，构建只有既有的 Vite 500 kB chunk 警告。

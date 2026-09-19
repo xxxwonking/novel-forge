@@ -98,6 +98,12 @@ describe("作品备份包", () => {
     expect(() => parseBackupPackage(encoded(value))).toThrow(/重复/u);
   });
 
+  it.each([".env", ".env.local", "nested/.env.production", ".pending-write.json", ".setting.json.id.tmp"])("拒绝第三方包重新塞入凭据或事务临时文件 %s", (path) => {
+    const { value } = packageFixture();
+    value.files[0].path = path;
+    expect(() => parseBackupPackage(encoded(value))).toThrow(/凭据|临时/u);
+  });
+
   it.each([
     ["format", "another-format"],
     ["version", 2],
