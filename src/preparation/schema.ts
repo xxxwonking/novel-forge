@@ -68,6 +68,10 @@ export const PREPARATION_CHANGES_SCHEMA = object({
   plotLines: array(object({ id: id("P"), label: nonempty, weight })),
   volumes: array(object({ volume: integer(1), title: nonempty, summary: text })),
   beats: array(object({ chapter: integer(1), volume: integer(1), plan })),
+  removals: object({
+    characters: array(id("C")), settings: array(id("S")), plotLines: array(id("P")),
+    volumes: array(integer(1)), beats: array(integer(1)),
+  }, true),
 }, true);
 
 export const PREPARATION_INPUT_SCHEMA = object({ summary: { ...nonempty, maxLength: 1000 }, baseFingerprint: { type: "string", pattern: "^[a-f0-9]{64}$" }, changes: PREPARATION_CHANGES_SCHEMA });

@@ -155,12 +155,23 @@ function build(snapshot: ProjectSnapshot, changes: PreparationChanges, now: stri
   for (const key of ["genre", "platform"] as const) if (changes.setting?.[key] !== undefined && changes.profile?.[key] !== undefined && changes.setting[key] !== changes.profile[key]) fail(`作品设定与发布配置的 ${key} 不一致`);
   const profile = { ...snapshot.profile, ...changes.profile, ...(changes.setting?.genre === undefined ? {} : { genre: changes.setting.genre }), ...(changes.setting?.platform === undefined ? {} : { platform: changes.setting.platform }) };
   const setting = { ...snapshot.setting, ...changes.setting, genre: profile.genre, platform: profile.platform };
-  const characters = upsert(snapshot.characters, (changes.characters ?? []).map((c) => ({ ...c, provenance: "proposed" as const, introducedAt: snapshot.characters.find((old) => old.id === c.id)?.introducedAt ?? 0, updatedAt: now })), (c) => c.id);
-  const settings = upsert(snapshot.settings, changes.settings ?? [], (s) => s.id);
-  const plotLines = upsert(snapshot.plotLines, changes.plotLines ?? [], (p) => p.id);
-  const volumes = upsert(snapshot.volumes, (changes.volumes ?? []).map((v) => ({ ...v, updatedAt: now })), (v) => v.volume)
+  const removals = changes.removals ?? {};
+  const drop = <T>(list: readonly T[], ids: readonly (string | number)[] | undefined, key: (item: T) => string | number, label: string, patched: readonly (string | number)[]): readonly T[] => {
+    if (ids === undefined) return list;
+    for (const id of ids) {
+      if (!list.some((item) => key(item) === id)) fail(`要删除的${label} ${id} 不存在`);
+      if (patched.includes(id)) fail(`同一方案里不能又改又删${label} ${id}`);
+    }
+    return list.filter((item) => !ids.includes(key(item)));
+  };
+  const characters = drop(upsert(snapshot.characters, (changes.characters ?? []).map((c) => ({ ...c, provenance: "proposed" as const, introducedAt: snapshot.characters.find((old) => old.id === c.id)?.introducedAt ?? 0, updatedAt: now })), (c) => c.id),
+    removals.characters, (c) => c.id, "人物", (changes.characters ?? []).map((c) => c.id));
+  const settings = drop(upsert(snapshot.settings, changes.settings ?? [], (s) => s.id), removals.settings, (s) => s.id, "地点／组织", (changes.settings ?? []).map((s) => s.id));
+  const plotLines = drop(upsert(snapshot.plotLines, changes.plotLines ?? [], (p) => p.id), removals.plotLines, (p) => p.id, "情节线", (changes.plotLines ?? []).map((p) => p.id));
+  const volumes = drop(upsert(snapshot.volumes, (changes.volumes ?? []).map((v) => ({ ...v, updatedAt: now })), (v) => v.volume), removals.volumes, (v) => v.volume, "卷", (changes.volumes ?? []).map((v) => v.volume))
     .slice().sort((a, b) => a.volume - b.volume);
-  const beats = upsert(snapshot.beats, (changes.beats ?? []).map((b) => ({ ...b, provenance: "proposed" as const, updatedAt: now, budget: deriveBudget(b.plan, profile, rules, { now }) })), (b) => b.chapter).slice().sort((a, b) => a.chapter - b.chapter);
+  const beats = drop(upsert(snapshot.beats, (changes.beats ?? []).map((b) => ({ ...b, provenance: "proposed" as const, updatedAt: now, budget: deriveBudget(b.plan, profile, rules, { now }) })), (b) => b.chapter),
+    removals.beats, (b) => b.chapter, "章节计划", (changes.beats ?? []).map((b) => b.chapter)).slice().sort((a, b) => a.chapter - b.chapter);
   const discipline = changes.writingRules === undefined ? snapshot.discipline : { rules: changes.writingRules, version: `author-${hash(changes.writingRules).slice(0, 12)}` };
   const findings: GateFinding[] = [];
   const projection = project({ events: snapshot.events, currentChapter: Math.max(0, ...snapshot.chapters.keys()), characterProfiles: [], plotLineDefs: plotLines, plotLineGap: rules.crossChapter.plotLineGap });
@@ -180,6 +191,7 @@ function build(snapshot: ProjectSnapshot, changes: PreparationChanges, now: stri
     findings.push(...validatePlan(b.plan, rules));
   }
   if ((changes.beats?.length ?? 0) > 0) findings.push(...validateVolume({ beats: beats.filter((b) => (changes.beats ?? []).some((p) => p.chapter === b.chapter)), dueInVolume: projection.foreshadows.filter((f) => f.status === "open").map((f) => ({ foreshadowId: f.id, label: f.label, expectedBy: f.expectedBy })) }, rules));
+  assertRemovable(snapshot, removals, { characters, settings, beats }, fail);
   const blocks = findings.filter((f) => f.level === "block");
   if (blocks.length > 0) fail(blocks.map((f) => f.message).join("\n"));
   // 卷纲只描述已经写完的卷。给还没写到的卷写纲，等于把规划当成已发生的剧情喂进 L2。
@@ -192,6 +204,65 @@ function build(snapshot: ProjectSnapshot, changes: PreparationChanges, now: stri
   }
   const content = { setting, profile, characters, settings, plotLines, volumes, beats, discipline };
   return { content, findings, impacts: impacts(snapshot, changes) };
+}
+
+/**
+ * 删除的引用完整性。
+ *
+ * 分两类，这条线是这一批的核心判断：**结构引用**（节拍表点名、他人称谓、已确认事件）
+ * 硬拒 —— 留下去资料会自相矛盾，节拍表会指向不存在的 ID；而**正文提及**只是散文里
+ * 出现过这个名字，不是结构引用，走 `impacts()` 的既有通道 —— 它本来就挡住确认，
+ * 且作者改完正文后自己消失，硬拒反而是死路（只能改名绕过）。
+ */
+function assertRemovable(
+  snapshot: ProjectSnapshot,
+  removals: NonNullable<PreparationChanges["removals"]>,
+  final: { characters: readonly ProjectSnapshot["characters"][number][]; settings: ProjectSnapshot["settings"]; beats: ProjectSnapshot["beats"] },
+  fail: (message: string) => never,
+): void {
+  const committed = snapshot.events.filter((event) => accepted(event.envelope.provenance)).map((event) => event.payload);
+  const chapters = (list: readonly number[]): string => [...list].sort((a, b) => a - b).join("、");
+
+  for (const id of removals.characters ?? []) {
+    const who = `人物「${snapshot.characters.find((c) => c.id === id)?.name ?? id}」`;
+    const named = final.beats.filter((b) => b.plan.characters.some((c) => c === id)).map((b) => b.chapter);
+    if (named.length > 0) fail(`${who}还是第 ${chapters(named)} 章计划里的出场人物，先改掉那几章的出场再删`);
+    const holder = final.characters.find((c) => c.speech.addressForms.some((address) => address.target === id));
+    if (holder !== undefined) fail(`${who}还被「${holder.name}」的称谓指着，先改掉那条称谓再删`);
+    if (committed.some((payload) => referencesCharacter(payload, id))) fail(`${who}已经写进正式事件，是既成的故事事实；要让他退场请改写相关章节，而不是删掉档案`);
+  }
+  for (const id of removals.settings ?? []) {
+    const what = `地点／组织「${snapshot.settings.find((s) => s.id === id)?.name ?? id}」`;
+    const named = final.beats.filter((b) => b.plan.locations.some((s) => s === id)).map((b) => b.chapter);
+    if (named.length > 0) fail(`${what}还是第 ${chapters(named)} 章计划里的地点，先改掉那几章的地点再删`);
+  }
+  for (const id of removals.plotLines ?? []) {
+    const what = `情节线「${snapshot.plotLines.find((p) => p.id === id)?.label ?? id}」`;
+    const named = final.beats.filter((b) => b.plan.events.some((event) => event.plotLine === id)).map((b) => b.chapter);
+    if (named.length > 0) fail(`${what}还挂在第 ${chapters(named)} 章计划的事件上，先改掉那几章再删`);
+    if (committed.some((payload) => referencesPlotLine(payload, id))) fail(`${what}已经写进正式事件，是既成的故事事实，不能删`);
+  }
+  for (const chapter of removals.beats ?? []) {
+    if (snapshot.chapters.has(chapter)) fail(`第 ${chapter} 章已经有采用的正文，这份计划是它的依据，不能删`);
+  }
+}
+
+function referencesCharacter(payload: ProjectSnapshot["events"][number]["payload"], id: string): boolean {
+  switch (payload.type) {
+    case "plot_event": return payload.participants.some((c) => c === id);
+    case "character_state_changed":
+    case "character_presence": return payload.characterId === id;
+    case "relation_changed": return payload.from === id || payload.to === id;
+    default: return false;
+  }
+}
+
+function referencesPlotLine(payload: ProjectSnapshot["events"][number]["payload"], id: string): boolean {
+  switch (payload.type) {
+    case "plot_event": return payload.plotLine === id;
+    case "plot_advance": return payload.plotLine === id;
+    default: return false;
+  }
 }
 
 function impacts(snapshot: ProjectSnapshot, changes: PreparationChanges): PreparationProposal["impacts"] {
@@ -211,6 +282,19 @@ function impacts(snapshot: ProjectSnapshot, changes: PreparationChanges): Prepar
     if (before === undefined || same(before, s)) continue;
     const chapters = [...snapshot.chapters].filter(([, text]) => text.includes(before.name)).map(([n]) => n);
     if (chapters.length > 0) impacts.push({ message: `「${before.name}」的设定变化需核对正文`, chapters });
+  }
+  // 删除的条目只被正文提到名字：不是结构引用，交给作者先处理那几章（impacts 本就挡确认）。
+  for (const id of changes.removals?.characters ?? []) {
+    const before = snapshot.characters.find((c) => c.id === id);
+    if (before === undefined) continue;
+    const mentioned = [...snapshot.chapters].filter(([, text]) => [before.name, ...before.aliases].some((name) => text.includes(name))).map(([n]) => n);
+    if (mentioned.length > 0) impacts.push({ message: `要删除的人物「${before.name}」在正文里出现过，先改写这些章节`, chapters: mentioned });
+  }
+  for (const id of changes.removals?.settings ?? []) {
+    const before = snapshot.settings.find((s) => s.id === id);
+    if (before === undefined) continue;
+    const mentioned = [...snapshot.chapters].filter(([, text]) => text.includes(before.name)).map(([n]) => n);
+    if (mentioned.length > 0) impacts.push({ message: `要删除的「${before.name}」在正文里出现过，先改写这些章节`, chapters: mentioned });
   }
   for (const b of changes.beats ?? []) if (snapshot.chapters.has(b.chapter) && !same(snapshot.beats.find((old) => old.chapter === b.chapter)?.plan, b.plan)) impacts.push({ message: `第 ${b.chapter} 章已采用，计划修改需随候选修订处理`, chapters: [b.chapter] });
   // 改卷界会让已写好的卷纲描述错的章段：那份纲是按旧范围写的。

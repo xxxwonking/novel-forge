@@ -16,6 +16,14 @@ export interface PreparationChanges {
   /** 卷名与卷纲，按卷号更新。卷的边界不在这里 —— 那是 beats 的 volume。 */
   readonly volumes?: readonly { readonly volume: number; readonly title: string; readonly summary: string }[];
   readonly beats?: readonly { readonly chapter: number; readonly volume: number; readonly plan: ChapterPlan }[];
+  /** 删除单独说：`changes` 的其余部分一律是按 ID/章号的 upsert，没有「少送就等于删」。 */
+  readonly removals?: {
+    readonly characters?: readonly string[];
+    readonly settings?: readonly string[];
+    readonly plotLines?: readonly string[];
+    readonly volumes?: readonly number[];
+    readonly beats?: readonly number[];
+  };
 }
 
 export interface PreparationInput {

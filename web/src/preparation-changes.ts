@@ -107,7 +107,7 @@ export interface BeatInput {
  * 作者手改资料时能提交的改动。
  *
  * 数组一律按 `id` / `chapter` **整体替换**：给了谁就覆盖谁，没给的保持原样。
- * 这里没有删除语义 —— 不传某个 ID 只是「不动它」，不是「删掉它」。
+ * **不传某个 ID 只是「不动它」，不是「删掉它」** —— 删除要显式写进 `removals`。
  */
 export interface PreparationChanges {
   setting?: Partial<{ title: string; genre: Genre; platform: Platform; premise: string; centralConflict: string; pov: NarrativePov; tense: NarrativeTense; protagonistTraits: string[]; protagonistForbidden: string[]; specialAbility: string; abilityLimits: string[]; worldRules: string[]; openingSituation: string; styleKeywords: string[]; romanceLine: string; taboos: string[] }>;
@@ -116,7 +116,18 @@ export interface PreparationChanges {
   characters?: readonly CharacterInput[];
   settings?: readonly SettingInput[];
   plotLines?: readonly PlotLineInput[];
+  volumes?: readonly VolumeInput[];
   beats?: readonly BeatInput[];
+  /** 删除单独说：其余字段一律是按 ID/章号的 upsert，少送一条不等于删。 */
+  removals?: Removals;
+}
+
+export interface Removals {
+  characters?: readonly string[];
+  settings?: readonly string[];
+  plotLines?: readonly string[];
+  volumes?: readonly number[];
+  beats?: readonly number[];
 }
 
 /** 服务端读回的人物卡：比可编辑部分多三个只读字段。 */

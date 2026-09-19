@@ -344,3 +344,111 @@ describe("资料手改表单的载荷契约", () => {
     expect(buildChapterRunInput(session, next).assembleInput.volatile.beat.budget?.words.min).toBeGreaterThan(0);
   });
 });
+
+describe("资料条目删除", () => {
+  function seeded() {
+    const { root, store } = fresh();
+    store.save(writingSnapshot());
+    return { root, session: new ProjectSession(root, NO_MODEL_REVIEW) };
+  }
+  const author = (session: ProjectSession, summary: string, changes: FormChanges) =>
+    session.preparation.recordAuthor({ summary, changes, baseFingerprint: session.preparation.view().fingerprint });
+  const person = (id: string, name: string): NonNullable<FormChanges["characters"]> => [{
+    ...emptyCharacter(), id, name, tier: "minor",
+    profile: { ...emptyCharacter().profile, role: "配角" },
+    speech: { ...emptyCharacter().speech, exemplars: ["这事我不清楚。"] },
+  }];
+  /** 把两份节拍表的出场人物收成只剩主角，用来隔开「节拍表引用」这道闸门。 */
+  const beatsWithout = (session: ProjectSession, id: string): NonNullable<FormChanges["beats"]> =>
+    session.meta.beats.map((b) => beatInput({ ...b, plan: { ...b.plan, characters: b.plan.characters.filter((c) => c !== id) } }));
+
+  it("没人引用的条目可以删掉：人物、地点、情节线、卷卡片", () => {
+    const { session } = seeded();
+    author(session, "补几个条目", {
+      characters: person("C09", "药婆"),
+      settings: [{ id: "S09", name: "河神庙", kind: "location", description: "城外破庙", facts: [] }],
+      plotLines: [{ id: "P09", label: "旧印钳的来历", weight: "sub" }],
+      volumes: [{ volume: 2, title: "密库卷", summary: "" }],
+    });
+    const proposal = author(session, "删掉它们", { removals: { characters: ["C09"], settings: ["S09"], plotLines: ["P09"], volumes: [2] } });
+    expect(proposal.status).toBe("confirmed");
+    expect(session.meta.characters.map((c) => c.id)).not.toContain("C09");
+    expect(session.meta.settings.map((s) => s.id)).not.toContain("S09");
+    expect(session.meta.plotLines.map((p) => p.id)).not.toContain("P09");
+    expect(session.meta.volumes.some((v) => v.volume === 2)).toBe(false);
+    // 卷的边界只有一份真相：删掉卷卡片不动章节的卷归属。
+    expect(session.meta.beats.find((b) => b.chapter === 3)?.volume).toBe(2);
+  });
+
+  it("被节拍表点名的人物、地点、情节线都不能删，消息要说出是哪几章", () => {
+    const { session } = seeded();
+    expect(() => author(session, "删主角", { removals: { characters: ["C01"] } })).toThrow(/第 2、3 章/u);
+    expect(() => author(session, "删地点", { removals: { settings: ["S01"] } })).toThrow(/第 2、3 章/u);
+    expect(() => author(session, "删情节线", { removals: { plotLines: ["P01"] } })).toThrow(/第 2、3 章/u);
+    expect(session.meta.characters.map((c) => c.id)).toContain("C01");
+    expect(session.meta.settings.map((s) => s.id)).toContain("S01");
+  });
+
+  it("被他人称谓引用的人物不能删", () => {
+    const { session } = seeded();
+    expect(() => author(session, "删血刀客", { beats: beatsWithout(session, "C02"), removals: { characters: ["C02"] } })).toThrow(/称谓/u);
+    expect(session.meta.characters.map((c) => c.id)).toContain("C02");
+  });
+
+  it("被已确认事件引用的人物与情节线不能删 —— 那是正式故事事实", () => {
+    const { session } = seeded();
+    const c01 = session.meta.characters.find((c) => c.id === "C01")!;
+    const withoutTarget = characterInput({ ...c01, speech: { ...c01.speech, addressForms: c01.speech.addressForms.filter((a) => a.target !== "C02") } });
+    expect(() => author(session, "删血刀客", { beats: beatsWithout(session, "C02"), characters: [withoutTarget], removals: { characters: ["C02"] } })).toThrow(/事件/u);
+
+    const beats = session.meta.beats.map((b) => beatInput({ ...b, plan: { ...b.plan, events: b.plan.events.map((e) => ({ ...e, plotLine: null })) } }));
+    expect(() => author(session, "删主线", { beats, removals: { plotLines: ["P01"] } })).toThrow(/事件/u);
+  });
+
+  it("只被正文提到名字的条目落候选，等作者处理正文，而不是直接拒绝", () => {
+    const { session } = seeded();
+    author(session, "补一个守夜人", { characters: person("C09", "守夜人") });
+    const dropPerson = author(session, "删守夜人", { removals: { characters: ["C09"] } });
+    expect(dropPerson.status).toBe("proposed");
+    expect(dropPerson.impacts.some((impact) => impact.chapters.includes(1))).toBe(true);
+    expect(session.meta.characters.map((c) => c.id)).toContain("C09");
+
+    // 地点同理：第 2 章正文里有「青云门」，但没有任何节拍表点它。
+    author(session, "补一个青云门", { settings: [{ id: "S09", name: "青云门", kind: "organization", description: "山门", facts: [] }] });
+    const dropPlace = author(session, "删青云门", { removals: { settings: ["S09"] } });
+    expect(dropPlace.status).toBe("proposed");
+    expect(dropPlace.impacts.some((impact) => impact.chapters.includes(2))).toBe(true);
+    expect(session.meta.settings.map((s) => s.id)).toContain("S09");
+  });
+
+  it("同一方案里把引用一并改掉，就可以删", () => {
+    const { session } = seeded();
+    author(session, "补一个地点", { settings: [{ id: "S09", name: "河神庙", kind: "location", description: "城外破庙", facts: [] }] });
+    const beat3 = session.meta.beats.find((b) => b.chapter === 3)!;
+    author(session, "第 3 章改到河神庙", { beats: [beatInput({ ...beat3, plan: { ...beat3.plan, locations: ["S09"] } })] });
+    expect(() => author(session, "只删地点", { removals: { settings: ["S09"] } })).toThrow(/第 3 章/u);
+
+    const proposal = author(session, "换回青州城并删掉河神庙", {
+      beats: [beatInput({ ...beat3, plan: { ...beat3.plan, locations: ["S01"] } })],
+      removals: { settings: ["S09"] },
+    });
+    expect(proposal.status).toBe("confirmed");
+    expect(session.meta.settings.map((s) => s.id)).not.toContain("S09");
+  });
+
+  it("已有采用正文的章节计划不能删，没写出来的可以", () => {
+    const { session } = seeded();
+    expect(() => author(session, "删第 2 章计划", { removals: { beats: [2] } })).toThrow(/正文/u);
+    const proposal = author(session, "删第 3 章计划", { removals: { beats: [3] } });
+    expect(proposal.status).toBe("confirmed");
+    expect(session.meta.beats.map((b) => b.chapter)).toEqual([2]);
+  });
+
+  it("删不存在的条目、同一方案又改又删，都是 400", () => {
+    const { session } = seeded();
+    expect(() => author(session, "删幽灵", { removals: { characters: ["C99"] } })).toThrow(/不存在/u);
+    const c01 = characterInput(session.meta.characters.find((c) => c.id === "C01")!);
+    expect(() => author(session, "又改又删", { characters: [c01], removals: { characters: ["C01"] } })).toThrow(/同一方案/u);
+    expect(() => author(session, "空删除", { removals: {} })).toThrow(/不能是空对象/u);
+  });
+});
