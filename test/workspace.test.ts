@@ -238,8 +238,15 @@ describe("作品删除与恢复", () => {
     const session = workspace.project("book-a");
     const started = session.startChapter({ chapter: 3 });
 
-    expect(() => workspace.remove({ id: "book-a" })).toThrow(/正在/u);
+    expect(() => workspace.remove({ id: "book-a" })).toThrow(/尚未停稳/u);
     expect(existsSync(join(root, "book-a"))).toBe(true);
+
+    // pause/end 只是在当前模型调用返回后生效；pausing/ending 期间仍可能落盘，
+    // 不能因为状态不再叫 running 就提前把目录移走。
+    expect(session.controlChapter(3, started.draftId, "pause").status).toBe("pausing");
+    expect(() => workspace.remove({ id: "book-a" })).toThrow(/尚未停稳/u);
+    expect(session.controlChapter(3, started.draftId, "end").status).toBe("ending");
+    expect(() => workspace.remove({ id: "book-a" })).toThrow(/尚未停稳/u);
 
     const completed = session.writeChapter({ chapter: 3, draftId: started.draftId });
     waiting.resolve(modelText(PROSE));

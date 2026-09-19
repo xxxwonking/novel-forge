@@ -146,7 +146,9 @@ export class Workspace {
     const canonicalRoot = realpathSync.native(root);
     const session = this.sessions.get(canonicalRoot);
     if (session !== undefined) {
-      if (session.chapterTasks().some((task) => task.status === "running")) throw new ChapterWriteError(409, "这本作品有章节任务正在执行，请先暂停或等它结束再删除");
+      if (session.chapterTasks().some((task) => ["running", "pausing", "ending"].includes(task.status))) {
+        throw new ChapterWriteError(409, "这本作品有章节任务尚未停稳，请先等待暂停、结束或任务完成后再删除");
+      }
       if (session.run.view().status === "running") throw new ChapterWriteError(409, "这本作品正在连写，请先停下再删除");
     }
 
