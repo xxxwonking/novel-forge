@@ -436,8 +436,27 @@ export class ProjectSession {
     const d = this.drafts.loadDraft(chapter, draftId);
     if (d === undefined) return false;
     if (d.status === "adopted") throw new ChapterWriteError(409, "已采用版本不能丢弃；需要修改时请另建草稿");
-    this.drafts.saveDraft({ ...d, status: "discarded", updatedAt: new Date().toISOString() });
+    // 重复丢弃不能把 discardedFrom 覆盖成 discarded，否则这份稿再也回不去原状态。
+    if (d.status === "discarded") return true;
+    this.drafts.saveDraft({ ...d, status: "discarded", discardedFrom: d.status, updatedAt: new Date().toISOString() });
     return true;
+  }
+
+  /**
+   * 撤销丢弃：回到丢弃前的状态。
+   *
+   * 恢复不等于可采用 —— 丢弃期间作品可能已经往前走了，所以最后仍要过一遍新鲜度，
+   * 依据变过的稿落 stale，与「另写一版」「采用」用的是同一条判据。
+   */
+  restoreDraft(chapter: ChapterNo, draftId: DraftId): ChapterDraft | undefined {
+    this.writer.assertNotRunning(chapter, draftId);
+    const d = this.drafts.loadDraft(chapter, draftId);
+    if (d === undefined) return undefined;
+    if (d.status !== "discarded") throw new ChapterWriteError(409, "这份草稿没有被丢弃，不需要恢复");
+    const { discardedFrom, ...rest } = d;
+    const restored: ChapterDraft = { ...rest, status: discardedFrom ?? "pending_check", updatedAt: new Date().toISOString() };
+    this.drafts.saveDraft(restored);
+    return this.writer.markStaleIfChanged(restored) ?? restored;
   }
 
   /** 采用一份草稿：提交声明为正式事实 + 落正文 + 版本 +1 + 标记后续章草稿需重核。 */

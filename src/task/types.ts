@@ -163,6 +163,8 @@ export interface ChapterDraft {
   readonly chapter: ChapterNo;
   readonly draftId: DraftId;
   readonly status: ChapterDraftStatus;
+  /** 丢弃前的状态。丢弃是软的，恢复要回到原处而不是凭空变成「待采用」。 */
+  readonly discardedFrom?: ChapterDraftStatus;
   readonly body: string;
   readonly declaration: C5Declaration | null;
   readonly findings: readonly GateFinding[];

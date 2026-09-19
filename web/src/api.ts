@@ -26,9 +26,16 @@ export interface WorkSummary {
   error: string | null;
 }
 
+export interface RemovedWork extends WorkSummary {
+  /** 回收站里的目录名（`data/.trash/` 下），作者在磁盘上按它就能找到这本书。 */
+  archive: string;
+  deletedAt: string;
+}
+
 export interface WorkspacePayload {
   projects: WorkSummary[];
   defaultProjectId: string | null;
+  removed: RemovedWork[];
 }
 
 export interface CreateWorkInput {
@@ -671,6 +678,8 @@ export const api = {
   controlTask: (chapter: number, draftId: string, action: "pause" | "end") => post<ChapterTaskView>("/api/chapter/control", { chapter, draftId, action }),
   workspace: () => request<WorkspacePayload>("/api/workspace"),
   createWork: (input: CreateWorkInput) => post<WorkSummary>("/api/works", input),
+  removeWork: (id: string) => post<RemovedWork>("/api/works/delete", { id }),
+  restoreWork: (archive: string) => post<WorkSummary>("/api/works/restore", { archive }),
   overview: () => request<Overview>("/api/overview"),
   views: () => request<Views>("/api/views"),
   alerts: () => request<AlertsPayload>("/api/alerts"),
@@ -701,6 +710,7 @@ export const api = {
   checkDraft: (input: { chapter: number; draftId: string; revisionToken: string; adoptOnSuccess: boolean; selectedProposals?: number[] }) => post<DraftView>("/api/chapter/check", input),
   adopt: (chapter: number, draftId: string, options?: { revisionToken: string; selectedProposals: number[] }) => post<AdoptResponse>("/api/chapter/adopt", { chapter, draftId, ...options }),
   discard: (chapter: number, draftId: string) => post<{ changed: boolean }>("/api/chapter/discard", { chapter, draftId }),
+  restoreDraft: (chapter: number, draftId: string) => post<DraftView>("/api/chapter/restore", { chapter, draftId }),
 };
 
 function post<T>(path: string, body: unknown): Promise<T> {

@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
-import { Button, Collapse, Form, Input, InputNumber, Select } from "antd";
-import { ArrowRightOutlined, ReloadOutlined } from "@ant-design/icons";
-import { api, workUrl, type WorkSummary } from "../api.js";
+import { Button, Collapse, Form, Input, InputNumber, Popconfirm, Select } from "antd";
+import { ArrowRightOutlined, DeleteOutlined, ReloadOutlined, UndoOutlined } from "@ant-design/icons";
+import { api, workUrl, type RemovedWork, type WorkSummary } from "../api.js";
 import { useFetch } from "../hooks.js";
 import { GENRE_LABELS, PLATFORM_LABELS, genreLabel, toOptions } from "../labels.js";
 
@@ -18,6 +18,9 @@ export function Works(): React.ReactElement {
   const [form] = Form.useForm<NewWorkForm>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [shelfError, setShelfError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [pending, setPending] = useState<string | null>(null);
   const lastRequest = useRef<{ content: string; id: string } | null>(null);
 
   // 想法留空是合法起点：建好后直接进谋篇模式，由对话把书想出来，而不是把作者拦在门外。
@@ -40,7 +43,25 @@ export function Works(): React.ReactElement {
     }
   };
 
+  /** 删除不销毁任何东西：作品整体移进回收站，恢复就是移回来。 */
+  const shelf = async (key: string, run: () => Promise<string>): Promise<void> => {
+    if (pending !== null) return;
+    setPending(key); setShelfError(null); setNotice(null);
+    try { setNotice(await run()); workspace.reload(); }
+    catch (e) { setShelfError((e as Error).message); }
+    finally { setPending(null); }
+  };
+  const remove = (work: WorkSummary): Promise<void> => shelf(work.id, async () => {
+    const removed = await api.removeWork(work.id);
+    return `《${removed.title}》已移入回收站，随时可以恢复；归档目录 data/.trash/${removed.archive}。`;
+  });
+  const restore = (work: RemovedWork): Promise<void> => shelf(work.archive, async () => {
+    const restored = await api.restoreWork(work.archive);
+    return `《${restored.title}》已恢复。`;
+  });
+
   const count = workspace.data?.projects.length ?? 0;
+  const removed = workspace.data?.removed ?? [];
 
   return (
     <main className="library">
@@ -70,7 +91,26 @@ export function Works(): React.ReactElement {
               <p>写下你想讲的故事，就可以开始了。</p>
             </div>
           )}
-          <div className="book-grid">{workspace.data?.projects.map((work, index) => <Book key={work.id} work={work} index={index} />)}</div>
+          {shelfError !== null && <p role="alert" className="finding" data-level="block">{shelfError}</p>}
+          {notice !== null && <p role="status" className="prep-notice">{notice}</p>}
+          <div className="book-grid">{workspace.data?.projects.map((work, index) => <Book key={work.id} work={work} index={index} busy={pending === work.id} onRemove={() => void remove(work)} />)}</div>
+          {removed.length > 0 && (
+            <Collapse ghost size="small" className="trash" items={[{
+              key: "trash", label: `回收站 ${removed.length}`, children: (
+                <ul className="trash-list">
+                  {removed.map((work) => (
+                    <li key={work.archive}>
+                      <div>
+                        <strong>{work.title}</strong>
+                        <p>{new Date(work.deletedAt).toLocaleString("zh-CN")} 删除 · 归档在 data/.trash/{work.archive}</p>
+                      </div>
+                      <Button size="small" icon={<UndoOutlined />} loading={pending === work.archive} onClick={() => void restore(work)}>恢复</Button>
+                    </li>
+                  ))}
+                </ul>
+              ),
+            }]} />
+          )}
         </section>
 
         <section className="new-work" aria-labelledby="new-work-title">
@@ -119,7 +159,7 @@ export function Works(): React.ReactElement {
   );
 }
 
-function Book({ work, index }: { work: WorkSummary; index: number }): React.ReactElement {
+function Book({ work, index, busy, onRemove }: { work: WorkSummary; index: number; busy: boolean; onRemove: () => void }): React.ReactElement {
   const content = (
     <>
       <div className="book-spine" aria-hidden="true"><span>{String(index + 1).padStart(2, "0")}</span><span>{genreLabel(work.genre)}</span></div>
@@ -137,9 +177,22 @@ function Book({ work, index }: { work: WorkSummary; index: number }): React.Reac
       </div>
     </>
   );
-  return work.error === null
-    ? <a className="book-card" style={{ animationDelay: `${index * 60}ms` }} href={workUrl(work.id)}>{content}</a>
-    : <div className="book-card" data-error="true" style={{ animationDelay: `${index * 60}ms` }}>{content}</div>;
+  // 删除按钮不能套进卡片那个 <a> 里，否则是可交互元素相互嵌套；并排放，由容器定位。
+  return (
+    <div className="book-slot" style={{ animationDelay: `${index * 60}ms` }}>
+      {work.error === null
+        ? <a className="book-card" href={workUrl(work.id)}>{content}</a>
+        : <div className="book-card" data-error="true">{content}</div>}
+      <Popconfirm
+        title={`删除《${work.title}》`}
+        description="会移入回收站，随时可以恢复，磁盘上的文件一字不改。"
+        okText="移入回收站" cancelText="取消" placement="bottomRight"
+        onConfirm={onRemove}
+      >
+        <Button className="book-remove" type="text" size="small" icon={<DeleteOutlined />} loading={busy} aria-label={`删除《${work.title}》`} />
+      </Popconfirm>
+    </div>
+  );
 }
 
 function BookIcon(): React.ReactElement {
