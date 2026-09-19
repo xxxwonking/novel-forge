@@ -202,6 +202,8 @@ export function handle(session: ProjectSession, req: ApiRequest): ApiResponse {
         return conversationMode(session, req.body);
       case "/api/chapter/discard":
         return chapterDiscard(session, req.body);
+      case "/api/chapter/restore":
+        return chapterRestore(session, req.body);
       case "/api/chapter/edit":
       case "/api/chapter/correct":
       case "/api/chapter/revise":
@@ -640,6 +642,18 @@ function chapterDiscard(session: ProjectSession, body: unknown): ApiResponse {
     return session.discardDraft(ref.chapter, ref.draftId)
       ? ok({ changed: true })
       : missing(`草稿不存在：ch${ref.chapter}/${ref.draftId}`);
+  } catch (error) {
+    if (error instanceof ChapterWriteError) return { status: error.status, body: { error: error.message } };
+    throw error;
+  }
+}
+
+function chapterRestore(session: ProjectSession, body: unknown): ApiResponse {
+  const ref = draftRef(body);
+  if (typeof ref === "string") return bad(ref);
+  try {
+    const restored = session.restoreDraft(ref.chapter, ref.draftId);
+    return restored === undefined ? missing(`草稿不存在：ch${ref.chapter}/${ref.draftId}`) : ok(toDraftView(restored, session));
   } catch (error) {
     if (error instanceof ChapterWriteError) return { status: error.status, body: { error: error.message } };
     throw error;

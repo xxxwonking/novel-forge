@@ -59,7 +59,7 @@ export function Drafts({ chapter, draftId, refresh, task, reloadTasks }: { chapt
     } catch (e) { if (isCurrent()) setError(`${adopted ? `第 ${chapter} 章已采用；连写没有开始：` : ""}${(e as Error).message}`); }
     finally { if (isCurrent()) setBusy(false); reload(); }
   };
-  const perform = async (action: "adopt" | "continue" | "resume" | "new" | "discard" | "check" | "checkAdopt"): Promise<void> => {
+  const perform = async (action: "adopt" | "continue" | "resume" | "new" | "discard" | "restore" | "check" | "checkAdopt"): Promise<void> => {
     if (busy) return;
     setBusy(true); setError(null); setNotice(null);
     let adopted = false;
@@ -73,6 +73,10 @@ export function Drafts({ chapter, draftId, refresh, task, reloadTasks }: { chapt
         if (isCurrent()) setNotice(`已采用第 ${chapter} 章。${action === "continue" ? "正在准备下一章…" : "它已成为后续创作依据。"}${impactNotice}`);
       }
       if (action === "discard") { await api.discard(chapter, draftId); if (isCurrent()) setNotice("草稿已丢弃，历史内容仍可查看。"); }
+      if (action === "restore") {
+        const restored = await api.restoreDraft(chapter, draftId);
+        if (isCurrent()) setNotice(restored.status === "stale" ? "草稿已恢复。丢弃期间作品依据变过，这一稿要重新核对才能采用。" : "草稿已恢复到丢弃前的状态。");
+      }
       if (action === "resume" || action === "new" || action === "continue") {
         const next = await api.writeChapter(action === "continue" ? { chapter: chapter + 1 }
           : action === "resume" ? { chapter, draftId }
@@ -118,6 +122,7 @@ export function Drafts({ chapter, draftId, refresh, task, reloadTasks }: { chapt
       {editable && draft.body.trim() && <Button disabled={busy || editor !== null} onClick={() => setEditor("rewrite")}>按要求改写</Button>}
       {editable && draft.canContinueBody && <Button type="primary" disabled={busy || editor !== null} onClick={() => setEditor("continue")}>保留片段继续完成</Button>}
       {editable && declaration !== null && <Button disabled={busy || editor !== null} onClick={() => setEditor("structure")}>正文保持，纠正记录</Button>}
+      {draft.status === "discarded" && <Button type="primary" disabled={busy || taskRunning(task)} onClick={() => void perform("restore")}>恢复这份草稿</Button>}
       {draft.status !== "discarded" && <Button disabled={busy || taskRunning(task)} onClick={() => void perform("new")}>另写一版</Button>}
       {draft.status !== "adopted" && draft.status !== "discarded" && <Button type="text" disabled={busy || taskRunning(task)} onClick={() => void perform("discard")}>丢弃这份草稿</Button>}
       {draft.status === "adopted" && <a href={`#/chapter/${chapter}`}>查看正式正文 →</a>}

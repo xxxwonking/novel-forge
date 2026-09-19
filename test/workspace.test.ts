@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -7,7 +7,9 @@ import type { AddressInfo } from "node:net";
 import { serve, type ServeOptions } from "../src/server/http.js";
 import { ProjectStore } from "../src/store/persist.js";
 import { DraftStore } from "../src/task/draft-store.js";
-import { fakeClient, savedDraft, writingSnapshot } from "./writing-fixtures.js";
+import { Workspace } from "../src/workspace/service.js";
+import { C5_JSON, PROSE, fakeClient, modelText, savedDraft, writingSnapshot } from "./writing-fixtures.js";
+import type { CallResult } from "../src/client/claude.js";
 
 const roots: string[] = [];
 const servers: ReturnType<typeof serve>[] = [];
@@ -46,7 +48,7 @@ describe("作品工作区", () => {
   it("空目录可启动；查看列表不创建演示、不调用模型", async () => {
     const root = join(directory(), "empty-library");
     const { request, model } = await start(root);
-    expect(await request("/api/workspace")).toEqual({ status: 200, body: { projects: [], defaultProjectId: null } });
+    expect(await request("/api/workspace")).toEqual({ status: 200, body: { projects: [], defaultProjectId: null, removed: [] } });
     expect(existsSync(root)).toBe(false);
     expect(model.calls).toHaveLength(0);
     expect((await request("/api/overview")).status).toBe(409);
@@ -170,5 +172,134 @@ describe("作品工作区", () => {
     const { request, root } = await start();
     expect((await request("/api/works", undefined, input)).status).toBe(400);
     expect(readdirSync(root)).toEqual([]);
+  });
+});
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => { resolve = done; });
+  return { promise, resolve };
+}
+
+describe("作品删除与恢复", () => {
+  it("删除把作品整体移进回收站：列表不再列出，归档内容一字不改", async () => {
+    const { root, request } = await start();
+    const created = await request("/api/works", undefined, idea);
+    const before = readFileSync(join(root, created.body.id, "setting.json"), "utf8");
+
+    const removed = await request("/api/works/delete", undefined, { id: created.body.id });
+    expect(removed.status).toBe(200);
+    expect(removed.body.id).toBe(created.body.id);
+
+    const listing = (await request("/api/workspace")).body;
+    expect(listing.projects).toEqual([]);
+    expect(listing.removed).toHaveLength(1);
+    expect(listing.removed[0]).toMatchObject({ id: created.body.id, title: idea.title, archive: removed.body.archive });
+    expect(Date.parse(listing.removed[0].deletedAt)).not.toBeNaN();
+
+    // 归档就是那本作品本身：一字不改，拷出去也能用。
+    expect(readdirSync(root)).toEqual([".trash"]);
+    expect(readFileSync(join(root, ".trash", removed.body.archive, "setting.json"), "utf8")).toBe(before);
+    expect((await request("/api/overview", created.body.id)).status).toBe(404);
+  });
+
+  it("恢复回原 ID，页面照常打开", async () => {
+    const root = directory();
+    new ProjectStore(join(root, "book-a")).save(writingSnapshot());
+    const { request } = await start(root);
+    await request("/api/works/delete", undefined, { id: "book-a" });
+    const restored = await request("/api/works/restore", undefined, { id: "book-a" });
+    expect(restored.status).toBe(200);
+    expect(restored.body.id).toBe("book-a");
+    expect((await request("/api/workspace")).body).toMatchObject({ removed: [] });
+    expect((await request("/api/overview", "book-a")).body.currentChapter).toBe(2);
+    expect(readdirSync(join(root, "book-a"))).toContain("setting.json");
+  });
+
+  it("原 ID 已被新作品占用时恢复被拒，归档不动", async () => {
+    const root = directory();
+    new ProjectStore(join(root, "book-a")).save(writingSnapshot());
+    const { request } = await start(root);
+    const removed = await request("/api/works/delete", undefined, { id: "book-a" });
+    new ProjectStore(join(root, "book-a")).save(writingSnapshot());
+
+    const restored = await request("/api/works/restore", undefined, { id: "book-a" });
+    expect(restored.status).toBe(409);
+    expect(existsSync(join(root, ".trash", removed.body.archive, "setting.json"))).toBe(true);
+    expect((await request("/api/workspace")).body.removed).toHaveLength(1);
+  });
+
+  it("任务正在执行时不能删除，任务结束后可以", async () => {
+    const root = directory();
+    new ProjectStore(join(root, "book-a")).save(writingSnapshot());
+    const waiting = deferred<CallResult>();
+    let calls = 0;
+    const workspace = new Workspace(root, { client: { official: false, call: async () => ++calls === 1 ? waiting.promise : modelText(C5_JSON) } });
+    const session = workspace.project("book-a");
+    const started = session.startChapter({ chapter: 3 });
+
+    expect(() => workspace.remove({ id: "book-a" })).toThrow(/正在/u);
+    expect(existsSync(join(root, "book-a"))).toBe(true);
+
+    const completed = session.writeChapter({ chapter: 3, draftId: started.draftId });
+    waiting.resolve(modelText(PROSE));
+    await completed.catch(() => undefined);
+    expect(() => workspace.remove({ id: "book-a" })).not.toThrow();
+  });
+
+  it("以 --project 打开的作品不能在这里删除：它的路径由启动参数定，删掉服务就指空", async () => {
+    const root = directory();
+    const inside = join(root, "previous-book");
+    new ProjectStore(inside).save(writingSnapshot());
+    const opened = await start(root, inside);
+    expect((await opened.request("/api/works/delete", undefined, { id: "previous-book" })).status).toBe(400);
+    expect(existsSync(join(inside, "setting.json"))).toBe(true);
+
+    const outside = join(directory(), "previous-book");
+    new ProjectStore(outside).save(writingSnapshot());
+    const external = await start(directory(), outside);
+    expect((await external.request("/api/works/delete", undefined, { id: "opened-project" })).status).toBe(400);
+    expect(existsSync(join(outside, "setting.json"))).toBe(true);
+  });
+
+  it("删除后同 ID 新建是另一本书，不会读到上一本的缓存", async () => {
+    const root = directory();
+    new ProjectStore(join(root, "book-a")).save(writingSnapshot());
+    const { request } = await start(root);
+    expect((await request("/api/overview", "book-a")).body.currentChapter).toBe(2);
+    await request("/api/works/delete", undefined, { id: "book-a" });
+
+    new ProjectStore(join(root, "book-a")).save({
+      setting: { ...writingSnapshot().setting, title: "另一本书" }, discipline: writingSnapshot().discipline,
+      settings: [], profile: writingSnapshot().profile, characters: [], plotLines: [], volumes: [], beats: [],
+      alertStates: [], events: [], chapters: new Map(),
+    });
+    const overview = await request("/api/overview", "book-a");
+    expect(overview.body.title).toBe("另一本书");
+    expect(overview.body.currentChapter).toBe(0);
+  });
+
+  it("同名归档不会互相覆盖：冲突时拒绝，旧归档与新作品都原样保留", () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(new Date("2026-09-19T10:00:00.000Z"));
+      const root = directory();
+      new ProjectStore(join(root, "book-a")).save(writingSnapshot());
+      const workspace = new Workspace(root);
+      const removed = workspace.remove({ id: "book-a" });
+      // 同一个 ID 又建了一本，再删一次 —— 时钟没走，归档名会撞上前一份。
+      new ProjectStore(join(root, "book-a")).save(writingSnapshot());
+      expect(() => workspace.remove({ id: "book-a" })).toThrow(/同名归档/u);
+      expect(existsSync(join(root, "book-a", "setting.json"))).toBe(true);
+      expect(readdirSync(join(root, ".trash"))).toEqual([removed.archive]);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it("未知作品删除与恢复都是 404，参数缺失是 400", async () => {
+    const { request } = await start();
+    expect((await request("/api/works/delete", undefined, { id: "missing-book" })).status).toBe(404);
+    expect((await request("/api/works/restore", undefined, { id: "missing-book" })).status).toBe(404);
+    expect((await request("/api/works/delete", undefined, {})).status).toBe(400);
+    expect((await request("/api/works/delete", undefined, { id: "../outside" })).status).toBe(400);
   });
 });

@@ -222,11 +222,16 @@ export class ChapterWriter {
 
   assertFresh(draft: ChapterDraft): void {
     if (draft.status === "adopted") return;
-    const changed = this.basisChanged(draft);
-    if (draft.status === "stale" || changed) {
-      if (draft.status !== "stale") this.markStale(draft);
+    if (this.markStaleIfChanged(draft) !== null) {
       throw new ChapterWriteError(409, "作品资料、节拍或已采用版本发生变化，请核对后另写一版草稿");
     }
+  }
+
+  /** 依据已变（或早已标过）则落 stale 并返回该稿，否则返回 null。判据只此一处。 */
+  markStaleIfChanged(draft: ChapterDraft): ChapterDraft | null {
+    if (draft.status === "stale") return draft;
+    if (!this.basisChanged(draft)) return null;
+    return this.markStale(draft);
   }
 
   private basisChanged(draft: ChapterDraft): boolean {
