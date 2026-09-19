@@ -117,6 +117,27 @@ describe("本地 HTTP 请求边界", () => {
     expect(JSON.parse((await service.request("/api/workspace")).text).projects.map((work: { id: string }) => work.id).sort()).toEqual(["copy-book", created.id].sort());
   });
 
+  it("导出产物通过作品隔离的二进制附件端点下载", async () => {
+    const service = await start();
+    const created = JSON.parse((await service.request("/api/works", idea)).text) as { id: string };
+    const prepared = await service.request("/api/export/preview", JSON.stringify({ kind: "bible" }), { "x-novel-project": encodeURIComponent(created.id) });
+    expect(prepared.status).toBe(200);
+    const exportId = (JSON.parse(prepared.text) as { id: string }).id;
+
+    const download = await service.request(`/api/export/download?id=${encodeURIComponent(exportId)}&format=docx`, undefined, {
+      "x-novel-project": encodeURIComponent(created.id),
+    });
+    expect(download.status).toBe(200);
+    expect(download.headers["content-type"]).toBe("application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+    expect(download.headers["content-disposition"]).toContain("attachment");
+    expect(download.headers["x-content-sha256"]).toMatch(/^[0-9a-f]{64}$/u);
+    expect(download.bytes.subarray(0, 2).toString("ascii")).toBe("PK");
+    const other = JSON.parse((await service.request("/api/works", JSON.stringify({ ...JSON.parse(idea), title: "另一本书" }))).text) as { id: string };
+    expect((await service.request(`/api/export/download?id=${encodeURIComponent(exportId)}&format=docx`, undefined, {
+      "x-novel-project": encodeURIComponent(other.id),
+    })).status).toBe(404);
+  });
+
   it("导入接口拒绝错误媒体类型、损坏包和外部 Origin", async () => {
     const service = await start();
     const broken = Buffer.from("not a backup");

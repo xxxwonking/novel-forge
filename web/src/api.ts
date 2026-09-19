@@ -575,13 +575,18 @@ export interface PreparationPayload {
 
 // ── 请求 ────────────────────────────────────────────────────────────────
 
-export type ExportSelection = { scope: "all" } | { scope: "range"; from: number; to: number };
+export type ExportSelection = { scope: "all" } | { scope: "range"; from: number; to: number } | { scope: "volume"; volume: number };
+export type ExportKind = "manuscript" | "bible";
+export type ExportArtifactFormat = "txt" | "epub" | "docx" | "json";
+export interface ExportArtifact {
+  format: ExportArtifactFormat; filename: string; mime: string; bytes: number; sha256: string;
+}
 export interface TextExportPreview {
-  id: string | null; title: string; filename: string | null; selection: ExportSelection;
+  id: string | null; kind: ExportKind; title: string; filename: string | null; selection: ExportSelection;
   chapters: { chapter: number; draftId: string | null; version: string; words: number; sha256: string }[];
   omitted: { from: number; to: number }[];
   pendingDrafts: { chapter: number; count: number }[];
-  totalWords: number; createdAt: string; sha256: string | null; message: string;
+  totalWords: number; createdAt: string; sha256: string | null; artifacts: ExportArtifact[]; message: string;
 }
 
 export interface ImportChapter { chapter: number; title: string; heading: string; body: string; words: number }
@@ -671,6 +676,23 @@ async function importWorkBackup(file: File, targetId?: string): Promise<WorkSumm
   return await res.json() as WorkSummary;
 }
 
+async function downloadExportArtifact(id: string, format: ExportArtifactFormat): Promise<{ blob: Blob; filename: string }> {
+  const projectId = selectedProjectId();
+  const headers = new Headers();
+  if (projectId !== null) headers.set("x-novel-project", encodeURIComponent(projectId));
+  const query = new URLSearchParams({ id, format });
+  const res = await fetch(`/api/export/download?${query.toString()}`, { headers });
+  if (!res.ok) return responseError(res);
+  const disposition = res.headers.get("content-disposition") ?? "";
+  const encoded = /filename\*=UTF-8''([^;]+)/iu.exec(disposition)?.[1];
+  let filename = `novel-forge-export.${format}`;
+  if (encoded !== undefined) {
+    try { filename = decodeURIComponent(encoded); }
+    catch { /* 保留安全的默认文件名。 */ }
+  }
+  return { blob: await res.blob(), filename };
+}
+
 export const api = {
   /** 导入旧作：只入正文，不反推结构。预览与落盘用同一份文本，服务端不暂存。 */
   importPreview: (input: { text: string }) => post<ImportPreview>("/api/import/preview", input),
@@ -680,9 +702,10 @@ export const api = {
   inferChapter: (chapter: number) => post<InferenceChapter>("/api/import/infer", { chapter }),
   confirmInference: (chapter: number) => post<{ chapter: number; committed: number }>("/api/import/inference/confirm", { chapter }),
   rejectInference: (chapter: number) => post<{ chapter: number; rejected: number }>("/api/import/inference/reject", { chapter }),
-  exportPreview: (selection: ExportSelection) => post<TextExportPreview>("/api/export/preview", selection),
+  exportPreview: (input: { kind: "manuscript"; selection: ExportSelection } | { kind: "bible" }) => post<TextExportPreview>("/api/export/preview", input),
   getExport: (id: string) => request<TextExportPreview>(`/api/export?id=${encodeURIComponent(id)}`),
   downloadExport: (id: string) => request<{ filename: string; text: string; sha256: string }>(`/api/export/file?id=${encodeURIComponent(id)}`),
+  downloadExportArtifact,
   planningAction: (action: PlanningAction, reason?: string) => post<ActionResult>("/api/planning/action", { action, ...(reason === undefined ? {} : { reason }) }),
   preparation: () => request<PreparationPayload>("/api/preparation"),
   reviewSettings: () => request<ReviewSettings>("/api/review-settings"),
