@@ -22,6 +22,7 @@ import { Workspace } from "../workspace/service.js";
 import { workspaceApi } from "./workspace-api.js";
 
 const LOCALHOST = "127.0.0.1";
+const BACKUP_MIME = "application/vnd.novel-forge.backup";
 
 class HttpRequestError extends Error {
   constructor(readonly status: 400 | 403 | 413 | 415, message: string) { super(message); }
@@ -77,6 +78,24 @@ async function route(
   const url = new URL(req.url ?? "/", `http://${LOCALHOST}`);
 
   if (url.pathname.startsWith("/api/")) {
+    if (req.method === "GET" && url.pathname === "/api/works/backup") {
+      const artifact = workspace.backup({
+        ...(url.searchParams.get("id") === null ? {} : { id: url.searchParams.get("id") }),
+        ...(url.searchParams.get("archive") === null ? {} : { archive: url.searchParams.get("archive") }),
+      });
+      sendBackup(res, artifact);
+      return;
+    }
+    if (req.method === "POST" && url.pathname === "/api/works/import") {
+      const contentType = req.headers["content-type"]?.split(";", 1)[0]?.trim().toLowerCase();
+      if (contentType !== BACKUP_MIME && contentType !== "application/octet-stream") {
+        throw new HttpRequestError(415, `导入作品需要 ${BACKUP_MIME} 请求体`);
+      }
+      const bytes = await readBody(req, MAX_BACKUP_BODY);
+      const targetId = url.searchParams.get("targetId") ?? undefined;
+      send(res, 201, workspace.importBackup(bytes, { targetId }));
+      return;
+    }
     if (req.method === "POST" && req.headers["content-type"]?.split(";", 1)[0]?.trim().toLowerCase() !== "application/json") {
       throw new HttpRequestError(415, "写操作需要 application/json 请求体");
     }
@@ -161,6 +180,16 @@ function send(res: ServerResponse, status: number, body: unknown): void {
   res.end(text);
 }
 
+function sendBackup(res: ServerResponse, artifact: ReturnType<Workspace["backup"]>): void {
+  res.writeHead(200, {
+    "content-type": BACKUP_MIME,
+    "content-length": artifact.bytes.length,
+    "content-disposition": `attachment; filename="novel-forge-backup.nforge"; filename*=UTF-8''${encodeURIComponent(artifact.filename)}`,
+    "x-content-sha256": artifact.sha256,
+  });
+  res.end(artifact.bytes);
+}
+
 /**
  * 对话的 SSE 通道：每个事件一行 `data:` JSON。头部在第一个事件时才写，
  * 这样开始前的失败（缺 text、未配置模型）仍能返回带状态码的 JSON。
@@ -183,21 +212,27 @@ async function streamConversation(session: ProjectSession, body: unknown, res: S
 
 /** 请求体上限：正文可能几万字，但节拍表与动作请求都很小。 */
 const MAX_BODY = 4 * 1024 * 1024;
+/** 压缩包上传上限；解压后的独立上限由 workspace/backup.ts 负责。 */
+const MAX_BACKUP_BODY = 64 * 1024 * 1024;
 
 async function readJson(req: IncomingMessage): Promise<unknown> {
-  const chunks: Buffer[] = [];
-  let size = 0;
-  for await (const chunk of req) {
-    const buf = chunk as Buffer;
-    size += buf.length;
-    if (size > MAX_BODY) throw new HttpRequestError(413, "请求体过大");
-    chunks.push(buf);
-  }
-  const text = Buffer.concat(chunks).toString("utf8");
+  const text = (await readBody(req, MAX_BODY)).toString("utf8");
   if (text.trim() === "") return undefined;
   try {
     return JSON.parse(text);
   } catch (e) {
     throw new HttpRequestError(400, `请求体不是合法 JSON：${(e as Error).message}`);
   }
+}
+
+async function readBody(req: IncomingMessage, limit: number): Promise<Buffer> {
+  const chunks: Buffer[] = [];
+  let size = 0;
+  for await (const chunk of req) {
+    const buf = chunk as Buffer;
+    size += buf.length;
+    if (size > limit) throw new HttpRequestError(413, "请求体过大");
+    chunks.push(buf);
+  }
+  return Buffer.concat(chunks);
 }
