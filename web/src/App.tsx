@@ -163,7 +163,7 @@ function ProjectApp(): React.ReactElement {
             跨章返修
           </Link>
         )}
-        <Link route={route} to="/export" go={go}>导出正文</Link>
+        <Link route={route} to="/export" go={go}>导出作品</Link>
         <Link route={route} to={`/chapter/${Math.max(overview.data?.currentChapter ?? 1, 1)}`} go={go}>
           章节与体检
         </Link>

@@ -96,6 +96,12 @@ async function route(
       send(res, 201, workspace.importBackup(bytes, { targetId }));
       return;
     }
+    if (req.method === "GET" && url.pathname === "/api/export/download") {
+      const session = selectedSession(workspace, req);
+      const artifact = session.exports.artifact(url.searchParams.get("id"), url.searchParams.get("format"));
+      sendExport(res, artifact);
+      return;
+    }
     if (req.method === "POST" && req.headers["content-type"]?.split(";", 1)[0]?.trim().toLowerCase() !== "application/json") {
       throw new HttpRequestError(415, "写操作需要 application/json 请求体");
     }
@@ -107,12 +113,7 @@ async function route(
     };
     const global = workspaceApi(workspace, apiRequest);
     if (global !== null) { send(res, global.status, global.body); return; }
-    const header = req.headers["x-novel-project"];
-    if (Array.isArray(header)) throw new ChapterWriteError(400, "每个请求只能选择一本作品");
-    let projectId: string | undefined;
-    try { projectId = header === undefined ? undefined : decodeURIComponent(header); }
-    catch { throw new ChapterWriteError(400, "作品 ID 无效"); }
-    const session = workspace.project(projectId);
+    const session = selectedSession(workspace, req);
     if (req.method === "POST" && url.pathname === "/api/conversation/stream") {
       await streamConversation(session, apiRequest.body, res);
       return;
@@ -127,6 +128,15 @@ async function route(
     return;
   }
   send(res, 404, { error: "没有前端构建产物；用 npm run web 起开发服务器" });
+}
+
+function selectedSession(workspace: Workspace, req: IncomingMessage): ProjectSession {
+  const header = req.headers["x-novel-project"];
+  if (Array.isArray(header)) throw new ChapterWriteError(400, "每个请求只能选择一本作品");
+  let projectId: string | undefined;
+  try { projectId = header === undefined ? undefined : decodeURIComponent(header); }
+  catch { throw new ChapterWriteError(400, "作品 ID 无效"); }
+  return workspace.project(projectId);
 }
 
 /** 绑定回环地址仍会收到浏览器跨站请求；同时限制 Host 与 Origin。 */
@@ -185,6 +195,17 @@ function sendBackup(res: ServerResponse, artifact: ReturnType<Workspace["backup"
     "content-type": BACKUP_MIME,
     "content-length": artifact.bytes.length,
     "content-disposition": `attachment; filename="novel-forge-backup.nforge"; filename*=UTF-8''${encodeURIComponent(artifact.filename)}`,
+    "x-content-sha256": artifact.sha256,
+  });
+  res.end(artifact.bytes);
+}
+
+function sendExport(res: ServerResponse, artifact: ReturnType<ProjectSession["exports"]["artifact"]>): void {
+  const extension = artifact.filename.split(".").at(-1) ?? "bin";
+  res.writeHead(200, {
+    "content-type": artifact.mime,
+    "content-length": artifact.bytes.length,
+    "content-disposition": `attachment; filename="novel-forge-export.${extension}"; filename*=UTF-8''${encodeURIComponent(artifact.filename)}`,
     "x-content-sha256": artifact.sha256,
   });
   res.end(artifact.bytes);

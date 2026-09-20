@@ -3,12 +3,14 @@ import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
+import { unzipSync } from "fflate";
 import type Anthropic from "@anthropic-ai/sdk";
 import { ProjectStore } from "../src/store/persist.js";
 import { ProjectSession } from "../src/server/state.js";
 import { DraftStore } from "../src/task/draft-store.js";
 import { handle } from "../src/server/api.js";
 import * as transaction from "../src/store/transaction.js";
+import { stableFingerprint } from "../src/task/revision.js";
 import type { TextExportPreview, TextExportFile } from "../src/export/types.js";
 import { CH1, CH2, PROSE, fakeClient, modelMessage, modelText, savedDraft, writingSnapshot } from "./writing-fixtures.js";
 
@@ -37,6 +39,50 @@ function file(session: ProjectSession, id: string): TextExportFile {
 }
 
 describe("固定正式版本的文本导出", () => {
+  it("一次固定正文同时保存 TXT、EPUB 和 DOCX，下载始终校验同一份快照", () => {
+    const { session, root } = fixture();
+    const result = preview(session);
+    expect(result.artifacts?.map(artifact => artifact.format)).toEqual(["txt", "epub", "docx"]);
+    for (const format of ["txt", "epub", "docx"] as const) {
+      const artifact = session.exports.artifact(result.id!, format);
+      expect(artifact.filename).toMatch(new RegExp(`\\.${format}$`, "u"));
+      expect(artifact.bytes.length).toBeGreaterThan(20);
+      expect(createHash("sha256").update(artifact.bytes).digest("hex")).toBe(artifact.sha256);
+    }
+    expect(readdirSync(join(root, "exports")).sort()).toEqual([
+      `${result.id}.artifact.docx.b64`, `${result.id}.artifact.epub.b64`, `${result.id}.json`, `${result.id}.txt`,
+    ]);
+  });
+
+  it("按卷导出只采用节拍表明确归属该卷的正式章节", () => {
+    const { session } = fixture();
+    const result = preview(session, { scope: "volume", volume: 1 });
+    expect(result.selection).toEqual({ scope: "volume", volume: 1 });
+    expect(result.chapters.map(chapter => chapter.chapter)).toEqual([2]);
+    expect(result.omitted).toEqual([]);
+    expect(session.exports.artifact(result.id!, "txt").bytes.toString("utf8")).toContain(CH2);
+    expect(session.exports.artifact(result.id!, "txt").bytes.toString("utf8")).not.toContain(CH1);
+  });
+
+  it("设定集固定原始项目资料，生成 JSON 与 DOCX，不混入正文", () => {
+    const { session } = fixture();
+    const result = session.exports.prepare({ kind: "bible" });
+    expect(result).toMatchObject({ kind: "bible", chapters: [], totalWords: 0 });
+    expect(result.artifacts?.map(artifact => artifact.format)).toEqual(["json", "docx"]);
+    const json = JSON.parse(session.exports.artifact(result.id!, "json").bytes.toString("utf8")) as Record<string, unknown>;
+    expect(json).toMatchObject({ title: writingSnapshot().setting.title, setting: writingSnapshot().setting });
+    expect(json["characters"]).toEqual(writingSnapshot().characters);
+    expect(json["volumeRanges"]).toEqual([
+      { volume: 1, from: 2, to: 2 },
+      { volume: 2, from: 3, to: 3 },
+    ]);
+    const docx = session.exports.artifact(result.id!, "docx").bytes;
+    expect(docx.subarray(0, 2).toString("ascii")).toBe("PK");
+    const document = Buffer.from(unzipSync(docx)["word/document.xml"]!).toString("utf8");
+    expect(document).toContain("一句话");
+    expect(document).not.toContain("&quot;title&quot;");
+  });
+
   it("按章号列出正式版本，历史正文有内容指纹，未采用稿只列提示", () => {
     const { session, drafts } = fixture();
     session.adopt(3, "ch3d1");
@@ -103,10 +149,29 @@ describe("固定正式版本的文本导出", () => {
     const before = new ProjectStore(root).load();
     const first = preview(session);
     expect(preview(new ProjectSession(root))).toEqual(first);
-    expect(readdirSync(join(root, "exports")).sort()).toEqual([`${first.id}.json`, `${first.id}.txt`]);
+    expect(readdirSync(join(root, "exports")).sort()).toEqual([
+      `${first.id}.artifact.docx.b64`, `${first.id}.artifact.epub.b64`, `${first.id}.json`, `${first.id}.txt`,
+    ]);
     file(session, first.id!);
     expect(new ProjectStore(root).load()).toEqual(before);
     expect(drafts.workVersion()).toBe(0);
+  });
+
+  it("仍可读取升级前的 v1 TXT 固定快照", () => {
+    const { root } = fixture();
+    const text = `\uFEFF旧版快照\n\n第 1 章\n\n${CH1}\n`;
+    const sha256 = createHash("sha256").update(text).digest("hex");
+    const manifest = {
+      version: 1 as const, title: "旧版快照", selection: { scope: "all" as const },
+      chapters: [{ chapter: 1, draftId: null, version: `legacy:${sha256}`, words: 1, sha256: createHash("sha256").update(CH1).digest("hex") }],
+      omitted: [], pendingDrafts: [], totalWords: 1, sha256,
+    };
+    const id = `export-${stableFingerprint(manifest)}`;
+    transaction.writeProjectFile(root, `exports/${id}.json`, JSON.stringify({ ...manifest, createdAt: "2026-09-10T00:00:00.000Z" }, null, 2));
+    transaction.writeProjectFile(root, `exports/${id}.txt`, text);
+    const session = new ProjectSession(root);
+    expect(session.exports.preview(id)).toMatchObject({ id, kind: "manuscript", artifacts: [{ format: "txt" }] });
+    expect(session.exports.file(id).text).toBe(text);
   });
 
   it("巨大但合法范围用遗漏区间表达，不逐章分配内存", () => {
@@ -118,6 +183,7 @@ describe("固定正式版本的文本导出", () => {
 
   it.each([null, {}, { scope: "drafts" }, { scope: "range", from: 2 }, { scope: "range", from: 0, to: 3 },
     { scope: "range", from: 1.5, to: 3 }, { scope: "range", from: 3, to: 2 }, { scope: "range", from: 1, to: Infinity },
+    { scope: "volume" }, { scope: "volume", volume: 0 }, { scope: "volume", volume: 1, from: 1 },
     { scope: "all", from: 1, to: 3 }])("非法范围 %j 在保存前拒绝", selection => {
     const { session, root } = fixture();
     expect(handle(session, { method: "POST", path: "/api/export/preview", query: new URLSearchParams(), body: selection }).status).toBe(400);
@@ -152,6 +218,14 @@ describe("固定正式版本的文本导出", () => {
     writeFileSync(path, extension === "json" ? '{"version":1}' : "被改过的导出文本", "utf8");
     expect(get(new ProjectSession(root), result.id!).status).toBe(409);
     expect(get(session, result.id!, true).status).toBe(409);
+  });
+
+  it("保存的二进制产物损坏时整份预览停止读取", () => {
+    const { session, root } = fixture();
+    const result = preview(session);
+    writeFileSync(join(root, "exports", `${result.id}.artifact.docx.b64`), "损坏的 base64", "utf8");
+    expect(get(new ProjectSession(root), result.id!).status).toBe(409);
+    expect(() => session.exports.artifact(result.id!, "docx")).toThrow(/损坏/);
   });
 
   it.each(["json", "txt"])("保存的 %s 缺失时读取和同范围重试都不重建原快照", extension => {

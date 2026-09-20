@@ -19,9 +19,9 @@ import { CORRECTION_VALUE_SCHEMAS } from "../chapter/c5-correction.js";
 export const MAIN_AGENT_TOOLS: readonly Anthropic.Tool[] = [
   {
     name: "prepare_text_export",
-    description: "按作者要求准备已采用正文的 TXT 导出预览。scope=all 选择全部；scope=range 必须提供 from/to 正整数章号。返回固定的正式版本清单、未采用项和可打开的预览编号；只创建导出产物，不写章、不采用。之后新采用不会改变这份导出，需要新版时重新调用。没有已采用正文时说明可调整范围。",
+    description: "按作者要求准备已采用正文的多格式导出预览（TXT、EPUB、Word）。scope=all 选择全部；scope=range 必须提供 from/to 正整数章号；scope=volume 必须提供 volume 正整数卷号，卷边界只按节拍表确定。返回固定的正式版本清单、未采用项和可打开的预览编号；只创建导出产物，不写章、不采用。之后新采用不会改变这份导出，需要新版时重新调用。没有已采用正文时说明可调整范围。",
     input_schema: { type: "object", additionalProperties: false, properties: {
-      scope: { type: "string", enum: ["all", "range"] }, from: { type: "integer", minimum: 1 }, to: { type: "integer", minimum: 1 },
+      scope: { type: "string", enum: ["all", "range", "volume"] }, from: { type: "integer", minimum: 1 }, to: { type: "integer", minimum: 1 }, volume: { type: "integer", minimum: 1 },
     }, required: ["scope"] },
   },
   {
