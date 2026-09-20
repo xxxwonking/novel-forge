@@ -9,6 +9,7 @@
 import { ProjectSession } from "./state.js";
 import { acknowledgeAlert, ignoreAlert, initialAlertState, unacknowledgeAlert } from "../alerts/apply.js";
 import { anchorContext, resolveAnchor } from "../anchor/resolve.js";
+import { searchWork } from "../search/service.js";
 import { gateChapter } from "../gate/code-channel.js";
 import { gateCrossChapter } from "../gate/cross-chapter.js";
 import { validatePlan } from "../beat/validate.js";
@@ -175,6 +176,8 @@ export function handle(session: ProjectSession, req: ApiRequest): ApiResponse {
         return health(session, req.query);
       case "/api/anchor":
         return anchor(session, req.query);
+      case "/api/search":
+        return search(session, req.query);
       case "/api/chapter/drafts":
         return chapterDrafts(session, req.query);
       case "/api/chapter/draft":
@@ -394,6 +397,14 @@ function declaredEventWeights(session: ProjectSession, chapter: ChapterNo): read
 }
 
 /** 点击图上元素 → 拿到定位与上下文。stale 时返回降级信息而非 404。 */
+function search(session: ProjectSession, query: URLSearchParams): ApiResponse {
+  try { return ok(searchWork(session, query.get("q") ?? "")); }
+  catch (error) {
+    if (error instanceof ChapterWriteError) return { status: error.status, body: { error: error.message } };
+    throw error;
+  }
+}
+
 function anchor(session: ProjectSession, query: URLSearchParams): ApiResponse {
   const n = intParam(query, "chapter");
   const quote = query.get("quote");

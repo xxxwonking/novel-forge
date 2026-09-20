@@ -18,6 +18,7 @@ import { Home } from "./pages/Home.js";
 import { AlertList } from "./pages/AlertList.js";
 import { ViewPage } from "./pages/ViewPage.js";
 import { Reader } from "./pages/Reader.js";
+import { Search } from "./pages/Search.js";
 import { Chat } from "./pages/Chat.js";
 import { Works } from "./pages/Works.js";
 import { Preparation } from "./pages/Preparation.js";
@@ -148,6 +149,7 @@ function ProjectApp(): React.ReactElement {
         <Link route={route} to="/alerts" go={go} count={overview.data?.counts.fullList}>
           全部提示
         </Link>
+        <Link route={route} to="/search" go={go}>全文检索</Link>
 
         <div className="rail-group">结构视图</div>
         {VIEWS.map((v) => (
@@ -224,6 +226,7 @@ function Routed({ route, overview, onAction, onIgnore, onJump, refresh, tasks, r
     return <Preparation key={query.get("proposal") ?? "confirmed"} refresh={refresh} proposalId={query.get("proposal")} />;
   }
   if (path === "/export") return <Export exportId={query.get("id")} />;
+  if (path === "/search") return <Search query={query.get("q") ?? ""} />;
   if (path === "/inference") return <Inference refresh={refresh} />;
   if (path === "/revision") return <Revision refresh={refresh} />;
   if (path?.startsWith("/draft/")) {

@@ -548,6 +548,15 @@ export interface PreparationProposal {
   findings: GateFinding[];
 }
 
+/** 全文检索：正文命中带可直接当锚点用的片段，结构命中说清命中在哪个字段。 */
+export interface SearchSnippet { quote: string; offset: number }
+export interface ChapterHit { chapter: number; count: number; snippets: SearchSnippet[] }
+export interface EntityHit {
+  kind: "character" | "setting" | "plotLine" | "volume" | "beat" | "event";
+  id: string; title: string; field: string; excerpt: string; chapter: number | null;
+}
+export interface SearchResult { query: string; chapters: ChapterHit[]; entities: EntityHit[]; truncated: boolean }
+
 /** 两个 model 审查通道的开关，按作品保存。 */
 export interface ReviewSettings {
   voice: boolean;
@@ -742,6 +751,7 @@ export const api = {
   chapters: () => request<ChapterListItem[]>("/api/chapters"),
   chapter: (n: number) => request<ChapterPayload>(`/api/chapter?n=${n}`),
   health: (n: number) => request<HealthPayload>(`/api/health?n=${n}`),
+  search: (q: string) => request<SearchResult>(`/api/search?q=${encodeURIComponent(q)}`),
   anchor: (a: TextAnchor) =>
     request<AnchorPayload>(
       `/api/anchor?chapter=${a.chapter}&quote=${encodeURIComponent(a.quote)}&offsetHint=${a.offsetHint}&occurrence=${a.occurrence}`,
