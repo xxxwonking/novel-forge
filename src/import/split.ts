@@ -217,6 +217,25 @@ function firstMarkerLine(lines: readonly string[], pattern: RegExp): number {
 }
 
 /**
+ * 这份文件是一份**目录**吗？
+ *
+ * 真机撞上的：`目录及简介.txt` 里是一百行 `第001章 标题`，长得和一本书一模一样 ——
+ * 拼进去就变成「每一章都重号、每一章都没有正文」，把整次导入卡死。
+ *
+ * 判据是**有多条标记却一条正文都没有**。只有一条标记又没正文的不算目录，那是
+ * 切坏了的章节文件，仍要按问题报出来让作者看见。
+ */
+function looksLikeContents(lines: readonly string[], pattern: RegExp): boolean {
+  let markers = 0;
+  let bodied = false;
+  for (const line of lines) {
+    if (line.length <= MAX_HEADING && pattern.test(line)) { markers += 1; continue; }
+    if (markers > 0 && line.trim() !== "") bodied = true;
+  }
+  return markers >= 2 && !bodied;
+}
+
+/**
  * 每章一个文件时把它们拼成一本。
  *
  * 顺序按文件名里的章号排（字典序会把 10、100 排到 2 前面）；认不出章号的排到最后，
@@ -237,11 +256,13 @@ export function joinChapterFiles(files: readonly ImportFile[]): JoinResult {
   if (marker === undefined) return { text: normalized.map((file) => file.lines.join("\n")).join("\n\n"), order: ordered.map((file) => file.name), notes: [] };
 
   const skipped: string[] = [];
+  const contents: string[] = [];
   const prefaced: { readonly name: string; readonly words: number }[] = [];
   const parts: string[] = [];
   for (const file of normalized) {
     const at = firstMarkerLine(file.lines, marker.pattern);
     if (at < 0) { skipped.push(file.name); continue; }
+    if (looksLikeContents(file.lines, marker.pattern)) { contents.push(file.name); continue; }
     const before = trimBody(file.lines.slice(0, at));
     if (before !== "") prefaced.push({ name: file.name, words: countWords(before) });
     parts.push(file.lines.slice(at).join("\n"));
@@ -249,6 +270,7 @@ export function joinChapterFiles(files: readonly ImportFile[]): JoinResult {
 
   const notes: string[] = [];
   if (skipped.length > 0) notes.push(`${skipped.length} 个文件里没有章节标记，本次不导入：${skipped.join("、")}。大纲、人物档案这类资料请到「作品资料」里录入。`);
+  if (contents.length > 0) notes.push(`${contents.join("、")} 看起来是目录（有章节标题但没有正文），本次不导入。`);
   if (prefaced.length > 0) {
     const named = prefaced.slice(0, 3).map((f) => `${f.name}（${f.words} 字）`).join("、");
     notes.push(`${prefaced.length} 个文件在标记行之前有未编号内容，本次不导入：${named}${prefaced.length > 3 ? " 等" : ""}。需要它的话请并进该章正文。`);

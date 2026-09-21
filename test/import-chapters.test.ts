@@ -274,6 +274,23 @@ describe("导入旧作·多文件", () => {
     expect(joined.notes.some((n) => n.includes("2-二.txt") && n.includes("标记行之前"))).toBe(true);
   });
 
+  it("目录文件被识别并跳过 —— 它每一行都像标记，但一行正文也没有", () => {
+    // 真机撞上的：`目录及简介.txt` 里是一份一百行的目录，长得和一本书一模一样。
+    const toc = ["《失踪档案》", "", "【目录】", ...Array.from({ length: 5 }, (_, i) => `第00${i + 1}章 标题${i + 1}`)].join("\n");
+    const files = [chapterFile(1, "一"), file("目录及简介.txt", toc), chapterFile(2, "二")];
+    const joined = joinChapterFiles(files);
+    expect(joined.notes.some((n) => n.includes("目录及简介.txt") && n.includes("目录"))).toBe(true);
+    const split = splitChapters(joined.text);
+    expect(split.chapters.map((c) => c.chapter)).toEqual([1, 2]);
+    expect(split.problems).toEqual([]);
+  });
+
+  it("只有一条标记又没正文的，仍按问题报出来 —— 那是切坏了，不是目录", () => {
+    const files = [chapterFile(1, "一"), file("2-二.txt", "第2章 二")];
+    const split = splitChapters(joinChapterFiles(files).text);
+    expect(split.problems.some((p) => p.includes("没有正文"))).toBe(true);
+  });
+
   it("端点接受 files，预览与导入走同一份拼接；text 与 files 二选一", async () => {
     const session = new ProjectSession(empty(), undefined);
     const files = [chapterFile(2, "二"), chapterFile(1, "一"), file("目录及简介.txt", "《失踪档案》\n\n作品简介。")];
