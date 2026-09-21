@@ -68,6 +68,16 @@ export const PREPARATION_CHANGES_SCHEMA = object({
   plotLines: array(object({ id: id("P"), label: nonempty, weight })),
   volumes: array(object({ volume: integer(1), title: nonempty, summary: text })),
   beats: array(object({ chapter: integer(1), volume: integer(1), plan })),
+  /**
+   * 作者资料里声明的人物关系（角色档案的关系表）。它们没有正文出处 —— 落进事件流时
+   * 锚点缺席，关系图画虚线，等正文写到那里再变成实线。
+   */
+  relations: array(object({
+    from: id("C"), to: id("C"),
+    fromKind: { ...enumeration(..."ally hostile kin romantic mentor subordinate acquaintance unknown".split(" ")), type: ["string", "null"] },
+    toKind: enumeration(..."ally hostile kin romantic mentor subordinate acquaintance unknown".split(" ")),
+    note: nonempty,
+  })),
   removals: object({
     characters: array(id("C")), settings: array(id("S")), plotLines: array(id("P")),
     volumes: array(integer(1)), beats: array(integer(1)),

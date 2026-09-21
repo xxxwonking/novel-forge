@@ -38,6 +38,7 @@ import type { AlternativeIdea, ConversationMode, ConversationObserver, Conversat
 import { createModelClient } from "../client/create.js";
 import { metered } from "../credits/meter.js";
 import { MaterialStore, type MaterialFile } from "../import/materials.js";
+import { NOT_IN_PROSE, type RelationClaim } from "../types/relations.js";
 import type { ImportFile } from "../import/split.js";
 import { characterSource } from "../preparation/sources.js";
 import { appendCreditEntry, readCreditEntries, summarize } from "../credits/ledger.js";
@@ -152,6 +153,7 @@ export class ProjectSession {
       snapshot: () => this.snapshot(), apply: (content) => this.applyPreparation(content),
       transaction: (operation) => this.transact(operation), rules: this.rules,
       checkChapter: (chapter) => { buildChapterRunInput(this, chapter); },
+      commitRelations: (relations) => this.appendRelations(relations),
     });
     this.planning = new PlanningService(this, operation => this.transact(operation));
     this.exports = new TextExportService(root, this);
@@ -294,6 +296,31 @@ export class ProjectSession {
     const stream = EventStream.restore(this.stream.all());
     const written = inputs.map((i) => stream.append(i));
     this.store.appendEvents(written);
+    this.stream = stream;
+    this.invalidate();
+  }
+
+  /**
+   * 追加一批**声明的关系**并立即定为正式。
+   *
+   * 走 proposed → committed 两步而不是直接写 committed：与别处一致，信封里留下
+   * 「这条是这么来的」（`origin: material_import`），而 `authored` 是「作者手填、
+   * 模型不得覆盖」——比这重得多，不能借它。
+   *
+   * 这类关系**没有正文出处**：它们来自作者提供的资料（角色档案里的关系表），
+   * 所以锚点缺席、章号记 0、图上画虚线。等正文真写到那里，反推或 C5 会补上
+   * 有出处的那条，虚线随之变实线。
+   */
+  appendRelations(relations: readonly RelationClaim[]): void {
+    if (relations.length === 0) return;
+    const stream = EventStream.restore(this.stream.all());
+    const ids = relations.map((r) => stream.append({
+      chapter: NOT_IN_PROSE, origin: "material_import", provenance: "proposed",
+      payload: { type: "relation_changed", from: r.from, to: r.to, fromKind: r.fromKind ?? null, toKind: r.toKind, note: r.note },
+    }).envelope.id);
+    // 只落最终态：proposed 那一版从未写盘，账目干净。
+    const decided = stream.decideIds(ids, "committed");
+    this.store.appendEvents(decided);
     this.stream = stream;
     this.invalidate();
   }
@@ -586,7 +613,7 @@ export class ProjectSession {
     const chapters = options.focus === "chapters" ? this.batchRange(options.count) : null;
     const sources = options.focus === "characters" ? this.characterSources() : null;
     const focus = options.focus === "characters"
-      ? `这次**只**起草人物档案（changes.characters）。地点、情节线、章节计划一律不要动。把这本书里**已经出现过的人物**尽量都建出来，一人一张卡，并按出场权重分档：protagonist（主角）、major（主要）、minor（次要）、extra（龙套）；身份与定位写进 profile.role，关系与来历写进 profile.background。${sources !== null && sources.from.length > 0 ? "人物以作者提供的资料文件为准，正文抽样只用来核对谁真的出过场。" : ""}`
+      ? `这次**只**起草人物档案（changes.characters）。地点、情节线、章节计划一律不要动。把这本书里**已经出现过的人物**尽量都建出来，一人一张卡，并按出场权重分档：protagonist（主角）、major（主要）、minor（次要）、extra（龙套）；身份与定位写进 profile.role，关系与来历写进 profile.background。${sources !== null && sources.from.length > 0 ? "人物以作者提供的资料文件为准，正文抽样只用来核对谁真的出过场。资料里如果写了人物之间的关系（搭档、亲属、师徒、仇敌…），一并填进 changes.relations —— 每条一个方向，双向关系填两条，note 用一句话说清是什么关系；**只填资料里写明的，不要自己推测**。" : ""}`
       : chapters !== null
         ? `这次**只**排章计划（changes.beats）：为第 ${chapters.from} 章到第 ${chapters.to} 章各起草一份，章号连续、volume 沿用最近一章的卷号（没有就填 1）。人物、地点、情节线一律不动，只能引用已确认的 ID。每章必须有具体的核心事件、阶段反馈与章末钩子，不要写「继续铺垫」「更大的风暴」这类空话；要收的伏笔只能是当前 open 的编号，埋设与兑现要跨章衔接，不要把所有兑现堆在最后一章。`
         : "起草这份作品现在还缺的资料：人物档案、必要的地点/组织、情节线，以及下一章的章计划。已经确认的内容不要重复提交。";

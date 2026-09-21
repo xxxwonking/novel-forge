@@ -8,6 +8,7 @@ import { validatePlan, validateVolume } from "../beat/validate.js";
 import { project } from "../store/project.js";
 import { ChapterWriteError } from "../server/chapter-input.js";
 import type { Rules } from "../rules/schema.js";
+import type { RelationClaim } from "../types/relations.js";
 import type { GateFinding } from "../types/beat.js";
 import type { PreparationChanges, PreparationContent, PreparationProposal, PreparationView } from "./types.js";
 import { parsePreparationInput } from "./schema.js";
@@ -18,6 +19,8 @@ interface PreparationDeps {
   readonly apply: (content: PreparationContent) => void;
   readonly transaction: <T>(operation: () => T) => T;
   readonly checkChapter: (chapter: number) => void;
+  /** 把确认过的关系声明落进事件流。关系不是资料的一部分，所以不走 `apply`。 */
+  readonly commitRelations: (relations: readonly RelationClaim[]) => void;
   readonly rules: Rules;
 }
 const DIR = "preparation";
@@ -85,6 +88,9 @@ export class PreparationService {
       if (proposal.status === "confirmed") return { changed: false, proposal };
       const content = this.preview(id);
       this.deps.apply(content);
+      // 关系落进事件流（而不是资料文件）：它是故事事实，不是设定。
+      // 放在 apply 之后：资料写不进去时不该先留下一批关系。
+      this.deps.commitRelations(proposal.changes.relations ?? []);
       const confirmed: PreparationProposal = { ...proposal, status: "confirmed", updatedAt: new Date().toISOString() };
       this.save(confirmed);
       return { changed: true, proposal: confirmed };
@@ -212,6 +218,12 @@ function build(snapshot: ProjectSnapshot, changes: PreparationChanges, now: stri
   }
   if ((changes.beats?.length ?? 0) > 0) findings.push(...validateVolume({ beats: beats.filter((b) => (changes.beats ?? []).some((p) => p.chapter === b.chapter)), dueInVolume: projection.foreshadows.filter((f) => f.status === "open").map((f) => ({ foreshadowId: f.id, label: f.label, expectedBy: f.expectedBy })) }, rules));
   assertRemovable(snapshot, removals, { characters, settings, beats }, fail);
+  // 关系两端必须是这本书里真有的人 —— 否则关系图上会出现一条指向空处的边。
+  for (const r of changes.relations ?? []) {
+    for (const [端, who] of [["起点", r.from], ["终点", r.to]] as const) {
+      if (!characters.some((c) => c.id === who)) fail(`关系「${r.note}」的${端}人物 ${who} 不存在`);
+    }
+  }
   const blocks = findings.filter((f) => f.level === "block");
   if (blocks.length > 0) fail(blocks.map((f) => f.message).join("\n"));
   // 卷纲只描述已经写完的卷。给还没写到的卷写纲，等于把规划当成已发生的剧情喂进 L2。

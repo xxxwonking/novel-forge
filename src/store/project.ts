@@ -254,6 +254,7 @@ function projectRelations(input: ProjectionInput): readonly RelationEdge[] {
     note: string;
     changedAt: ChapterNo;
     anchor: RelationEdge["anchor"];
+    declared: boolean;
     history: RelationEdge["history"][number][];
   };
   const edges = new Map<string, Draft>();
@@ -272,14 +273,22 @@ function projectRelations(input: ProjectionInput): readonly RelationEdge[] {
         kind: p.toKind,
         note: p.note,
         changedAt: e.envelope.chapter,
-        anchor: p.anchor,
+        anchor: p.anchor ?? null,
+        declared: p.anchor === undefined,
         history: [entry],
       });
     } else {
-      existing.kind = p.toKind;
-      existing.note = p.note;
-      existing.changedAt = e.envelope.chapter;
-      existing.anchor = p.anchor;
+      // **有正文出处的永远压过只有声明的**，与谁先谁后无关：资料里那句是作者的
+      // 设定，正文里那句是已经写出来的事实 —— 事实不该被设定盖掉。
+      // 同为一种时后写入的胜（正文改过就按新的）。
+      const incomingDeclared = p.anchor === undefined;
+      if (existing.declared || !incomingDeclared) {
+        existing.kind = p.toKind;
+        existing.note = p.note;
+        existing.changedAt = e.envelope.chapter;
+        existing.anchor = p.anchor ?? null;
+        existing.declared = incomingDeclared;
+      }
       existing.history.push(entry);
     }
   }
@@ -293,6 +302,7 @@ function projectRelations(input: ProjectionInput): readonly RelationEdge[] {
       note: d.note,
       changedAt: d.changedAt,
       anchor: d.anchor,
+      declared: d.declared,
       history: d.history,
     }));
 }

@@ -112,7 +112,9 @@ export interface RelationEdge {
   readonly kind: RelationKind;
   readonly note: string;
   readonly changedAt: ChapterNo;
-  readonly anchor: TextAnchor;
+  /** 正文出处。null = 尚未写进正文（来自资料声明），图上画虚线。 */
+  readonly anchor: TextAnchor | null;
+  readonly declared: boolean;
   /** 历史沿革，供"这两人怎么走到这一步"的悬浮展开。 */
   readonly history: readonly {
     readonly chapter: ChapterNo;

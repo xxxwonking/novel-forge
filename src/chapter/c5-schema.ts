@@ -320,7 +320,8 @@ export function parseC5(raw: unknown, ctx: ParseContext): ParseResult {
     });
   }
 
-  const relationsChanged: RelationChangedPayload[] = [];
+  // C5 关系必须有正文出处，所以这里的元素类型是收紧过的（见 C5Declaration）。
+  const relationsChanged: (RelationChangedPayload & { readonly anchor: TextAnchor })[] = [];
   for (const item of arr(raw["relations_changed"])) {
     if (!isRecord(item)) continue;
     const from = str(item["from"]);

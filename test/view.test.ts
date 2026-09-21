@@ -238,6 +238,7 @@ describe("视图四：关系图", () => {
       from: "C01",
       to: "C05",
       kind: "ally",
+      declared: false,
       note: "并肩挡下血刀客",
       changedAt: 12,
       anchor: anchor(12, "信纸边角被烧去一块"),
@@ -275,6 +276,6 @@ describe("视图四：关系图", () => {
 
   it("边的锚点被解析", () => {
     const vm = buildViewModel(input({ relations: edges, arcs: [] }), rules);
-    expect(vm.relations.edges[0]?.point.resolution.status).toBe("exact");
+    expect(vm.relations.edges[0]?.point?.resolution.status).toBe("exact");
   });
 });

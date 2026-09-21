@@ -55,6 +55,7 @@ export function RelationMap({ graph, onJump, highlight }: RelationMapProps): Rea
           const to = positions.get(e.to);
           if (from === undefined || to === undefined) return null;
           const dim = active !== null && active !== e.from && active !== e.to;
+          const jumpable = e.point === null || e.point.resolution.status === "stale" ? null : e.point;
 
           return (
             <line
@@ -65,13 +66,15 @@ export function RelationMap({ graph, onJump, highlight }: RelationMapProps): Rea
               y2={to.y}
               stroke={KIND_COLOR[e.kind] ?? "var(--line-bright)"}
               strokeWidth={e.historyCount > 1 ? 2.5 : 1.5}
+              // 只有设定的关系画虚线：实线是在说「正文里写过这一笔」，没写过就不能那么说。
+              strokeDasharray={e.declared ? "4 3" : undefined}
               opacity={dim ? 0.12 : 0.75}
               className="node"
-              onClick={
-                e.point.resolution.status === "stale" ? undefined : () => onJump(e.point.chapter, e.point.anchor.quote)
-              }
+              onClick={jumpable === null ? undefined : () => onJump(jumpable.chapter, jumpable.anchor.quote)}
             >
-              <title>{`${e.from} → ${e.to}　${relationLabel(e.kind)}（第 ${e.changedAt} 章）\n${e.note}`}</title>
+              <title>{e.declared
+                ? `${e.from} → ${e.to}　${relationLabel(e.kind)}（来自角色档案，尚未写进正文）\n${e.note}`
+                : `${e.from} → ${e.to}　${relationLabel(e.kind)}（第 ${e.changedAt} 章）\n${e.note}`}</title>
             </line>
           );
         })}
@@ -129,6 +132,7 @@ export function RelationMap({ graph, onJump, highlight }: RelationMapProps): Rea
                 </td>
                 <td>
                   <Chip>{relationLabel(e.kind)}</Chip>
+                  {e.declared && <Chip color="orange">仅设定</Chip>}
                   <span className="muted">{e.note}</span>
                   {e.historyCount > 1 && (
                     <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
@@ -136,13 +140,14 @@ export function RelationMap({ graph, onJump, highlight }: RelationMapProps): Rea
                     </div>
                   )}
                 </td>
-                <td className="num">{e.changedAt}</td>
+                <td className="num">{e.declared ? "—" : e.changedAt}</td>
               </tr>
             ))}
           </tbody>
         </table>
         <p className="muted" style={{ fontSize: 12, marginTop: 14 }}>
           节点大小按连边数，主角用暖色。悬浮某人只留他的边。<br />
+          虚线表示这条关系只来自资料、<strong>尚未写进正文</strong>；正文写到那里就会变成实线，也才能点着跳过去。<br />
           圆周布局是确定的 —— 每次打开位置一样，方便建立空间记忆。力导向布局排在 M5。
         </p>
       </div>

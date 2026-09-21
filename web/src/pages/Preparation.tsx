@@ -6,7 +6,7 @@ import { BeatEditor, CharacterEditor, DraftDialog, PlotLineEditor, SettingEditor
 import { ImportChapters } from "../components/ImportChapters.js";
 import { ReviewSettings } from "../components/ReviewSettings.js";
 import { api, type CharacterRecord, type PreparationContent, type PreparationPayload, type PreparationProposal, type SettingInput, type PlotLineInput, type VolumeCard } from "../api.js";
-import type { Removals } from "../preparation-changes.js";
+import type { RelationClaim, Removals } from "../preparation-changes.js";
 import { useFetch, useRouteActive } from "../hooks.js";
 
 const discuss = (prompt: string): string => `#/chat?prompt=${encodeURIComponent(prompt)}`;
@@ -126,6 +126,7 @@ export function Preparation({ refresh, proposalId }: { refresh: () => void; prop
           <div className="prep-proposal-head"><Chip color={candidate.stale ? "orange" : "cyan"}>{status(candidate)}</Chip><h2>{candidate.summary}</h2><p className="muted">{candidate.source === "author" ? "作者指定的修改" : "Agent 提出的建议"} · {new Date(candidate.createdAt).toLocaleString("zh-CN")}</p></div>
           {candidate.stale && <p className="finding" data-level="warn">这份方案依据的资料已改变。请回到对话重新整理，避免覆盖你的新选择。</p>}
           <RemovalList removals={candidate.changes.removals} current={view.confirmed} />
+          <RelationList relations={candidate.changes.relations} current={view.confirmed} />
           {candidate.impacts.map((impact, index) => <div key={index} className="finding" data-level="warn"><strong>{impact.message}</strong><div>{impact.chapters.map((n) => <a key={n} href={`#/chapter/${n}`}>第 {n} 章　</a>)}</div><p>先形成相应章节的候选修改，再核对这些设定。</p></div>)}
           {candidate.findings.map((finding, index) => <div key={index} className="finding" data-level={finding.level}>{finding.message}</div>)}
           {candidate.status === "proposed" && <div className="prep-proposal-actions">
@@ -198,6 +199,22 @@ function RemovalList({ removals, current }: { removals: Removals | undefined; cu
     <strong>这份方案会删掉 {items.length} 条资料</strong>
     <p>{items.join("、")}</p>
     <p className="muted">下方预览是删除之后的样子，被删掉的条目不会出现在里面。</p>
+  </div>;
+}
+
+/**
+ * 方案里声明的**人物关系**。
+ *
+ * 与删除清单同一条理由：这些关系在下面的预览里看不出来（预览是人物卡，不含关系），
+ * 不说出来作者就不知道确认这份方案会往关系图里添什么。
+ */
+function RelationList({ relations, current }: { relations: readonly RelationClaim[] | undefined; current: PreparationContent }): React.ReactElement | null {
+  if (relations === undefined || relations.length === 0) return null;
+  const name = (id: string): string => current.characters.find((c) => c.id === id)?.name ?? id;
+  return <div className="finding" data-level="info">
+    <strong>这份方案会声明 {relations.length} 条人物关系</strong>
+    <p>{relations.map((r) => `${name(r.from)} → ${name(r.to)}：${r.note}`).join("；")}</p>
+    <p className="muted">它们来自资料、尚未写进正文，在关系图上画虚线；正文写到那里就会变成实线。</p>
   </div>;
 }
 
