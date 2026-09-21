@@ -20,13 +20,16 @@
 import { ChapterWriteError } from "../server/chapter-input.js";
 import { countWords } from "../text/measure.js";
 import type { ProjectSession } from "../server/state.js";
-import { splitChapters, type SplitResult } from "./split.js";
+import { joinChapterFiles, splitChapters, type ImportFile, type SplitResult } from "./split.js";
 
 type Source = Pick<ProjectSession, "chapterText" | "chapterNumbers" | "events" | "allDrafts" | "putChapters">;
 
+/** 正文来源二选一：一份粘贴/单文件的 `text`，���每章一个文件的 `files`。 */
 export interface ImportRequest {
   readonly text: string;
   readonly overwrite?: boolean;
+  /** `files` 拼接时产生的说明（跳过的文件、剥掉的标题行），并进预览的 notes。 */
+  readonly joinNotes: readonly string[];
 }
 
 export interface ImportConflict {
@@ -62,18 +65,35 @@ export interface ImportResult {
 function parseRequest(raw: unknown): ImportRequest {
   if (raw === null || typeof raw !== "object" || Array.isArray(raw)) throw new ChapterWriteError(400, "导入参数必须是对象");
   const input = raw as Record<string, unknown>;
-  if (typeof input["text"] !== "string") throw new ChapterWriteError(400, "缺少要导入的正文 text");
   const overwrite = input["overwrite"] ?? false;
   if (typeof overwrite !== "boolean") throw new ChapterWriteError(400, "overwrite 必须是布尔值");
-  for (const key of Object.keys(input)) if (key !== "text" && key !== "overwrite") throw new ChapterWriteError(400, `不支持的导入参数 ${key}`);
-  return { text: input["text"], overwrite };
+  for (const key of Object.keys(input)) if (!["text", "files", "overwrite"].includes(key)) throw new ChapterWriteError(400, `不支持的导入参数 ${key}`);
+  const hasText = input["text"] !== undefined;
+  const hasFiles = input["files"] !== undefined;
+  if (hasText === hasFiles) throw new ChapterWriteError(400, "text 与 files 必须给且只给一个");
+  if (hasText) {
+    if (typeof input["text"] !== "string") throw new ChapterWriteError(400, "text 必须是字符串");
+    return { text: input["text"], overwrite, joinNotes: [] };
+  }
+  const joined = joinChapterFiles(parseFiles(input["files"]));
+  return { text: joined.text, overwrite, joinNotes: joined.notes };
+}
+
+function parseFiles(raw: unknown): readonly ImportFile[] {
+  if (!Array.isArray(raw) || raw.length === 0) throw new ChapterWriteError(400, "files 必须是至少一个文件的数组");
+  return raw.map((item, index) => {
+    if (item === null || typeof item !== "object" || typeof (item as Record<string, unknown>)["name"] !== "string" || typeof (item as Record<string, unknown>)["text"] !== "string") {
+      throw new ChapterWriteError(400, `files[${index}] 需要 name 与 text 两个字符串字段`);
+    }
+    return { name: (item as { name: string }).name, text: (item as { text: string }).text };
+  });
 }
 
 export class ImportService {
   constructor(private readonly source: Source) {}
 
   preview(raw: unknown): ImportPreview {
-    const { text } = parseRequest(raw);
+    const { text, joinNotes } = parseRequest(raw);
     const split = splitChapters(text);
     const conflicts = split.chapters.flatMap((chapter) => {
       const existing = this.source.chapterText(chapter.chapter);
@@ -93,7 +113,7 @@ export class ImportService {
     const usable = split.problems.length === 0 && split.chapters.length > 0;
     return {
       ...split,
-      notes: [...split.notes, ...this.holes(split.chapters.map((c) => c.chapter))],
+      notes: [...joinNotes, ...split.notes, ...this.holes(split.chapters.map((c) => c.chapter))],
       conflicts,
       totalWords: split.chapters.reduce((sum, chapter) => sum + chapter.words, 0),
       ready: usable && conflicts.every((c) => c.identical),

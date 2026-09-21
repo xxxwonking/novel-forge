@@ -16,7 +16,7 @@ import { join } from "node:path";
 import { ProjectStore } from "../src/store/persist.js";
 import { ProjectSession } from "../src/server/state.js";
 import { handleAsync } from "../src/server/api.js";
-import { splitChapters } from "../src/import/split.js";
+import { joinChapterFiles, splitChapters } from "../src/import/split.js";
 import { countWords } from "../src/text/measure.js";
 import { writingSnapshot } from "./writing-fixtures.js";
 
@@ -231,5 +231,66 @@ describe("导入旧作·入库", () => {
     const none = await api(session, "/api/import/apply", { text: "没有任何标记的一段话。" });
     expect(none.status).toBe(400);
     expect(String((none.body as { error: string }).error)).toMatch(/标记/u);
+  });
+});
+
+/**
+ * 每章一个文件是国内写作工具最常见的存法（真机第一次撞墙就是它：一个目录、
+ * 100 个 `N-标题.txt`）。多文件导���要解决的只有两件事：**顺序**与**不该并进去的文件**。
+ */
+describe("导入旧作·多文件", () => {
+  const file = (name: string, text: string) => ({ name, text });
+  const chapterFile = (n: number, title: string) => file(`${n}-${title}.txt`, `第${n}章 ${title}\n\n${title}的正文。`);
+
+  it("按文件名里的章号排序，不按字典序：1、2、10、100 而不是 1、10、100、2", () => {
+    const files = [chapterFile(10, "十"), chapterFile(100, "百"), chapterFile(2, "二"), chapterFile(1, "一")];
+    const joined = joinChapterFiles(files);
+    expect(joined.order).toEqual(["1-一.txt", "2-二.txt", "10-十.txt", "100-百.txt"]);
+    const split = splitChapters(joined.text);
+    expect(split.chapters.map((c) => c.chapter)).toEqual([1, 2, 10, 100]);
+    expect(split.notes.some((n) => n.includes("不是递增顺序"))).toBe(false);
+  });
+
+  it("文件名里是中文数字也按章号排：第一章、第二章、第十章", () => {
+    const files = [file("第十章.txt", "第十章 十\n\n正文。"), file("第一章.txt", "第一章 一\n\n正文。"), file("第二章.txt", "第二章 二\n\n正文。")];
+    expect(joinChapterFiles(files).order).toEqual(["第一章.txt", "第二章.txt", "第十章.txt"]);
+  });
+
+  it("没有章节标记的文件（大纲、人物档案）跳过并点名，不并进前一章的末尾", () => {
+    const files = [chapterFile(1, "一"), file("角色档案.txt", "沈叙：复核室警员。\n程霜：失踪者。"), chapterFile(2, "二"), file("小说大纲.txt", "全书一百章。")];
+    const joined = joinChapterFiles(files);
+    expect(joined.notes.some((n) => n.includes("角色档案.txt") && n.includes("小说大纲.txt"))).toBe(true);
+    const split = splitChapters(joined.text);
+    expect(split.chapters.map((c) => c.chapter)).toEqual([1, 2]);
+    expect(split.chapters[0]?.body).not.toContain("沈叙");
+    expect(split.chapters[1]?.body).not.toContain("一百章");
+  });
+
+  it("某个文件在标记行之前带了未编号内容：不并进前一章，单独说明", () => {
+    const files = [chapterFile(1, "一"), file("2-二.txt", "雨中的旧录音\n\n第2章 二\n\n二的正文。")];
+    const joined = joinChapterFiles(files);
+    const split = splitChapters(joined.text);
+    expect(split.chapters[0]?.body).toBe("一的正文。");
+    expect(joined.notes.some((n) => n.includes("2-二.txt") && n.includes("标记行之前"))).toBe(true);
+  });
+
+  it("端点接受 files，预览与导入走同一份拼接；text 与 files 二选一", async () => {
+    const session = new ProjectSession(empty(), undefined);
+    const files = [chapterFile(2, "二"), chapterFile(1, "一"), file("目录及简介.txt", "《失踪档案》\n\n作品简介。")];
+    const preview = await api(session, "/api/import/preview", { files });
+    expect(preview.status).toBe(200);
+    const body = preview.body as { chapters: { chapter: number }[]; notes: string[]; ready: boolean };
+    expect(body.chapters.map((c) => c.chapter)).toEqual([1, 2]);
+    expect(body.notes.some((n) => n.includes("目录及简介.txt"))).toBe(true);
+    expect(body.ready).toBe(true);
+    const applied = await api(session, "/api/import/apply", { files });
+    expect(applied.status).toBe(200);
+    expect(session.chapterText(1)).toBe("一的正文。");
+    expect(session.chapterText(2)).toBe("二的正文。");
+
+    expect((await api(session, "/api/import/preview", { text: "第1章 x\n正文", files })).status).toBe(400);
+    expect((await api(session, "/api/import/preview", { files: [] })).status).toBe(400);
+    expect((await api(session, "/api/import/preview", { files: [{ name: "a.txt" }] })).status).toBe(400);
+    expect((await api(session, "/api/import/preview", { files: [{ name: 3, text: "x" }] })).status).toBe(400);
   });
 });

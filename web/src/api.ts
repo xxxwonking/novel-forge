@@ -598,6 +598,9 @@ export interface PreparationPayload {
 
 // ── 请求 ────────────────────────────────────────────────────────────────
 
+/** 正文来源二选一：粘贴/单文件的整本，或每章一个文件。 */
+export type ImportSource = { text: string } | { files: { name: string; text: string }[] };
+
 export type ExportSelection = { scope: "all" } | { scope: "range"; from: number; to: number } | { scope: "volume"; volume: number };
 export type ExportKind = "manuscript" | "bible";
 export type ExportArtifactFormat = "txt" | "epub" | "docx" | "json";
@@ -718,8 +721,8 @@ async function downloadExportArtifact(id: string, format: ExportArtifactFormat):
 
 export const api = {
   /** 导入旧作：只入正文，不反推结构。预览与落盘用同一份文本，服务端不暂存。 */
-  importPreview: (input: { text: string }) => post<ImportPreview>("/api/import/preview", input),
-  importApply: (input: { text: string; overwrite?: boolean }) => post<ImportResult>("/api/import/apply", input),
+  importPreview: (input: ImportSource) => post<ImportPreview>("/api/import/preview", input),
+  importApply: (input: ImportSource & { overwrite?: boolean }) => post<ImportResult>("/api/import/apply", input),
   /** 逐章反推结构：一次一章，落盘即生效，所以中断只是停下来。 */
   inferenceView: () => request<InferenceView>("/api/import/inference"),
   inferChapter: (chapter: number) => post<InferenceChapter>("/api/import/infer", { chapter }),
