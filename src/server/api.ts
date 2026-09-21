@@ -281,6 +281,8 @@ function overview(session: ProjectSession): unknown {
     currentChapter,
     nextChapter,
     chapterCount,
+    // 首页据此决定给不给「从正文识别人物」的入口：导完一百章却一个人物都没有，是常见的一步之遥。
+    characterCount: session.meta.characters.length,
     nextBeat: session.nextBeat ?? null,
     homepage: selection.homepage,
     counts: {

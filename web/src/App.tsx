@@ -237,7 +237,7 @@ function Routed({ route, overview, onAction, onIgnore, onJump, refresh, tasks, r
     return <Drafts key={`${chapter}/${draftId}`} chapter={Number(chapter)} draftId={draftId ?? ""} refresh={refresh} task={tasks.find((t) => t.draftId === draftId)} reloadTasks={reloadTasks} />;
   }
   if (path === "/" || path === "") {
-    return <Home overview={overview} onAction={onAction} onIgnore={onIgnore} />;
+    return <Home overview={overview} onAction={onAction} onIgnore={onIgnore} refresh={refresh} />;
   }
   if (path === "/alerts") {
     return <AlertList onAction={onAction} onIgnore={onIgnore} refreshKey={refreshKey} onPlanningAction={onPlanningAction} />;

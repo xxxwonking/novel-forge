@@ -162,6 +162,7 @@ export interface Overview {
   currentChapter: number;
   nextChapter: number;
   chapterCount: number;
+  characterCount: number;
   nextBeat: ChapterBeat | null;
   homepage: Alert[];
   counts: {
@@ -651,6 +652,8 @@ export interface InferenceView {
 export interface ImportResult {
   imported: number[]; replaced: number[]; unchanged: number[];
   totalWords: number; nextChapter: number;
+  /** 随正文一并收下的资料文件名（角色档案、大纲这类）。 */
+  materials: string[];
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {

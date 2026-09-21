@@ -37,6 +37,8 @@ import { buildMainAgentSystem, type MainAgentContextInfo } from "../agent/system
 import type { AlternativeIdea, ConversationMode, ConversationObserver, ConversationReply, ConversationTurn } from "../agent/types.js";
 import { createModelClient } from "../client/create.js";
 import { metered } from "../credits/meter.js";
+import { MaterialStore } from "../import/materials.js";
+import { characterSource } from "../preparation/sources.js";
 import { appendCreditEntry, readCreditEntries, summarize } from "../credits/ledger.js";
 import type { ModelClient } from "../client/model.js";
 import { countWords } from "../text/measure.js";
@@ -152,7 +154,7 @@ export class ProjectSession {
     });
     this.planning = new PlanningService(this, operation => this.transact(operation));
     this.exports = new TextExportService(root, this);
-    this.imports = new ImportService(this);
+    this.imports = new ImportService(root, this);
     this.inference = new InferenceService(root, {
       source: this, client: () => this.getModelClient(), transaction: (operation) => this.transact(operation),
     });
@@ -581,8 +583,9 @@ export class ProjectSession {
   async draftPreparation(options: PreparationDraftOptions, observe?: ConversationObserver): Promise<PreparationDraftResult> {
     const client = this.getModelClient();
     const chapters = options.focus === "chapters" ? this.batchRange(options.count) : null;
+    const sources = options.focus === "characters" ? this.characterSources() : null;
     const focus = options.focus === "characters"
-      ? "这次**只**起草人物档案（changes.characters）。地点、情节线、章节计划一律不要动。"
+      ? `这次**只**起草人物档案（changes.characters）。地点、情节线、章节计划一律不要动。把这本书里**已经出现过的人物**尽量都建出来，一人一张卡，并按出场权重分档：protagonist（主角）、major（主要）、minor（次要）、extra（龙套）；身份与定位写进 profile.role，关系与来历写进 profile.background。${sources !== null && sources.from.length > 0 ? "人物以作者提供的资料文件为准，正文抽样只用来核对谁真的出过场。" : ""}`
       : chapters !== null
         ? `这次**只**排章计划（changes.beats）：为第 ${chapters.from} 章到第 ${chapters.to} 章各起草一份，章号连续、volume 沿用最近一章的卷号（没有就填 1）。人物、地点、情节线一律不动，只能引用已确认的 ID。每章必须有具体的核心事件、阶段反馈与章末钩子，不要写「继续铺垫」「更大的风暴」这类空话；要收的伏笔只能是当前 open 的编号，埋设与兑现要跨章衔接，不要把所有兑现堆在最后一章。`
         : "起草这份作品现在还缺的资料：人物档案、必要的地点/组织、情节线，以及下一章的章计划。已经确认的内容不要重复提交。";
@@ -592,6 +595,8 @@ export class ProjectSession {
       "（这条请求来自资料页的「让 AI 起草」按钮，不是作者在对话里打的字，请直接执行，不要反问。）",
       "先 get_preparation 读取作者已指定的想法与现有正式资料，再据此推断并补齐：",
       focus,
+      ...(sources === null || sources.text === "" ? [] : ["以下是这本书已有的材料：", sources.text]),
+      ...(sources === null || sources.sampled.length === 0 ? [] : [`注意：正文只抽样了上面那 ${sources.sampled.length} 章的开头，全书共 ${this.chapterNumbers().length} 章。没有抽到的章里的人物如果资料文件提到了，也照样建卡；不要声称你读过全书。`]),
       ...(chapters !== null ? [] : ["人物 profile 与 speech 必须是完整的：定位、外貌、性格标签、想要什么、害怕什么、背景，以及说话方式（语域、情绪表达、句长区间、句式偏好、至少一条正例台词）。作者的设定常常只有一句想法 —— 人物具体是什么样由你判断，不要回过头去问作者。"]),
       "用 propose_preparation 保存为一份方案供作者审阅。不要确认方案，不要写章，不要采用任何稿件。",
       ...(brief === "" ? [] : [`作者这次的补充要求：${brief}`]),
@@ -695,6 +700,16 @@ export class ProjectSession {
       }
     }
     return this.modelClient;
+  }
+
+  /** 「从正文识别人物」要看的材料：作者提供的资料文件 + 正文抽样。 */
+  private characterSources(): ReturnType<typeof characterSource> {
+    const store = new MaterialStore(this.root);
+    return characterSource({
+      materials: store.list().map((m) => ({ name: m.name, text: store.read(m.file) ?? "" })),
+      chapterNumbers: this.chapterNumbers(),
+      chapterText: (n) => this.chapterText(n),
+    });
   }
 
   private meter(client: ModelClient): ModelClient {

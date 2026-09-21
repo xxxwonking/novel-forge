@@ -143,6 +143,23 @@ export class PreparationService {
   }
 }
 
+/**
+ * 这个人在正文里第一次出现在第几章。0 = 从未出现（筹备期建卡）。
+ *
+ * 这是**确定性**判断，所以由代码做：模型给不出更准的答案，却可能给一个错的。
+ * 名字与别名都算 —— 作者常把化名写在 aliases 里。
+ */
+function firstAppearance(snapshot: ProjectSnapshot, character: { readonly name: string; readonly aliases: readonly string[] }): number {
+  const names = [character.name, ...character.aliases].map((n) => n.trim()).filter((n) => n !== "");
+  if (names.length === 0) return 0;
+  let first = 0;
+  for (const [chapter, text] of snapshot.chapters) {
+    if (first !== 0 && chapter >= first) continue;
+    if (names.some((name) => text.includes(name))) first = chapter;
+  }
+  return first;
+}
+
 function upsert<T>(before: readonly T[], patch: readonly T[], key: (item: T) => string | number): readonly T[] {
   const ids = patch.map(key);
   if (new Set(ids).size !== ids.length) throw new ChapterWriteError(400, "同一方案里的 ID 或章号不能重复");
@@ -164,7 +181,10 @@ function build(snapshot: ProjectSnapshot, changes: PreparationChanges, now: stri
     }
     return list.filter((item) => !ids.includes(key(item)));
   };
-  const characters = drop(upsert(snapshot.characters, (changes.characters ?? []).map((c) => ({ ...c, provenance: "proposed" as const, introducedAt: snapshot.characters.find((old) => old.id === c.id)?.introducedAt ?? 0, updatedAt: now })), (c) => c.id),
+  const characters = drop(upsert(snapshot.characters, (changes.characters ?? []).map((c) => ({ ...c, provenance: "proposed" as const,
+    // 新人物按正文扫出首次出场章；已有人物一律不动 —— 那是一份已经用过的事实，
+    // 不会因为这次提交而改变，改了反而会让依赖它的东西莫名其妙地过期。
+    introducedAt: snapshot.characters.find((old) => old.id === c.id)?.introducedAt ?? firstAppearance(snapshot, c), updatedAt: now })), (c) => c.id),
     removals.characters, (c) => c.id, "人物", (changes.characters ?? []).map((c) => c.id));
   const settings = drop(upsert(snapshot.settings, changes.settings ?? [], (s) => s.id), removals.settings, (s) => s.id, "地点／组织", (changes.settings ?? []).map((s) => s.id));
   const plotLines = drop(upsert(snapshot.plotLines, changes.plotLines ?? [], (p) => p.id), removals.plotLines, (p) => p.id, "情节线", (changes.plotLines ?? []).map((p) => p.id));

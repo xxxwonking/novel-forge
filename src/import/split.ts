@@ -198,6 +198,8 @@ export interface JoinResult {
   /** 实际采用的文件顺序，供预览核对。 */
   readonly order: readonly string[];
   readonly notes: readonly string[];
+  /** 没被当成正文的文件（大纲、角色档案、目录…），由调用方收进作品资料。 */
+  readonly materials: readonly ImportFile[];
 }
 
 /** 文件名里写的章号：`12-灰痕.txt`、`第十二章.txt`、`012.txt` 都认；认不出返回 null。 */
@@ -254,16 +256,18 @@ export function joinChapterFiles(files: readonly ImportFile[]): JoinResult {
   const normalized = ordered.map((file) => ({ name: file.name, lines: normalize(file.text).split("\n") }));
   const marker = MARKERS.find(({ pattern }) => normalized.some((file) => firstMarkerLine(file.lines, pattern) >= 0));
   // 一个标记都没有：原样拼上交给 splitChapters，由它报那条标准的「没有识别到章节标记」。
-  if (marker === undefined) return { text: normalized.map((file) => file.lines.join("\n")).join("\n\n"), order: ordered.map((file) => file.name), notes: [] };
+  // 这时没有哪份文件能算正文，全部交给调用方当资料收下。
+  if (marker === undefined) return { text: normalized.map((file) => file.lines.join("\n")).join("\n\n"), order: ordered.map((file) => file.name), notes: [], materials: files };
 
   const skipped: string[] = [];
   const contents: string[] = [];
+  const materials: ImportFile[] = [];
   const prefaced: { readonly name: string; readonly words: number }[] = [];
   const parts: string[] = [];
   for (const file of normalized) {
     const at = firstMarkerLine(file.lines, marker.pattern);
-    if (at < 0) { skipped.push(file.name); continue; }
-    if (looksLikeContents(file.lines, marker.pattern)) { contents.push(file.name); continue; }
+    if (at < 0) { skipped.push(file.name); materials.push({ name: file.name, text: file.lines.join("\n") }); continue; }
+    if (looksLikeContents(file.lines, marker.pattern)) { contents.push(file.name); materials.push({ name: file.name, text: file.lines.join("\n") }); continue; }
     const before = trimBody(file.lines.slice(0, at));
     if (before !== "") prefaced.push({ name: file.name, words: countWords(before) });
     parts.push(file.lines.slice(at).join("\n"));
@@ -276,5 +280,5 @@ export function joinChapterFiles(files: readonly ImportFile[]): JoinResult {
     const named = prefaced.slice(0, 3).map((f) => `${f.name}（${f.words} 字）`).join("、");
     notes.push(`${prefaced.length} 个文件在标记行之前有未编号内容，本次不导入：${named}${prefaced.length > 3 ? " 等" : ""}。需要它的话请并进该章正文。`);
   }
-  return { text: parts.join("\n\n"), order: ordered.map((file) => file.name), notes };
+  return { text: parts.join("\n\n"), order: ordered.map((file) => file.name), notes, materials };
 }
