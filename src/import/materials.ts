@@ -32,14 +32,17 @@ export class MaterialStore {
 
   /**
    * 存一份资料。同名的按最新一份覆盖 —— 那是作者改过的版本，不是新的一本。
-   * 返回 null 表示这份太大，调用方负责说明。
+   *
+   * 拒收时给出理由：作者选了一整个文件夹，里面有图片、有 zip，一句「没成功」
+   * 让他不知道是哪一份、为什么。
    */
-  save(name: string, text: string): MaterialFile | null {
-    if (text.length > MATERIAL_MAX_CHARS) return null;
+  save(name: string, text: string): { readonly saved: MaterialFile } | { readonly reason: string } {
+    if (text.trim() === "") return { reason: "内容是空的" };
+    if (text.length > MATERIAL_MAX_CHARS) return { reason: `超过 ${Math.round(MATERIAL_MAX_CHARS / 10000)} 万字的上限` };
     const file = safeName(name);
-    if (file === null) return null;
+    if (file === null) return { reason: "文件名不能用" };
     writeProjectFile(this.root, join(DIR, file), text);
-    return { name: basename(name), file, words: countWords(text) };
+    return { saved: { name: basename(name), file, words: countWords(text) } };
   }
 
   list(): readonly MaterialFile[] {

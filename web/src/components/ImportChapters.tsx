@@ -19,16 +19,7 @@
 import { useRef, useState } from "react";
 import { Button, Checkbox, Input, Modal } from "antd";
 import { api, type ImportPreview, type ImportResult } from "../api.js";
-
-/** UTF-8 严格解码失败就按 GBK 再来一次。 */
-async function readTextFile(file: File): Promise<string> {
-  const buffer = await file.arrayBuffer();
-  try { return new TextDecoder("utf-8", { fatal: true }).decode(buffer); }
-  catch {
-    try { return new TextDecoder("gbk").decode(buffer); }
-    catch { throw new Error(`无法识别 ${file.name} 的文字编码，请另存为 UTF-8 的 .txt 后重试。`); }
-  }
-}
+import { readTextFile } from "../files.js";
 
 /**
  * 单次提交上限，留在服务端 4MB 请求体之下。

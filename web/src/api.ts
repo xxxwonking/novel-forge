@@ -772,6 +772,8 @@ export const api = {
   chapter: (n: number) => request<ChapterPayload>(`/api/chapter?n=${n}`),
   health: (n: number) => request<HealthPayload>(`/api/health?n=${n}`),
   credits: () => request<CreditSummary>("/api/credits"),
+  materials: () => request<{ materials: { name: string; file: string; words: number }[] }>("/api/materials"),
+  uploadMaterials: (files: { name: string; text: string }[]) => post<{ saved: string[]; skipped: { name: string; reason: string }[] }>("/api/materials", { files }),
   search: (q: string) => request<SearchResult>(`/api/search?q=${encodeURIComponent(q)}`),
   anchor: (a: TextAnchor) =>
     request<AnchorPayload>(

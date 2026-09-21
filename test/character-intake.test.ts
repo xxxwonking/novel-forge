@@ -16,6 +16,7 @@ import type Anthropic from "@anthropic-ai/sdk";
 import { ProjectStore } from "../src/store/persist.js";
 import { ProjectSession } from "../src/server/state.js";
 import { MaterialStore } from "../src/import/materials.js";
+import { handle, type ApiRequest } from "../src/server/api.js";
 import { characterSource } from "../src/preparation/sources.js";
 import type { CallResult } from "../src/client/claude.js";
 import { fakeClient, modelMessage, modelText, writingSnapshot } from "./writing-fixtures.js";
@@ -35,6 +36,11 @@ function empty() {
 }
 
 const file = (name: string, text: string) => ({ name, text });
+
+const toolUse = (name: string, input: unknown): CallResult => ({
+  kind: "ok",
+  message: modelMessage([{ type: "tool_use", id: "t1", name, input, caller: { type: "direct" } } as unknown as Anthropic.ContentBlock], "tool_use"),
+});
 const chapterFile = (n: number, body: string) => file(`${n}-第${n}章.txt`, `第${n}章 标题${n}\n\n${body}`);
 
 describe("导入时收下资料文件", () => {
@@ -132,10 +138,6 @@ describe("人物来源的装配", () => {
 });
 
 describe("从正文识别人物", () => {
-  const toolUse = (name: string, input: unknown): CallResult => ({
-    kind: "ok",
-    message: modelMessage([{ type: "tool_use", id: "t1", name, input, caller: { type: "direct" } } as unknown as Anthropic.ContentBlock], "tool_use"),
-  });
   const drafted = (id: string, name: string, tier = "major") => ({
     id, name, aliases: [], tier,
     profile: { role: "复核民警", appearance: [], traits: ["冷静"], forbiddenBehaviors: [], wants: "查清旧案", fears: "发现自己是帮凶", background: "借调进专班。" },
@@ -187,5 +189,82 @@ describe("从正文识别人物", () => {
     const at = (name: string) => proposal.content.characters.find((c) => c.name === name)?.introducedAt;
     expect(at("沈叙")).toBe(1);
     expect(at("林见秋")).toBe(3);
+  });
+});
+
+describe("单独上传资料文件", () => {
+  const post = (session: ProjectSession, path: string, body: unknown) =>
+    handle(session, { method: "POST", path, query: new URLSearchParams(), body } satisfies ApiRequest);
+  const get = (session: ProjectSession, path: string) =>
+    handle(session, { method: "GET", path, query: new URLSearchParams(), body: null } satisfies ApiRequest);
+
+  it("上传一份角色档案：存进作品资料，并在列表里读得回来", async () => {
+    const { root, session } = empty();
+    const res = post(session, "/api/materials", { files: [{ name: "角色档案.txt", text: "沈叙：市局复核民警，冷静克制。" }] });
+    expect(res.status).toBe(200);
+    expect((res.body as { saved: string[] }).saved).toEqual(["角色档案.txt"]);
+
+    const listed = get(session, "/api/materials");
+    expect(listed.status).toBe(200);
+    const materials = (listed.body as { materials: { name: string; words: number }[] }).materials;
+    expect(materials.map((m) => m.name)).toEqual(["角色档案.txt"]);
+    expect(materials[0]?.words).toBeGreaterThan(0);
+    expect(new MaterialStore(root).read("角色档案.txt")).toContain("市局复核民警");
+  });
+
+  it("同名再传按最新一份覆盖 —— 作者改了档案就该用新的", () => {
+    const { root, session } = empty();
+    post(session, "/api/materials", { files: [{ name: "角色档案.txt", text: "旧的一版。" }] });
+    post(session, "/api/materials", { files: [{ name: "角色档案.txt", text: "沈叙：改过的一版。" }] });
+    expect(new MaterialStore(root).read("角色档案.txt")).toBe("沈叙：改过的一版。");
+    expect(new MaterialStore(root).list()).toHaveLength(1);
+  });
+
+  it("空内容、缺字段、过大、越界文件名：逐条说清楚，合法的照常收下", () => {
+    const { root, session } = empty();
+    const res = post(session, "/api/materials", {
+      files: [
+        { name: "好的.txt", text: "沈叙。" },
+        { name: "空的.txt", text: "   " },
+        { name: "巨型.txt", text: "字".repeat(400_000) },
+        { name: ".隐藏.txt", text: "点号开头的名字不收" },
+        { name: "x".repeat(200) + ".txt", text: "名字过长" },
+      ],
+    });
+    expect(res.status).toBe(200);
+    const body = res.body as { saved: string[]; skipped: { name: string; reason: string }[] };
+    expect(body.saved).toEqual(["好的.txt"]);
+    expect(body.skipped.map((s) => s.name)).toEqual(["空的.txt", "巨型.txt", ".隐藏.txt", `${"x".repeat(200)}.txt`]);
+    expect(body.skipped.every((s) => s.reason !== "")).toBe(true);
+    expect(new MaterialStore(root).list().map((m) => m.name)).toEqual(["好的.txt"]);
+  });
+
+  it("带路径的名字剥成文件名存下：不越界，也不因为带路径就丢掉作者的文件", () => {
+    const { root, session } = empty();
+    const res = post(session, "/api/materials", { files: [{ name: "../../角色档案.txt", text: "沈叙。" }] });
+    expect((res.body as { saved: string[] }).saved).toEqual(["角色档案.txt"]);
+    expect(existsSync(join(root, "materials", "角色档案.txt"))).toBe(true);
+    expect(existsSync(join(root, "..", "..", "角色档案.txt"))).toBe(false);
+  });
+
+  it("不是数组、空数组、字段不对都是 400", () => {
+    const { session } = empty();
+    expect(post(session, "/api/materials", {}).status).toBe(400);
+    expect(post(session, "/api/materials", { files: [] }).status).toBe(400);
+    expect(post(session, "/api/materials", { files: [{ name: "a.txt" }] }).status).toBe(400);
+  });
+
+  it("传进来的资料会进「识别人物」的上下文", async () => {
+    const root = mkdtempSync(join(tmpdir(), "nf-intake-up-"));
+    roots.push(root);
+    const base = writingSnapshot();
+    new ProjectStore(root).save({ ...base, characters: [], settings: [], plotLines: [], beats: [], events: [], chapters: new Map([[1, "沈叙翻旧卷。"]]) });
+    const session = new ProjectSession(root, undefined, {});
+    post(session, "/api/materials", { files: [{ name: "角色档案.txt", text: "沈叙：市局复核民警。" }] });
+
+    const scripted = fakeClient([toolUse("propose_preparation", { summary: "识别", baseFingerprint: session.preparation.view().fingerprint, changes: { characters: [] } }), modelText("完成。")]);
+    const run = new ProjectSession(root, undefined, { client: scripted.client });
+    await run.draftPreparation({ focus: "characters", apply: true });
+    expect(JSON.stringify(scripted.calls[0]?.messages)).toContain("市局复核民警");
   });
 });

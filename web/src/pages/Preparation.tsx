@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Button, Input } from "antd";
+import { readTextFile } from "../files.js";
 import { Chip } from "../components/Chip.js";
 import { BeatEditor, CharacterEditor, DraftDialog, PlotLineEditor, SettingEditor, VolumeEditor, type Editing } from "../components/PreparationEditors.js";
 import { ImportChapters } from "../components/ImportChapters.js";
@@ -19,6 +20,8 @@ export function Preparation({ refresh, proposalId }: { refresh: () => void; prop
   const [editing, setEditing] = useState(false);
   const [entity, setEntity] = useState<Editing | null>(null);
   const [drafting, setDrafting] = useState<"characters" | "full" | "chapters" | null>(null);
+  const [importingProfile, setImportingProfile] = useState(false);
+  const profilePicker = useRef<HTMLInputElement>(null);
   const [importing, setImporting] = useState(false);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -34,6 +37,42 @@ export function Preparation({ refresh, proposalId }: { refresh: () => void; prop
     const removed = Object.values(proposal.changes.removals ?? {}).some((list) => list.length > 0);
     setNotice(proposal.status === "confirmed" ? removed ? "已删除。" : "作者设定已更新。" : "修改涉及已有正文，已保存为候选，请查看影响。");
     data.reload(); refresh();
+  };
+
+  /**
+   * 单独导入一份人物档案：先收进作品资料，再立刻按它整理人物。
+   *
+   * 两步一步到位是这里唯一合理的做法 —— 作者点的是「导入人物档案」，不是
+   * 「上传一个文件」；档案收下了却还要去别处再点一次，等于把话说了半句。
+   * 结果仍是一份待确认方案，作者核对后才生效。
+   */
+  const importProfile = async (list: FileList | null): Promise<void> => {
+    const chosen = (list === null ? [] : [...list]).filter((f) => /\.(txt|md|markdown)$/iu.test(f.name) || f.type.startsWith("text/"));
+    if (chosen.length === 0) return;
+    setImportingProfile(true); setError(null); setNotice(null);
+    try {
+      const files = await Promise.all(chosen.map(async (f) => ({ name: f.name, text: await readTextFile(f) })));
+      const stored = await api.uploadMaterials(files);
+      if (stored.saved.length === 0) {
+        setError(`没有收下任何文件：${stored.skipped.map((s) => `${s.name}（${s.reason}）`).join("、")}。`);
+        return;
+      }
+      // 先把已经发生的事说出来：文件确实收下了。整理人物是下一步，它失败不该
+      // 让作者以为上传也白传了。
+      const kept = `已收下 ${stored.saved.join("、")}。${stored.skipped.length === 0 ? "" : `未收下：${stored.skipped.map((s) => `${s.name}（${s.reason}）`).join("、")}。`}`;
+      data.reload(); refresh();
+      if (isCurrent()) setNotice(kept);
+      try {
+        const result = await api.draftPreparation({ focus: "characters", apply: true });
+        if (isCurrent()) {
+          setSelected(result.proposalId ?? null);
+          setNotice(`${kept}根据它整理出的人物保存在待确认方案里，请核对后再确认。`);
+        }
+      } catch (e) {
+        if (isCurrent()) setError(`整理人物没有完成：${(e as Error).message} 资料已收下，可以再点「让 AI 起草人物」重试。`);
+      }
+    } catch (e) { if (isCurrent()) setError((e as Error).message); }
+    finally { if (isCurrent()) setImportingProfile(false); }
   };
 
   const act = async (proposal: PreparationProposal, action: "confirm" | "write" | "trial" | "reject"): Promise<void> => {
@@ -78,7 +117,9 @@ export function Preparation({ refresh, proposalId }: { refresh: () => void; prop
       <div className="prep-main">
         {candidate === undefined ? <>
           <div className="section-head"><h2>当前创作依据</h2><div className="row"><Button type="primary" onClick={() => setDrafting("full")}>让 AI 起草资料</Button><Button onClick={() => setDrafting("chapters")}>让 AI 排后面几章</Button><Button onClick={() => setImporting(true)}>导入已有正文</Button><Button onClick={() => { window.location.hash = "/inference"; }}>从正文反推结构</Button><Button onClick={() => setEditing(!editing)}>{editing ? "返回资料" : "编辑基本设定与偏好"}</Button></div></div>
-          {editing ? <AuthorForm view={view} onSaved={saved} /> : <Content content={view.confirmed} onEdit={setEntity} onDraft={setDrafting} />}
+          <input type="file" accept=".txt,.md,text/plain" multiple ref={profilePicker} style={{ display: "none" }}
+            onChange={(e) => { void importProfile(e.target.files); e.target.value = ""; }} />
+          {editing ? <AuthorForm view={view} onSaved={saved} /> : <Content content={view.confirmed} onEdit={setEntity} onDraft={setDrafting} onImport={() => profilePicker.current?.click()} importing={importingProfile} />}
           <section className="prep-section"><h2>未来伏笔计划</h2><p className="muted">这些安排已确认，尚未写成正文中的埋设或兑现。</p>{view.plannedForeshadows.length === 0 ? <p className="muted">暂时没有独立的未来伏笔规划。</p> : view.plannedForeshadows.map(plan => <div className="draft-change" key={plan.id}><strong>{plan.label}</strong><p>{plan.intent}</p><small>预期第 {plan.expectedBy} 章前兑现 · 尚未埋设</small></div>)}</section>
           <section className="prep-section"><h2>备选想法</h2>{view.ideas.length === 0 ? <p className="muted">暂时没有记录。可以在对话中说“把这个想法记为备选”。</p> : <ul>{view.ideas.map((idea) => <li key={idea.id}>{idea.text}</li>)}</ul>}</section>
         </> : <>
@@ -161,7 +202,7 @@ function RemovalList({ removals, current }: { removals: Removals | undefined; cu
 }
 
 /** 只读资料视图。传入 `onEdit` 时才出现手改入口 —— 方案预览复用本组件，那里不能编辑。 */
-function Content({ content, onEdit, onDraft, expanded }: { content: PreparationContent; onEdit?: (editing: Editing) => void; onDraft?: (focus: "characters" | "full") => void; expanded?: boolean }): React.ReactElement {
+function Content({ content, onEdit, onDraft, onImport, importing, expanded }: { content: PreparationContent; onEdit?: (editing: Editing) => void; onDraft?: (focus: "characters" | "full") => void; onImport?: () => void; importing?: boolean; expanded?: boolean }): React.ReactElement {
   const s = content.setting;
   const add = (kind: Editing["kind"], label: string): React.ReactElement | null => onEdit === undefined ? null : <Button size="small" onClick={() => onEdit({ kind, base: null })}>{label}</Button>;
   // 起草是主路径，手改是纠正路径 —— 按钮的视觉权重按这个顺序排。
@@ -172,7 +213,7 @@ function Content({ content, onEdit, onDraft, expanded }: { content: PreparationC
       ["故事想法", s.premise], ["核心冲突", s.centralConflict], ["故事起点", s.openingSituation], ["主角特征", s.protagonistTraits], ["行为边界", s.protagonistForbidden],
       ["特殊能力", s.specialAbility], ["能力限制", s.abilityLimits], ["世界规则", s.worldRules], ["感情线", s.romanceLine], ["风格", s.styleKeywords], ["不写的内容", s.taboos],
     ] as [string, string | string[]][]).map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{(Array.isArray(value) ? value.join("；") : value) || <span className="muted">尚未指定</span>}</dd></div>)}</dl></section>
-    <section className="prep-section"><div className="section-head"><h2>人物档案 <small>{content.characters.length}</small></h2><div className="row">{draft("让 AI 起草人物")}{add("character", "手工补一个")}</div></div>{content.characters.length === 0 && <p className="muted">还没有人物档案。可以先在对话里让 Agent 起草，也可以直接手填。</p>}<div className="prep-card-grid">{content.characters.map((c) => <article className="prep-character" key={c.id}><div className="row"><h3>{c.name}</h3><Chip>{c.provenance === "proposed" ? "建议" : c.tier === "protagonist" ? "主角" : "已确认"}</Chip></div><p>{c.profile.role}</p><p className="muted">{c.profile.traits.join(" · ")}</p><dl className="prep-facts"><div><dt>想要什么</dt><dd>{c.profile.wants || "尚未指定"}</dd></div><div><dt>害怕什么</dt><dd>{c.profile.fears || "尚未指定"}</dd></div><div><dt>背景</dt><dd>{c.profile.background || "尚未指定"}</dd></div></dl><details open={expanded === true}><summary>外貌与说话方式</summary><p>{c.profile.appearance.map((a) => `${a.key}：${a.value}`).join("；")}</p>{c.speech.exemplars.map((line, i) => <blockquote key={i}>{line}</blockquote>)}{c.speech.forbiddenLexicon.length > 0 && <p>不使用：{c.speech.forbiddenLexicon.join("、")}</p>}</details>{edit("character", c, `「${c.name}」`)}</article>)}</div></section>
+    <section className="prep-section"><div className="section-head"><h2>人物档案 <small>{content.characters.length}</small></h2><div className="row">{onImport === undefined ? null : <Button size="small" loading={importing === true} onClick={onImport}>导入人物档案</Button>}{draft("让 AI 起草人物")}{add("character", "手工补一个")}</div></div>{content.characters.length === 0 && <p className="muted">还没有人物档案。有现成的角色档案就导进来 —— 上传后会读它并整理出人物供你核对；也可以让 Agent 从正文起草，或直接手填。</p>}<div className="prep-card-grid">{content.characters.map((c) => <article className="prep-character" key={c.id}><div className="row"><h3>{c.name}</h3><Chip>{c.provenance === "proposed" ? "建议" : c.tier === "protagonist" ? "主角" : "已确认"}</Chip></div><p>{c.profile.role}</p><p className="muted">{c.profile.traits.join(" · ")}</p><dl className="prep-facts"><div><dt>想要什么</dt><dd>{c.profile.wants || "尚未指定"}</dd></div><div><dt>害怕什么</dt><dd>{c.profile.fears || "尚未指定"}</dd></div><div><dt>背景</dt><dd>{c.profile.background || "尚未指定"}</dd></div></dl><details open={expanded === true}><summary>外貌与说话方式</summary><p>{c.profile.appearance.map((a) => `${a.key}：${a.value}`).join("；")}</p>{c.speech.exemplars.map((line, i) => <blockquote key={i}>{line}</blockquote>)}{c.speech.forbiddenLexicon.length > 0 && <p>不使用：{c.speech.forbiddenLexicon.join("、")}</p>}</details>{edit("character", c, `「${c.name}」`)}</article>)}</div></section>
     <section className="prep-section"><div className="section-head"><h2>地点与组织</h2>{add("setting", "新增地点／组织")}</div>{content.settings.length === 0 && <p className="muted">还没有地点或组织设定。</p>}{content.settings.map((place) => <article className="prep-place" key={place.id}><div className="row"><h3>{place.name} <span className="muted">{place.kind === "organization" ? "组织" : "地点"}</span></h3>{edit("setting", place, "设定")}</div><p>{place.description}</p>{place.facts.length > 0 && <ul>{place.facts.map((fact, i) => <li key={i}>{fact}</li>)}</ul>}</article>)}</section>
     <section className="prep-section"><div className="section-head"><h2>情节方向</h2>{add("plotLine", "新增情节线")}</div>{content.plotLines.length === 0 ? <p className="muted">还没有情节线规划。</p> : <ul>{content.plotLines.map((line) => <li key={line.id}><Chip>{line.weight === "main" ? "主线" : line.weight === "sub" ? "支线" : "细节"}</Chip> {line.label}{edit("plotLine", line, "情节线")}</li>)}</ul>}</section>
     <section className="prep-section"><div className="section-head"><h2>卷</h2>{add("volume", "新增一卷")}</div>
