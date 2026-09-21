@@ -202,7 +202,8 @@ export interface JoinResult {
 
 /** 文件名里写的章号：`12-灰痕.txt`、`第十二章.txt`、`012.txt` 都认；认不出返回 null。 */
 function fileChapterKey(name: string): number | null {
-  const base = name.replace(/\.[^.]+$/u, "").trim();
+  // 选整个文件夹时带目录前缀（`失踪档案/12-灰痕.txt`）；章号只认文件名那一段。
+  const base = name.split(/[\\/]/u).at(-1)!.replace(/\.[^.]+$/u, "").trim();
   for (const { pattern } of MARKERS) {
     const match = pattern.exec(base);
     if (match !== null) return parseChapterNumber(match[1] ?? "");

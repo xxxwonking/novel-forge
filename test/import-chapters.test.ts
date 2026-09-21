@@ -251,6 +251,11 @@ describe("导入旧作·多文件", () => {
     expect(split.notes.some((n) => n.includes("不是递增顺序"))).toBe(false);
   });
 
+  it("选整个文件夹时文件带目录前缀：按文件名而不是整条路径认章号", () => {
+    const files = [file("失踪档案/10-十.txt", "第10章 十\n\n正文。"), file("失踪档案/2-二.txt", "第2章 二\n\n正文。"), file("失踪档案/子目录/1-一.txt", "第1章 一\n\n正文。")];
+    expect(joinChapterFiles(files).order).toEqual(["失踪档案/子目录/1-一.txt", "失踪档案/2-二.txt", "失踪档案/10-十.txt"]);
+  });
+
   it("文件名里是中文数字也按章号排：第一章、第二章、第十章", () => {
     const files = [file("第十章.txt", "第十章 十\n\n正文。"), file("第一章.txt", "第一章 一\n\n正文。"), file("第二章.txt", "第二章 二\n\n正文。")];
     expect(joinChapterFiles(files).order).toEqual(["第一章.txt", "第二章.txt", "第十章.txt"]);

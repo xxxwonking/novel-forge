@@ -54,6 +54,7 @@ export function ImportChapters({ onImported, onClose }: {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const picker = useRef<HTMLInputElement>(null);
+  const folderPicker = useRef<HTMLInputElement>(null);
 
   // 内容一变，上一次的预览和覆盖勾选就不再代表这份内容了。粘贴与选文件互斥。
   const replace = (value: string, name: string | null): void => {
@@ -61,8 +62,10 @@ export function ImportChapters({ onImported, onClose }: {
   };
 
   const pick = async (list: FileList | null): Promise<void> => {
-    const chosen = list === null ? [] : [...list];
-    if (chosen.length === 0) return;
+    // 选文件夹时浏览器会把里面所有东西都给过来（含子目录、图片、zip）；只留文本，
+    // 剩下的交给服务端按「有没有章节标记」再筛一遍。
+    const chosen = (list === null ? [] : [...list]).filter((f) => /\.txt$/iu.test(f.name) || f.type === "text/plain");
+    if (chosen.length === 0) { setError("选中的内容里没有 .txt 文件。"); return; }
     setBusy(true); setError(null);
     try {
       const read = await Promise.all(chosen.map(async (file) => ({ name: file.name, text: await readTextFile(file) })));
@@ -111,7 +114,12 @@ export function ImportChapters({ onImported, onClose }: {
     <div className="import-source">
       <input type="file" accept=".txt,text/plain" multiple ref={picker} style={{ display: "none" }}
         onChange={(e) => { void pick(e.target.files); e.target.value = ""; }} />
-      <Button onClick={() => picker.current?.click()} disabled={busy}>选择 .txt 文件（可多选）</Button>
+      {/* webkitdirectory 不在 React 的属性表里，用 ref 挂；每章一个文件的作者手上就是一个文件夹，
+          让他进去 ⌘A 全选是把系统对话框的限制推给了作者。 */}
+      <input type="file" ref={(el) => { folderPicker.current = el; if (el !== null) el.setAttribute("webkitdirectory", ""); }} style={{ display: "none" }}
+        onChange={(e) => { void pick(e.target.files); e.target.value = ""; }} />
+      <Button onClick={() => picker.current?.click()} disabled={busy}>选择 .txt 文件</Button>
+      <Button onClick={() => folderPicker.current?.click()} disabled={busy}>选择整个文件夹</Button>
       {filename !== null && <span className="muted">已读取 {filename}（{total.toLocaleString()} 字符）</span>}
     </div>
     <label className="import-paste">直接粘贴正文
