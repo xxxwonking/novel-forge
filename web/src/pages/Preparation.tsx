@@ -112,8 +112,9 @@ export function Preparation({ refresh, proposalId }: { refresh: () => void; prop
     {importing && <ImportChapters onClose={() => setImporting(false)} onImported={(result) => {
       setImporting(false); setEntity(null); setEditing(false); setSelected(null);
       const done = [result.imported.length > 0 ? `新增 ${result.imported.length} 章` : "", result.replaced.length > 0 ? `覆盖 ${result.replaced.length} 章` : "", result.unchanged.length > 0 ? `${result.unchanged.length} 章内容未变` : ""].filter(Boolean).join("、");
+      const kept = result.materials.length > 0 ? `另外收下 ${result.materials.length} 份资料：${result.materials.join("、")}。` : "";
       // 明确说出"结构还没有" —— 让作者以为导进来就什么都有了，比不做这个功能更糟。
-      setNotice(`已导入正文：${done}${result.totalWords > 0 ? `，共 ${result.totalWords} 字` : ""}，下一章是第 ${result.nextChapter} 章。接着用「让 AI 起草资料」补出人物，再用「从正文反推结构」逐章补出事件与伏笔 —— 在那之前伏笔时间线仍是空的。`);
+      setNotice(`已导入正文：${done}${result.totalWords > 0 ? `，共 ${result.totalWords} 字` : ""}，下一章是第 ${result.nextChapter} 章。${kept}接着用「让 AI 起草资料」补出人物（它会读这些资料），再用「从正文反推结构」逐章补出事件与伏笔 —— 在那之前伏笔时间线仍是空的。`);
       data.reload(); refresh();
     }} />}
     {entity?.kind === "beat" && <BeatEditor base={entity.base as never} chapter={view.nextChapter} characters={view.confirmed.characters} settings={view.confirmed.settings} plotLines={view.confirmed.plotLines} fingerprint={view.fingerprint} onSaved={saved} onClose={() => setEntity(null)} />}

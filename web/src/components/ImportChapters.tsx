@@ -106,8 +106,9 @@ export function ImportChapters({ onImported, onClose }: {
       </Button>,
     ]}>
     <p className="muted">
-      把已经写好的稿子放进来，接着往下写。<strong>这一步只入正文</strong> —— 人物、伏笔、情节线不会自动产生，
-      导入后请用「让 AI 起草资料」从正文推断出来。章号取自文件里的标记，不会重新编号。
+      把已经写好的稿子放进来，接着往下写。<strong>正文之外的文件会被收进作品资料</strong>（角色档案、大纲、设定这类），
+      识别人物时会用上；人物、伏笔、情节线仍不会自动生效，要走「让 AI 起草资料」并逐条核对。
+      章号取自文件里的标记，不会重新编号。
     </p>
     {error !== null && <div className="finding" role="alert" data-level="block">{error}</div>}
 

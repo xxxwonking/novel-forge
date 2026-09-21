@@ -21,6 +21,7 @@ import { ChapterWriteError } from "../server/chapter-input.js";
 import { countWords } from "../text/measure.js";
 import type { ProjectSession } from "../server/state.js";
 import { joinChapterFiles, splitChapters, type ImportFile, type SplitResult } from "./split.js";
+import { MATERIAL_MAX_CHARS, MaterialStore } from "./materials.js";
 
 type Source = Pick<ProjectSession, "chapterText" | "chapterNumbers" | "events" | "allDrafts" | "putChapters">;
 
@@ -30,6 +31,8 @@ export interface ImportRequest {
   readonly overwrite?: boolean;
   /** `files` 拼接时产生的说明（跳过的文件、剥掉的标题行），并进预览的 notes。 */
   readonly joinNotes: readonly string[];
+  /** 没被当成正文的文件，导入时收进作品资料。粘贴模式为空。 */
+  readonly materials: readonly ImportFile[];
 }
 
 export interface ImportConflict {
@@ -42,6 +45,13 @@ export interface ImportConflict {
   readonly reason: string;
 }
 
+/** 资料文件的体检：过大的与名字不合法的要在预览里说清楚，不能等到导入才发现。 */
+function materialNotes(materials: readonly ImportFile[]): readonly string[] {
+  const tooBig = materials.filter((m) => m.text.length > MATERIAL_MAX_CHARS).map((m) => m.name);
+  if (tooBig.length === 0) return [];
+  return [`${tooBig.length} 份资料过大（超过 ${Math.round(MATERIAL_MAX_CHARS / 10000)} 万字），不收进作品资料：${tooBig.join("、")}。如果它是正文，请确认每章都有章节标记。`];
+}
+
 export interface ImportPreview extends SplitResult {
   readonly conflicts: readonly ImportConflict[];
   readonly totalWords: number;
@@ -52,6 +62,8 @@ export interface ImportPreview extends SplitResult {
 }
 
 export interface ImportResult {
+  /** 收进作品资料的文件名。它们不是正文，不进章节序列。 */
+  readonly materials: readonly string[];
   /** 新增的章号。 */
   readonly imported: readonly number[];
   /** 覆盖掉已有正文的章号。 */
@@ -73,10 +85,10 @@ function parseRequest(raw: unknown): ImportRequest {
   if (hasText === hasFiles) throw new ChapterWriteError(400, "text 与 files 必须给且只给一个");
   if (hasText) {
     if (typeof input["text"] !== "string") throw new ChapterWriteError(400, "text 必须是字符串");
-    return { text: input["text"], overwrite, joinNotes: [] };
+    return { text: input["text"], overwrite, joinNotes: [], materials: [] };
   }
   const joined = joinChapterFiles(parseFiles(input["files"]));
-  return { text: joined.text, overwrite, joinNotes: joined.notes };
+  return { text: joined.text, overwrite, joinNotes: joined.notes, materials: joined.materials };
 }
 
 function parseFiles(raw: unknown): readonly ImportFile[] {
@@ -90,10 +102,11 @@ function parseFiles(raw: unknown): readonly ImportFile[] {
 }
 
 export class ImportService {
-  constructor(private readonly source: Source) {}
+  /** `root` 单独给：资料文件落在作品目录下，与正文章节同级但各成一类。 */
+  constructor(private readonly root: string, private readonly source: Source) {}
 
   preview(raw: unknown): ImportPreview {
-    const { text, joinNotes } = parseRequest(raw);
+    const { text, joinNotes, materials } = parseRequest(raw);
     const split = splitChapters(text);
     const conflicts = split.chapters.flatMap((chapter) => {
       const existing = this.source.chapterText(chapter.chapter);
@@ -113,7 +126,7 @@ export class ImportService {
     const usable = split.problems.length === 0 && split.chapters.length > 0;
     return {
       ...split,
-      notes: [...joinNotes, ...split.notes, ...this.holes(split.chapters.map((c) => c.chapter))],
+      notes: [...joinNotes, ...materialNotes(materials), ...split.notes, ...this.holes(split.chapters.map((c) => c.chapter))],
       conflicts,
       totalWords: split.chapters.reduce((sum, chapter) => sum + chapter.words, 0),
       ready: usable && conflicts.every((c) => c.identical),
@@ -122,7 +135,7 @@ export class ImportService {
   }
 
   apply(raw: unknown): ImportResult {
-    const { overwrite } = parseRequest(raw);
+    const { overwrite, materials } = parseRequest(raw);
     const preview = this.preview(raw);
     if (preview.problems.length > 0) throw new ChapterWriteError(400, preview.problems.join("；"));
     const blocked = preview.conflicts.filter((c) => c.locked);
@@ -137,8 +150,13 @@ export class ImportService {
     // 一次事务写完：有阻断项时一章都不落，不留半本书。
     if (writes.length > 0) this.source.putChapters(writes);
 
+    // 资料在正文之后落盘：正文写不进去时不该先留下一批资料文件。
+    const store = new MaterialStore(this.root);
+    const kept = materials.flatMap((material) => { const saved = store.save(material.name, material.text); return saved === null ? [] : [saved.name]; });
+
     const numbers = writes.map((w) => w.chapter);
     return {
+      materials: kept,
       imported: numbers.filter((n) => !replaced.has(n)).sort((a, b) => a - b),
       replaced: numbers.filter((n) => replaced.has(n)).sort((a, b) => a - b),
       unchanged: [...skip].sort((a, b) => a - b),

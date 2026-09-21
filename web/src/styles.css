@@ -272,6 +272,9 @@ a.book-card:hover .book-cta { color: var(--main); }
 .prep-form label { display: block; margin: 18px 0; color: var(--ink-dim); font-size: 12px; }
 /* 手改编辑器：弹窗内两列栅格，窄屏塌成一列；行式列表用来编辑外貌、称谓、事件这类定长条目。 */
 .library-balance { margin-left: auto; font: 11px var(--mono); color: var(--ink-faint); letter-spacing: 1px; }
+.start-here { display: flex; align-items: center; justify-content: space-between; gap: 24px; flex-wrap: wrap; padding: 22px 24px; margin: 4px 0 24px; border: 1px solid var(--line); border-left: 2px solid var(--main); border-radius: 0 10px 10px 0; background: linear-gradient(90deg, rgba(201, 162, 39, 0.08), rgba(255, 255, 255, 0.02)); }
+.start-here h2 { margin: 0; font: 500 19px/1.35 var(--serif); letter-spacing: 0.5px; }
+.start-here p { margin: 6px 0 0; color: var(--ink-dim); font-size: 12.5px; }
 .credit-balance { display: flex; gap: 32px; flex-wrap: wrap; padding: 20px 22px; border: 1px solid var(--line); border-left: 2px solid var(--main); border-radius: 0 10px 10px 0; margin: 4px 0 16px; }
 .credit-balance small { display: block; margin-top: 4px; font: 11px var(--mono); color: var(--ink-faint); letter-spacing: 1px; }
 /* 数字用等宽变体，几行叠在一起时小数点对得齐。 */

@@ -6,23 +6,72 @@
  * 而这两个时机在界面上就是这一页的上半和下半。
  */
 
-import { Tag } from "antd";
-import { ArrowRightOutlined } from "@ant-design/icons";
-import type { Alert, AlertAction, Overview } from "../api.js";
+import { useState } from "react";
+import { Button, Tag } from "antd";
+import { ArrowRightOutlined, ImportOutlined } from "@ant-design/icons";
+import { api, type Alert, type AlertAction, type Overview } from "../api.js";
 import { AlertCard } from "../components/AlertCard.js";
+import { ImportChapters } from "../components/ImportChapters.js";
 import { genreLabel, platformLabel } from "../labels.js";
 
 export interface HomeProps {
   overview: Overview;
   onAction: (alert: Alert, action: AlertAction) => void;
   onIgnore: (alert: Alert) => void;
+  refresh: () => void;
 }
 
-export function Home({ overview, onAction, onIgnore }: HomeProps): React.ReactElement {
+export function Home({ overview, onAction, onIgnore, refresh }: HomeProps): React.ReactElement {
   const { counts, homepage, nextBeat } = overview;
+  const [importing, setImporting] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [identifying, setIdentifying] = useState(false);
+
+  /** 一本书一章没有时，首页此前是个死路：只有「没有需要处理的结构债」。 */
+  const empty = overview.chapterCount === 0;
+  const noCharacters = overview.characterCount === 0;
+
+  const identify = async (): Promise<void> => {
+    if (identifying) return;
+    setIdentifying(true); setError(null); setNotice(null);
+    try {
+      const result = await api.draftPreparation({ focus: "characters", apply: true });
+      setNotice(`已根据正文与资料整理出人物，保存在待确认方案里：${result.summary ?? "请到作品资料核对"}。`);
+      refresh();
+    } catch (e) { setError((e as Error).message); }
+    finally { setIdentifying(false); }
+  };
 
   return (
     <>
+      {empty && (
+        <section className="start-here">
+          <div>
+            <h2>这本书还是空白的</h2>
+            <p>抓起已经写好的稿子放进来，接着往下写；也可以先和 Agent 把故事想清楚。</p>
+          </div>
+          <div className="row">
+            <Button type="primary" icon={<ImportOutlined />} onClick={() => setImporting(true)}>导入已有正文</Button>
+            <a href="#/chat?mode=planning">先聊聊再定 →</a>
+          </div>
+        </section>
+      )}
+      {!empty && noCharacters && (
+        <section className="start-here">
+          <div>
+            <h2>正文进来了，还没有人物</h2>
+            <p>从正文与导入的资料里整理人物档案并分档，结果保存在待确认方案里，由你核对。</p>
+          </div>
+          <div className="row">
+            <Button type="primary" loading={identifying} onClick={() => void identify()}>从正文识别人物</Button>
+            <a href="#/preparation">到作品资料 →</a>
+          </div>
+        </section>
+      )}
+      {notice !== null && <p className="prep-notice" role="status">{notice}</p>}
+      {error !== null && <p className="finding" role="alert" data-level="block">{error}</p>}
+
       <div className="page-head">
         <h1>现在需要处理（{homepage.length}）</h1>
         <p>
@@ -54,6 +103,14 @@ export function Home({ overview, onAction, onIgnore }: HomeProps): React.ReactEl
         <Stat label="断线情节" value={counts.brokenPlotLines} tone={counts.brokenPlotLines > 0 ? "alarm" : undefined} />
         <Stat label="题材／平台" value={`${genreLabel(overview.genre)} · ${platformLabel(overview.platform)}`} wide />
       </div>
+
+      {importing && <ImportChapters onClose={() => setImporting(false)} onImported={(result) => {
+        setImporting(false);
+        const done = [result.imported.length > 0 ? `新增 ${result.imported.length} 章` : "", result.replaced.length > 0 ? `覆盖 ${result.replaced.length} 章` : "", result.unchanged.length > 0 ? `${result.unchanged.length} 章内容未变` : ""].filter(Boolean).join("、");
+        const kept = result.materials.length > 0 ? `另外收下 ${result.materials.length} 份资料：${result.materials.join("、")}，识别人物时会用上。` : "";
+        setNotice(`已导入正文：${done}${result.totalWords > 0 ? `，共 ${result.totalWords} 字` : ""}，下一章是第 ${result.nextChapter} 章。${kept}`);
+        refresh();
+      }} />}
 
       <section className="section">
         <h2>下一章：第 {overview.nextChapter} 章</h2>
