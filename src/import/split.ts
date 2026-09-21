@@ -184,3 +184,97 @@ export function splitChapters(input: string): SplitResult {
     notes,
   };
 }
+
+// ── 多文件 ──────────────────────────────────────────────────────────────
+
+export interface ImportFile {
+  readonly name: string;
+  readonly text: string;
+}
+
+export interface JoinResult {
+  /** 拼好的整本，交给 `splitChapters`。 */
+  readonly text: string;
+  /** 实际采用的文件顺序，供预览核对。 */
+  readonly order: readonly string[];
+  readonly notes: readonly string[];
+}
+
+/** 文件名里写的章号：`12-灰痕.txt`、`第十二章.txt`、`012.txt` 都认；认不出返回 null。 */
+function fileChapterKey(name: string): number | null {
+  // 选整个文件夹时带目录前缀（`失踪档案/12-灰痕.txt`）；章号只认文件名那一段。
+  const base = name.split(/[\\/]/u).at(-1)!.replace(/\.[^.]+$/u, "").trim();
+  for (const { pattern } of MARKERS) {
+    const match = pattern.exec(base);
+    if (match !== null) return parseChapterNumber(match[1] ?? "");
+  }
+  const leading = /^[\s　]*(\d{1,6})(?![^\s\-_.．、—－()（）])/u.exec(base);
+  return leading === null ? null : Number(leading[1]);
+}
+
+/** 一份文件里第一条标记行的下标；没有则 -1。用的是整本已选定的那一种标记。 */
+function firstMarkerLine(lines: readonly string[], pattern: RegExp): number {
+  return lines.findIndex((line) => line.length <= MAX_HEADING && pattern.test(line));
+}
+
+/**
+ * 这份文件是一份**目录**吗？
+ *
+ * 真机撞上的：`目录及简介.txt` 里是一百行 `第001章 标题`，长得和一本书一模一样 ——
+ * 拼进去就变成「每一章都重号、每一章都没有正文」，把整次导入卡死。
+ *
+ * 判据是**有多条标记却一条正文都没有**。只有一条标记又没正文的不算目录，那是
+ * 切坏了的章节文件，仍要按问题报出来让作者看见。
+ */
+function looksLikeContents(lines: readonly string[], pattern: RegExp): boolean {
+  let markers = 0;
+  let bodied = false;
+  for (const line of lines) {
+    if (line.length <= MAX_HEADING && pattern.test(line)) { markers += 1; continue; }
+    if (markers > 0 && line.trim() !== "") bodied = true;
+  }
+  return markers >= 2 && !bodied;
+}
+
+/**
+ * 每章一个文件时把它们拼成一本。
+ *
+ * 顺序按文件名里的章号排（字典序会把 10、100 排到 2 前面）；认不出章号的排到最后，
+ * 同组内按数字感知的自然序。章号最终仍取自正文里的标记 —— 这里的排序只决定预览
+ * 里的先后与「不是递增顺序」那条提示，不决定哪一章落到哪。
+ *
+ * 两类内容不能并进去：**整个文件都没有标记行**（大纲、人物档案、简介），以及某个
+ * 文件**标记行之前**的文字（文件自带的标题行）。两者若直接拼接都会悄悄粘到前一章
+ * 的末尾 —— 那是几万字之后才会被发现的错。所以都单独说明、不导入。
+ */
+export function joinChapterFiles(files: readonly ImportFile[]): JoinResult {
+  const collator = new Intl.Collator("zh", { numeric: true });
+  const ordered = files.map((file) => ({ ...file, key: fileChapterKey(file.name) }))
+    .sort((a, b) => (a.key ?? Number.POSITIVE_INFINITY) - (b.key ?? Number.POSITIVE_INFINITY) || collator.compare(a.name, b.name));
+  const normalized = ordered.map((file) => ({ name: file.name, lines: normalize(file.text).split("\n") }));
+  const marker = MARKERS.find(({ pattern }) => normalized.some((file) => firstMarkerLine(file.lines, pattern) >= 0));
+  // 一个标记都没有：原样拼上交给 splitChapters，由它报那条标准的「没有识别到章节标记」。
+  if (marker === undefined) return { text: normalized.map((file) => file.lines.join("\n")).join("\n\n"), order: ordered.map((file) => file.name), notes: [] };
+
+  const skipped: string[] = [];
+  const contents: string[] = [];
+  const prefaced: { readonly name: string; readonly words: number }[] = [];
+  const parts: string[] = [];
+  for (const file of normalized) {
+    const at = firstMarkerLine(file.lines, marker.pattern);
+    if (at < 0) { skipped.push(file.name); continue; }
+    if (looksLikeContents(file.lines, marker.pattern)) { contents.push(file.name); continue; }
+    const before = trimBody(file.lines.slice(0, at));
+    if (before !== "") prefaced.push({ name: file.name, words: countWords(before) });
+    parts.push(file.lines.slice(at).join("\n"));
+  }
+
+  const notes: string[] = [];
+  if (skipped.length > 0) notes.push(`${skipped.length} 个文件里没有章节标记，本次不导入：${skipped.join("、")}。大纲、人物档案这类资料请到「作品资料」里录入。`);
+  if (contents.length > 0) notes.push(`${contents.join("、")} 看起来是目录（有章节标题但没有正文），本次不导入。`);
+  if (prefaced.length > 0) {
+    const named = prefaced.slice(0, 3).map((f) => `${f.name}（${f.words} 字）`).join("、");
+    notes.push(`${prefaced.length} 个文件在标记行之前有未编号内容，本次不导入：${named}${prefaced.length > 3 ? " 等" : ""}。需要它的话请并进该章正文。`);
+  }
+  return { text: parts.join("\n\n"), order: ordered.map((file) => file.name), notes };
+}
