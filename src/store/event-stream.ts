@@ -121,6 +121,21 @@ export class EventStream {
     return updated;
   }
 
+  /**
+   * 批量裁决指定的 proposed 事件。
+   *
+   * 与 `decideChapter` 并列：那一版按章筛选，而「作者刚在方案里确认的一批关系声明」
+   * 不属于任何一章，只能按 id 指认 —— 按来源批量提升会把别处待确认的同类一起卷进来。
+   */
+  decideIds(ids: readonly StructuralEventId[], decision: Extract<Provenance, "committed" | "rejected">): readonly StructuralEvent[] {
+    const out: StructuralEvent[] = [];
+    for (const id of ids) {
+      const r = this.decide(id, decision);
+      if (r !== null) out.push(r);
+    }
+    return out;
+  }
+
   /** 批量裁决一章的全部 proposed 事件 —— C8 的常规路径（用户接受整章）。 */
   decideChapter(
     chapter: ChapterNo,
@@ -238,7 +253,8 @@ export function declarationOf(events: readonly StructuralEvent[]): C5Declaration
     events: of("plot_event"),
     foreshadowPlanted: of("foreshadow_planted"),
     foreshadowResolved: of("foreshadow_resolved"),
-    relationsChanged: of("relation_changed"),
+    // 只收有正文出处的关系：来自资料的声明关系没有锚点，不属于任何一章的声明。
+    relationsChanged: of("relation_changed").flatMap((r) => r.anchor === undefined ? [] : [{ ...r, anchor: r.anchor }]),
     characterStates: of("character_state_changed"),
     characterPresence: of("character_presence"),
   };

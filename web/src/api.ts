@@ -6,7 +6,7 @@
  * 在这里重新声明一遍是诚实的：它描述的是报文，不是内存里的对象。
  */
 
-import type { CharacterInput, CharacterRecord, PlotLineInput, Removals, SettingInput } from "./preparation-changes.js";
+import type { CharacterInput, CharacterRecord, PlotLineInput, RelationClaim, Removals, SettingInput } from "./preparation-changes.js";
 
 export type ForeshadowWeight = "main" | "sub" | "detail";
 export type CharacterTier = "protagonist" | "major" | "minor" | "extra";
@@ -299,7 +299,9 @@ export interface RelationGraph {
     kind: string;
     note: string;
     changedAt: number;
-    point: AnchorPoint;
+    /** 没有正文出处时为 null —— 不是"解析失败"，而是"还没写进正文"。 */
+    point: AnchorPoint | null;
+    declared: boolean;
     historyCount: number;
     history: { chapter: number; kind: string; note: string }[];
   }[];
@@ -531,7 +533,7 @@ export interface AdoptResponse {
  * 人物卡与说话方式的形状定义在 `preparation-changes.ts` —— 那份类型同时是
  * "编辑后要发出去的载荷" 的契约，两边共用一个定义才不会各写一份走样。
  */
-export type { CharacterRecord, CharacterAttribute, SpeechProfile, CharacterInput, SettingInput, PlotLineInput, BeatInput, BeatRecord, ChapterPlanInput, PreparationChanges, Removals } from "./preparation-changes.js";
+export type { CharacterRecord, CharacterAttribute, SpeechProfile, CharacterInput, SettingInput, PlotLineInput, BeatInput, BeatRecord, ChapterPlanInput, PreparationChanges, Removals, RelationClaim, RelationKind } from "./preparation-changes.js";
 export type CharacterCard = CharacterRecord;
 
 /** 卷名与卷纲。章号范围不在这里 —— 由节拍表的 volume 推出。 */
@@ -557,7 +559,7 @@ export interface PreparationProposal {
   id: string; summary: string; source: "author" | "assistant"; status: "proposed" | "confirmed" | "rejected";
   stale: boolean; createdAt: string; updatedAt: string;
   /** 只声明界面要读的那部分：删除在 content 预览里是隐形的，必须单独说出来。 */
-  changes: { removals?: Removals };
+  changes: { removals?: Removals; relations?: RelationClaim[] };
   content: PreparationContent;
   impacts: { message: string; chapters: number[] }[];
   findings: GateFinding[];

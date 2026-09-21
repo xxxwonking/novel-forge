@@ -63,7 +63,9 @@ export type EventOrigin =
   /** 旧稿反推：读作者导入的正文补出的结构声明，作者确认后才成为事实。 */
   | "import_inference"
   /** 用户在 UI 里手动标注/修正。 */
-  | "user_edit";
+  | "user_edit"
+  /** 作者提供的资料（角色档案等）里声明的关系。没有正文出处，图上画虚线。 */
+  | "material_import";
 
 // ── 载荷：五类事件 ──────────────────────────────────────────────────────
 
@@ -181,7 +183,13 @@ export interface RelationChangedPayload {
   readonly toKind: RelationKind;
   /** 一句话说明这次转变。关系图的边悬浮提示用它。 */
   readonly note: string;
-  readonly anchor: TextAnchor;
+  /**
+   * 正文出处。**缺席 = 尚未写进正文**（来自作者的资料，如角色档案里的关系表）。
+   *
+   * 不给一个空的锚点充数：那会被解析成「原文已变动」这个完全不同的结论。
+   * 关系图画成虚线，并且不是可跳转的点。
+   */
+  readonly anchor?: TextAnchor;
 }
 
 /**
@@ -253,7 +261,13 @@ export interface C5Declaration {
   /** ≤3 条，expectedBy 必填。 */
   readonly foreshadowPlanted: readonly ForeshadowPlantedPayload[];
   readonly foreshadowResolved: readonly ForeshadowResolvedPayload[];
-  readonly relationsChanged: readonly RelationChangedPayload[];
+  /**
+   * C5 声明的关系**必须带正文出处** —— 它是同会话第二轮从刚写完的正文里读出来的。
+   *
+   * 而事件载荷那边的 `anchor` 是可选的：作者提供的资料里声明的关系没有出处。
+   * 两者共用载荷类型，但契约不同，所以在这里收紧。
+   */
+  readonly relationsChanged: readonly (RelationChangedPayload & { readonly anchor: TextAnchor })[];
   readonly characterStates: readonly CharacterStateChangedPayload[];
   readonly characterPresence: readonly CharacterPresencePayload[];
 }

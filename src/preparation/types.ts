@@ -1,6 +1,7 @@
 import type { ProjectSnapshot } from "../store/persist.js";
 import type { ChapterPlan, GateFinding, WorkProfile } from "../types/beat.js";
 import type { WorkSetting } from "../types/work.js";
+import type { RelationClaim } from "../types/relations.js";
 
 export type PreparationContent = Pick<ProjectSnapshot, "setting" | "discipline" | "profile" | "characters" | "settings" | "plotLines" | "volumes" | "beats">;
 export type CharacterInput = Omit<ProjectSnapshot["characters"][number], "provenance" | "updatedAt" | "introducedAt">;
@@ -16,6 +17,11 @@ export interface PreparationChanges {
   /** 卷名与卷纲，按卷号更新。卷的边界不在这里 —— 那是 beats 的 volume。 */
   readonly volumes?: readonly { readonly volume: number; readonly title: string; readonly summary: string }[];
   readonly beats?: readonly { readonly chapter: number; readonly volume: number; readonly plan: ChapterPlan }[];
+  /**
+   * 资料里声明的人物关系。与正文里的关系事件是同一个投影源的两种形态 ——
+   * 区别只在有没有正文出处，这里没有。
+   */
+  readonly relations?: readonly RelationClaim[];
   /** 删除单独说：`changes` 的其余部分一律是按 ID/章号的 upsert，没有「少送就等于删」。 */
   readonly removals?: {
     readonly characters?: readonly string[];

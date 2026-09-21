@@ -130,7 +130,9 @@ export interface RelationGraph {
     readonly kind: RelationKind;
     readonly note: string;
     readonly changedAt: ChapterNo;
-    readonly point: AnchorPoint;
+    /** 没有正文出处时为 null —— 不是"解析失败"，而是"还没写进正文"。 */
+    readonly point: AnchorPoint | null;
+    readonly declared: boolean;
     /** 历史沿革条数。>1 时前端提示"这两人怎么走到这一步"可展开。 */
     readonly historyCount: number;
     readonly history: RelationEdge["history"];
@@ -312,7 +314,8 @@ function buildRelationGraph(input: BuildViewInput, resolve: Resolver): RelationG
       kind: e.kind,
       note: e.note,
       changedAt: e.changedAt,
-      point: resolve(e.anchor),
+      point: e.anchor === null ? null : resolve(e.anchor),
+      declared: e.declared,
       historyCount: e.history.length,
       history: e.history,
     })),
