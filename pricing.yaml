@@ -1,0 +1,38 @@
+## 模型单价与积分折算
+##
+## 与 rules.yaml 分开：那份是**故事约束**（字数、密度、伏笔），这份是**经营参数**
+## （上游价格、积分率）。两者变更的理由和频率都不一样，混在一起会让 rules.yaml
+## 从「故事约束」稀释成「什么都放」。
+##
+## ⚠ **models 里的价格是占位值，上线前必须按各家官网核对。** 它们决定作者被扣
+## 多少积分，记错就是记错账。价格表里没有的模型仍会照常记用量，只是不折积分
+## （账目里标 priced: false），所以漏配一个模型不会让调用失败，但会让那部分消耗
+## 不计入余额 —— 定期看一眼「未计价调用」那一栏。
+##
+## 单价单位：美元 / 每百万 token。cacheWrite 与 cacheRead 是缓存写入与命中的价格，
+## 它们与 input 差一个量级，合并计价会把账算错。
+
+version: p1
+
+## 多少积分折 1 美元。这是你的经营参数，不是上游事实。
+creditsPerUsd: 100
+
+## 注册赠送额度（积分）。免费漏斗用它。
+signupGrant: 500
+
+models:
+  claude-opus-5:
+    input: 15
+    output: 75
+    cacheWrite: 18.75
+    cacheRead: 1.5
+  claude-haiku-4-5:
+    input: 1
+    output: 5
+    cacheWrite: 1.25
+    cacheRead: 0.1
+  gemini-3-flash:
+    input: 0.3
+    output: 2.5
+    cacheWrite: 0.3
+    cacheRead: 0.075

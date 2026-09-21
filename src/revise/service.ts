@@ -227,7 +227,7 @@ export class ReviseService {
     let call: Awaited<ReturnType<ModelClient["call"]>>;
     try {
       call = await this.deps.client().call({
-        role: "judge", maxTokens: LOCATE_MAX_TOKENS,
+        role: "judge", purpose: "revision", maxTokens: LOCATE_MAX_TOKENS,
         system: [{ type: "text", text: REVISION_LOCATE_SYSTEM }],
         messages: [{ role: "user", content: [{ type: "text", text: task }] }],
         outputSchema: REVISION_PASSAGE_SCHEMA,

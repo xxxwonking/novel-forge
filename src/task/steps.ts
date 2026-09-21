@@ -129,6 +129,8 @@ export async function declareStructure(
   ];
 
   const c5 = await client.call({
+
+    purpose: "chapter",
     role: "creative",
     effort: "medium",
     maxTokens: C5_MAX_TOKENS,
@@ -198,6 +200,7 @@ export async function checkVoiceWithModel(
   let call: Awaited<ReturnType<ModelClient["call"]>>;
   try {
     call = await client.call({
+      purpose: "chapter",
       role: "judge",
       maxTokens: VOICE_MAX_TOKENS,
       system: [{ type: "text", text: VOICE_JUDGE_SYSTEM }],
@@ -268,6 +271,7 @@ export async function checkSemanticsWithModel(
   let call: Awaited<ReturnType<ModelClient["call"]>>;
   try {
     call = await client.call({
+      purpose: "chapter",
       role: "judge",
       maxTokens: SEMANTIC_MAX_TOKENS,
       system: [{ type: "text", text: SEMANTIC_JUDGE_SYSTEM }],

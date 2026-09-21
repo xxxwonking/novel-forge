@@ -8,6 +8,7 @@ import { serve, type ServeOptions } from "../src/server/http.js";
 import { ProjectStore } from "../src/store/persist.js";
 import { DraftStore } from "../src/task/draft-store.js";
 import { Workspace } from "../src/workspace/service.js";
+import { loadPricing } from "../src/credits/pricing.js";
 import { C5_JSON, PROSE, fakeClient, modelText, savedDraft, writingSnapshot } from "./writing-fixtures.js";
 import type { CallResult } from "../src/client/claude.js";
 
@@ -42,13 +43,14 @@ async function start(root = directory(), projectRoot?: string) {
   return { root, model, request };
 }
 
+const grant = loadPricing().signupGrant;
 const idea = { title: "雨城来信", idea: "一个邮差追查来自未来的信件。", genre: "mystery", platform: "unpublished", targetWords: 120000 };
 
 describe("作品工作区", () => {
   it("空目录可启动；查看列表不创建演示、不调用模型", async () => {
     const root = join(directory(), "empty-library");
     const { request, model } = await start(root);
-    expect(await request("/api/workspace")).toEqual({ status: 200, body: { projects: [], defaultProjectId: null, removed: [] } });
+    expect(await request("/api/workspace")).toEqual({ status: 200, body: { projects: [], defaultProjectId: null, removed: [], credits: { granted: grant, spent: 0, balance: grant, unpricedCalls: 0 } } });
     expect(existsSync(root)).toBe(false);
     expect(model.calls).toHaveLength(0);
     expect((await request("/api/overview")).status).toBe(409);

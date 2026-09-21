@@ -114,7 +114,9 @@ describe("资料页的 AI 起草", () => {
     expect(result.proposalId).toBeUndefined();
     // 试填只是在表单里填上，作者还没点头 —— 方案目录都不该存在，更不能有方案。
     expect(run.preparation.view().proposals).toEqual([]);
-    expect(readdirSync(root).sort()).toEqual(before);
+    // 账本是唯一的例外：试填真的调用了模型、真的花了钱，不记才是错的。
+    expect(readdirSync(root).filter((name) => name !== "credits.jsonl").sort()).toEqual(before.filter((name) => name !== "credits.jsonl"));
+    expect(run.credits().calls).toBeGreaterThan(0);
     expect(run.conversationTurns()).toEqual([]);
   });
 

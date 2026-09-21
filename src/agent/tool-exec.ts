@@ -289,6 +289,7 @@ export async function runAgentLoop(
   for (;;) {
     observe?.({ type: "round", round: toolRounds + 1 });
     const result = await client.call({
+      purpose: "conversation",
       ...callOpts,
       messages,
       ...(observe === undefined ? {} : { onTextDelta: (text: string) => observe({ type: "delta", text }) }),

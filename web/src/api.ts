@@ -23,8 +23,21 @@ export interface WorkSummary {
   chapterCount: number;
   pendingDrafts: number;
   updatedAt: string;
+  credits: number;
+  calls: number;
   error: string | null;
 }
+
+/** 模型消耗汇总。credits 是折算后的积分，tokens 是四档原始用量。 */
+export interface CreditSummary {
+  calls: number;
+  credits: number;
+  unpricedCalls: number;
+  tokens: { input: number; output: number; cacheWrite: number; cacheRead: number };
+  byPurpose: Record<string, { calls: number; credits: number }>;
+}
+
+export interface WorkspaceCredits { granted: number; spent: number; balance: number; unpricedCalls: number }
 
 export interface RemovedWork extends WorkSummary {
   /** 回收站里的目录名（`data/.trash/` 下），作者在磁盘上按它就能找到这本书。 */
@@ -36,6 +49,7 @@ export interface WorkspacePayload {
   projects: WorkSummary[];
   defaultProjectId: string | null;
   removed: RemovedWork[];
+  credits: WorkspaceCredits;
 }
 
 export interface CreateWorkInput {
@@ -751,6 +765,7 @@ export const api = {
   chapters: () => request<ChapterListItem[]>("/api/chapters"),
   chapter: (n: number) => request<ChapterPayload>(`/api/chapter?n=${n}`),
   health: (n: number) => request<HealthPayload>(`/api/health?n=${n}`),
+  credits: () => request<CreditSummary>("/api/credits"),
   search: (q: string) => request<SearchResult>(`/api/search?q=${encodeURIComponent(q)}`),
   anchor: (a: TextAnchor) =>
     request<AnchorPayload>(

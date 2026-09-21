@@ -178,6 +178,8 @@ export function handle(session: ProjectSession, req: ApiRequest): ApiResponse {
         return anchor(session, req.query);
       case "/api/search":
         return search(session, req.query);
+      case "/api/credits":
+        return ok(session.credits());
       case "/api/chapter/drafts":
         return chapterDrafts(session, req.query);
       case "/api/chapter/draft":

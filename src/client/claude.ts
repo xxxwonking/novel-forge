@@ -44,6 +44,8 @@ export interface ClientOptions {
 
 export interface CallOptions {
   readonly role: ModelRole;
+  /** 调用点，只用于记账分组（chapter / conversation / inference / revision…）。不发给模型。 */
+  readonly purpose?: string;
   readonly maxTokens: number;
   readonly effort?: Effort;
   /** 仅 creative 角色支持。Opus 5 用 adaptive，不给 budget_tokens。 */

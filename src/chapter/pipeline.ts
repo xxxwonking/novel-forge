@@ -157,6 +157,7 @@ export async function runChapter(
 
   // ── C4 ──
   const c4 = await client.call({
+    purpose: "chapter",
     role: "creative",
     effort: "xhigh",
     thinking: true,
@@ -187,6 +188,8 @@ export async function runChapter(
   ];
 
   const c5 = await client.call({
+
+    purpose: "chapter",
     role: "creative",
     effort: "medium",
     maxTokens: 4_000,
