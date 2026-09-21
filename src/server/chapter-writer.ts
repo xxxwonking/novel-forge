@@ -1,5 +1,4 @@
 /** 一个作品会话内的写章协调：装配、去重、恢复和输入变化保护。 */
-import { createModelClient } from "../client/create.js";
 import type { ModelClient } from "../client/model.js";
 import { ChapterTaskService } from "../task/service.js";
 import type { DraftStore } from "../task/draft-store.js";
@@ -46,6 +45,7 @@ export class ChapterWriter {
     private readonly drafts: DraftStore,
     options: ChapterWriterOptions = {},
   ) {
+    // 注入的客户端由会话包过计量后传进来；未注入时在 ensureClient 里按需向会话要。
     this.client = options.client;
   }
 
@@ -75,10 +75,9 @@ export class ChapterWriter {
     this.ensureClient();
   }
 
+  /** 客户端一律向会话要 —— 它是唯一包了计量的出口，自己造一个就会绕过记账。 */
   private ensureClient(): void {
-    if (this.client !== undefined) return;
-    try { this.client = createModelClient(); }
-    catch (error) { throw new ChapterWriteError(503, `写章模型尚未配置：${error instanceof Error ? error.message : String(error)}`); }
+    if (this.client === undefined) this.client = this.session.getModelClient();
   }
 
   /** 显式检查才启动执行；保存正文不会顺带调用模型。 */

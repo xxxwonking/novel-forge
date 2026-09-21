@@ -97,6 +97,7 @@ export function Works(): React.ReactElement {
       <div className="library-mast">
         <span className="wordmark"><i aria-hidden="true" />novel-forge</span>
         <span className="library-tagline">你的故事，慢慢成形。</span>
+        {workspace.data !== null && <span className="library-balance">剩余 {workspace.data.credits.balance.toLocaleString("zh-CN", { maximumFractionDigits: 0 })} 积分</span>}
       </div>
 
       {/* 标语进左列，与表单并排：表单从页首就在手边，不必先滚过一屏标语。 */}
@@ -246,6 +247,7 @@ function Book({ work, index, removeBusy, backupBusy, disabled, onRemove, onBacku
         <div className="book-meta">
           <span className="book-progress">{work.currentChapter === 0 ? "筹备中" : `已采用 ${work.chapterCount} 章`}</span>
           {work.pendingDrafts > 0 && <span className="pending-count">{work.pendingDrafts} 份草稿待处理</span>}
+          {work.calls > 0 && <span>已用 {work.credits.toLocaleString("zh-CN", { maximumFractionDigits: 1 })} 积分</span>}
         </div>
         <div className="book-bottom">
           <span>{work.updatedAt === "" ? "资料读取失败" : new Date(work.updatedAt).toLocaleDateString("zh-CN")}</span>

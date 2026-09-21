@@ -23,8 +23,21 @@ export interface WorkSummary {
   chapterCount: number;
   pendingDrafts: number;
   updatedAt: string;
+  credits: number;
+  calls: number;
   error: string | null;
 }
+
+/** 模型消耗汇总。credits 是折算后的积分，tokens 是四档原始用量。 */
+export interface CreditSummary {
+  calls: number;
+  credits: number;
+  unpricedCalls: number;
+  tokens: { input: number; output: number; cacheWrite: number; cacheRead: number };
+  byPurpose: Record<string, { calls: number; credits: number }>;
+}
+
+export interface WorkspaceCredits { granted: number; spent: number; balance: number; unpricedCalls: number }
 
 export interface RemovedWork extends WorkSummary {
   /** 回收站里的目录名（`data/.trash/` 下），作者在磁盘上按它就能找到这本书。 */
@@ -36,6 +49,7 @@ export interface WorkspacePayload {
   projects: WorkSummary[];
   defaultProjectId: string | null;
   removed: RemovedWork[];
+  credits: WorkspaceCredits;
 }
 
 export interface CreateWorkInput {
@@ -548,6 +562,15 @@ export interface PreparationProposal {
   findings: GateFinding[];
 }
 
+/** 全文检索：正文命中带可直接当锚点用的片段，结构命中说清命中在哪个字段。 */
+export interface SearchSnippet { quote: string; offset: number }
+export interface ChapterHit { chapter: number; count: number; snippets: SearchSnippet[] }
+export interface EntityHit {
+  kind: "character" | "setting" | "plotLine" | "volume" | "beat" | "event";
+  id: string; title: string; field: string; excerpt: string; chapter: number | null;
+}
+export interface SearchResult { query: string; chapters: ChapterHit[]; entities: EntityHit[]; truncated: boolean }
+
 /** 两个 model 审查通道的开关，按作品保存。 */
 export interface ReviewSettings {
   voice: boolean;
@@ -742,6 +765,8 @@ export const api = {
   chapters: () => request<ChapterListItem[]>("/api/chapters"),
   chapter: (n: number) => request<ChapterPayload>(`/api/chapter?n=${n}`),
   health: (n: number) => request<HealthPayload>(`/api/health?n=${n}`),
+  credits: () => request<CreditSummary>("/api/credits"),
+  search: (q: string) => request<SearchResult>(`/api/search?q=${encodeURIComponent(q)}`),
   anchor: (a: TextAnchor) =>
     request<AnchorPayload>(
       `/api/anchor?chapter=${a.chapter}&quote=${encodeURIComponent(a.quote)}&offsetHint=${a.offsetHint}&occurrence=${a.occurrence}`,

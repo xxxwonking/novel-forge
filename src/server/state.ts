@@ -36,6 +36,8 @@ import { runAgentLoop, type AgentActionOutcome, type MainAgentToolContext, type 
 import { buildMainAgentSystem, type MainAgentContextInfo } from "../agent/system-prompt.js";
 import type { AlternativeIdea, ConversationMode, ConversationObserver, ConversationReply, ConversationTurn } from "../agent/types.js";
 import { createModelClient } from "../client/create.js";
+import { metered } from "../credits/meter.js";
+import { appendCreditEntry, readCreditEntries, summarize } from "../credits/ledger.js";
 import type { ModelClient } from "../client/model.js";
 import { countWords } from "../text/measure.js";
 import { withFileTransaction } from "../store/transaction.js";
@@ -137,10 +139,12 @@ export class ProjectSession {
     this.alertStates = new Map(snap.alertStates.map((s) => [s.id, s]));
     this.chapters = new Map(snap.chapters);
     this.stream = EventStream.restore(snap.events);
-    this.writer = new ChapterWriter(this, this.drafts, writing);
+    // 注入的客户端在这里就包上计量，再交给写章器 —— 它拿到的必须已经是计量过的那一个。
+    const injected = writing.client === undefined ? undefined : this.meter(writing.client);
+    this.writer = new ChapterWriter(this, this.drafts, injected === undefined ? writing : { ...writing, client: injected });
     this.revisions = new DraftRevisions(this, this.drafts, this.writer);
     this.conversation = new ConversationStore(root);
-    this.modelClient = writing.client;
+    this.modelClient = injected;
     this.preparation = new PreparationService(root, {
       snapshot: () => this.snapshot(), apply: (content) => this.applyPreparation(content),
       transaction: (operation) => this.transact(operation), rules: this.rules,
@@ -676,15 +680,25 @@ export class ProjectSession {
     return { from, to: from + (count as number) - 1 };
   }
 
-  private getModelClient(): ModelClient {
+  /** 本作品的模型消耗。余额是全局的，由工作区汇总各作品减出来。 */
+  credits(): ReturnType<typeof summarize> {
+    return summarize(readCreditEntries(this.root));
+  }
+
+  /** 全流程唯一的客户端出口：在这里包上计量，任何调用点都不会绕过记账。 */
+  getModelClient(): ModelClient {
     if (this.modelClient === undefined) {
       try {
-        this.modelClient = createModelClient();
+        this.modelClient = this.meter(createModelClient());
       } catch (error) {
         throw new ChapterWriteError(503, `写章模型尚未配置：${error instanceof Error ? error.message : String(error)}`);
       }
     }
     return this.modelClient;
+  }
+
+  private meter(client: ModelClient): ModelClient {
+    return metered(client, (entry) => appendCreditEntry(this.root, entry));
   }
 
   private agentContextInfo(): MainAgentContextInfo {

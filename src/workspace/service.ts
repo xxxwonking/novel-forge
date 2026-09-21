@@ -7,6 +7,8 @@ import { DraftStore } from "../task/draft-store.js";
 import { WRITING_DISCIPLINE } from "../context/discipline.js";
 import { ProjectSession } from "../server/state.js";
 import { ChapterWriteError } from "../server/chapter-input.js";
+import { readCreditEntries, summarize as summarizeCredits } from "../credits/ledger.js";
+import { loadPricing } from "../credits/pricing.js";
 import type { ChapterWriterOptions } from "../server/chapter-writer.js";
 import type { Genre, Platform } from "../types/beat.js";
 import type { WorkSetting } from "../types/work.js";
@@ -16,6 +18,15 @@ import { createBackupPackage, parseBackupPackage, writeBackupFiles } from "./bac
 export interface RemovedWork extends WorkSummary {
   readonly archive: string;
   readonly deletedAt: string;
+}
+
+export interface WorkspaceCredits {
+  /** 注册赠送额度。本批没有充值入口，所以余额就是它减去已消耗。 */
+  readonly granted: number;
+  readonly spent: number;
+  readonly balance: number;
+  /** 价格表里没有的模型：消耗照记，但没有折进余额。配漏了看这个数。 */
+  readonly unpricedCalls: number;
 }
 
 export interface WorkSummary {
@@ -28,6 +39,9 @@ export interface WorkSummary {
   readonly chapterCount: number;
   readonly pendingDrafts: number;
   readonly updatedAt: string;
+  /** 这本书至今的模型消耗（积分）与调用次数。 */
+  readonly credits: number;
+  readonly calls: number;
   readonly error: string | null;
 }
 
@@ -173,6 +187,18 @@ export class Workspace {
     return { ...summary, archive, deletedAt: deletedAt.toISOString() };
   }
 
+  /** 全局余额。本批只有赠送额度，没有充值入口。 */
+  credits(): WorkspaceCredits {
+    const pricing = loadPricing();
+    const works = [...this.list(), ...this.listRemoved()];
+    return {
+      granted: pricing.signupGrant,
+      spent: works.reduce((sum, work) => sum + work.credits, 0),
+      balance: pricing.signupGrant - works.reduce((sum, work) => sum + work.credits, 0),
+      unpricedCalls: works.reduce((sum, work) => sum + unpricedOf(this.root, work), 0),
+    };
+  }
+
   /** 回收站，按删除时间倒序。 */
   listRemoved(): readonly RemovedWork[] {
     const trash = join(this.root, TRASH_DIR);
@@ -287,13 +313,20 @@ function describeWork(root: string, id: string): WorkSummary {
   const dates = [statSync(join(root, "setting.json")).mtime.toISOString(),
     ...snapshot.beats.map((b) => b.updatedAt), ...allDrafts.map((d) => d.updatedAt),
     ...[...snapshot.chapters.keys()].map((n) => statSync(join(root, "chapters", `ch${n}.txt`)).mtime.toISOString())];
+  const credits = summarizeCredits(readCreditEntries(root));
   return {
     id, title: snapshot.setting.title, premise: snapshot.setting.premise,
     genre: snapshot.profile.genre, platform: snapshot.profile.platform,
     currentChapter: Math.max(0, ...snapshot.chapters.keys()), chapterCount: snapshot.chapters.size,
     pendingDrafts: allDrafts.filter((d) => d.status !== "adopted" && d.status !== "discarded").length,
-    updatedAt: dates.sort().at(-1) ?? "", error: null,
+    updatedAt: dates.sort().at(-1) ?? "", credits: credits.credits, calls: credits.calls, error: null,
   };
+}
+
+/** 未计价调用数要按目录实读 —— 摘要读不出来时也不该把它算成 0。 */
+function unpricedOf(workspaceRoot: string, work: WorkSummary & { readonly archive?: string }): number {
+  const root = work.archive === undefined ? join(workspaceRoot, work.id) : join(workspaceRoot, TRASH_DIR, work.archive);
+  return summarizeCredits(readCreditEntries(root)).unpricedCalls;
 }
 
 /** 读不出来的作品仍要列出来并说明原因，否则作者看不到它、也就无从修复。 */
@@ -303,7 +336,7 @@ function summarize(root: string, id: string): WorkSummary {
 }
 
 function failedSummary(id: string, error: unknown): WorkSummary {
-  return { id, title: id, premise: "", genre: "", platform: "", currentChapter: 0, chapterCount: 0, pendingDrafts: 0, updatedAt: "", error: error instanceof Error ? error.message : String(error) };
+  return { id, title: id, premise: "", genre: "", platform: "", currentChapter: 0, chapterCount: 0, pendingDrafts: 0, updatedAt: "", credits: 0, calls: 0, error: error instanceof Error ? error.message : String(error) };
 }
 
 /** `20260919T102804123Z`：定长且人能读，作者在磁盘上一眼看得出哪份是哪天删的。 */

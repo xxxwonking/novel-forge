@@ -120,6 +120,7 @@ function systemBlocks(input: InferenceInput): readonly Anthropic.TextBlockParam[
  */
 export async function inferChapterStructure(client: ModelClient, input: InferenceInput): Promise<InferenceOutcome> {
   const call = await client.call({
+    purpose: "inference",
     role: "creative",
     effort: "medium",
     maxTokens: INFER_MAX_TOKENS,
