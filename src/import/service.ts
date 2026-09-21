@@ -152,7 +152,7 @@ export class ImportService {
 
     // 资料在正文之后落盘：正文写不进去时不该先留下一批资料文件。
     const store = new MaterialStore(this.root);
-    const kept = materials.flatMap((material) => { const saved = store.save(material.name, material.text); return saved === null ? [] : [saved.name]; });
+    const kept = materials.flatMap((material) => { const result = store.save(material.name, material.text); return "saved" in result ? [result.saved.name] : []; });
 
     const numbers = writes.map((w) => w.chapter);
     return {

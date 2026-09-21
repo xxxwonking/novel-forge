@@ -37,7 +37,8 @@ import { buildMainAgentSystem, type MainAgentContextInfo } from "../agent/system
 import type { AlternativeIdea, ConversationMode, ConversationObserver, ConversationReply, ConversationTurn } from "../agent/types.js";
 import { createModelClient } from "../client/create.js";
 import { metered } from "../credits/meter.js";
-import { MaterialStore } from "../import/materials.js";
+import { MaterialStore, type MaterialFile } from "../import/materials.js";
+import type { ImportFile } from "../import/split.js";
 import { characterSource } from "../preparation/sources.js";
 import { appendCreditEntry, readCreditEntries, summarize } from "../credits/ledger.js";
 import type { ModelClient } from "../client/model.js";
@@ -683,6 +684,29 @@ export class ProjectSession {
     const planned = this.beats.filter((b) => b.provenance === "committed" || b.provenance === "authored").map((b) => b.chapter);
     const from = Math.max(this.nextChapter, ...planned.map((n) => n + 1));
     return { from, to: from + (count as number) - 1 };
+  }
+
+  /** 作品资料（随旧稿或单独上传收下的文件）。 */
+  materials(): readonly MaterialFile[] {
+    return new MaterialStore(this.root).list();
+  }
+
+  /**
+   * 收下若干资料文件，逐份给出结果。
+   *
+   * 不因为一份失败就整批不收：作者选的可能是整个文件夹，里面混着图片和 zip ——
+   * 该收的要收下，不该收的要点名说清楚为什么。
+   */
+  saveMaterials(files: readonly ImportFile[]): { readonly saved: readonly string[]; readonly skipped: readonly { readonly name: string; readonly reason: string }[] } {
+    const store = new MaterialStore(this.root);
+    const saved: string[] = [];
+    const skipped: { name: string; reason: string }[] = [];
+    for (const file of files) {
+      const result = store.save(file.name, file.text);
+      if ("saved" in result) saved.push(result.saved.name);
+      else skipped.push({ name: file.name, reason: result.reason });
+    }
+    return { saved, skipped };
   }
 
   /** 本作品的模型消耗。余额是全局的，由工作区汇总各作品减出来。 */

@@ -10,6 +10,7 @@ import { ProjectSession } from "./state.js";
 import { acknowledgeAlert, ignoreAlert, initialAlertState, unacknowledgeAlert } from "../alerts/apply.js";
 import { anchorContext, resolveAnchor } from "../anchor/resolve.js";
 import { searchWork } from "../search/service.js";
+import type { ImportFile } from "../import/split.js";
 import { gateChapter } from "../gate/code-channel.js";
 import { gateCrossChapter } from "../gate/cross-chapter.js";
 import { validatePlan } from "../beat/validate.js";
@@ -180,6 +181,8 @@ export function handle(session: ProjectSession, req: ApiRequest): ApiResponse {
         return search(session, req.query);
       case "/api/credits":
         return ok(session.credits());
+      case "/api/materials":
+        return ok({ materials: session.materials() });
       case "/api/chapter/drafts":
         return chapterDrafts(session, req.query);
       case "/api/chapter/draft":
@@ -191,6 +194,8 @@ export function handle(session: ProjectSession, req: ApiRequest): ApiResponse {
 
   if (method === "POST") {
     switch (path) {
+      case "/api/materials":
+        return saveMaterials(session, req.body);
       case "/api/alerts/action":
         return alertAction(session, req.body);
       case "/api/planning/action":
@@ -401,6 +406,27 @@ function declaredEventWeights(session: ProjectSession, chapter: ChapterNo): read
 }
 
 /** 点击图上元素 → 拿到定位与上下文。stale 时返回降级信息而非 404。 */
+/** 单独上传作品资料。与随旧稿导入收下的走同一份存储、同一套拒收理由。 */
+function saveMaterials(session: ProjectSession, body: unknown): ApiResponse {
+  try { return ok(session.saveMaterials(parseMaterialFiles(body))); }
+  catch (error) {
+    if (error instanceof ChapterWriteError) return { status: error.status, body: { error: error.message } };
+    throw error;
+  }
+}
+
+function parseMaterialFiles(body: unknown): readonly ImportFile[] {
+  const raw = isRecord(body) ? body["files"] : undefined;
+  if (!Array.isArray(raw) || raw.length === 0) throw new ChapterWriteError(400, "files 必须是至少一个文件的数组");
+  return raw.map((item, index) => {
+    const entry = isRecord(item) ? item : null;
+    if (entry === null || typeof entry["name"] !== "string" || typeof entry["text"] !== "string") {
+      throw new ChapterWriteError(400, `files[${index}] 需要 name 与 text 两个字符串字段`);
+    }
+    return { name: entry["name"] as string, text: entry["text"] as string };
+  });
+}
+
 function search(session: ProjectSession, query: URLSearchParams): ApiResponse {
   try { return ok(searchWork(session, query.get("q") ?? "")); }
   catch (error) {
