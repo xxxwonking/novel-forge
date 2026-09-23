@@ -80,9 +80,21 @@ export interface L2PlotLineRow {
  * 裁剪规则（§13.4）：主要角色全列，次要角色仅列最近 20 章出现过的。
  * 被裁的仍在 L3，模型可用 load_character 取。
  */
+/**
+ * 裁剪档位，从最无害到最狠。与 `selectL3` 的 `TrimStage` 同构。
+ *
+ * 走的都是「越远越模糊」这条既有主张 —— 变的只是桶大小，不是信息的种类。
+ * 人物、伏笔、情节线一律不裁：它们是「要做的事」，裁了模型就漏了。
+ */
+export type L2TrimStage = "none" | "far_30" | "far_60" | "far_120" | "minor_window_8" | "overflow";
+
 export interface L2Snapshot {
   /** 快照契约版本。格式变更必须递增，否则旧缓存与新渲染混用无法察觉。 */
   readonly formatVersion: 1;
+  /** 实际用到哪一档。不参与渲染，供测试与度量读取。 */
+  readonly trimStage: L2TrimStage;
+  /** 裁到最后一档仍超预算时的说明。 */
+  readonly overflowNote?: string;
   readonly characters: {
     /** 已按 id 升序排好。 */
     readonly rows: readonly L2CharacterRow[];

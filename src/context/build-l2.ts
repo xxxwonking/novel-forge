@@ -18,6 +18,9 @@ import type {
   SynopsisGranularity,
 } from "../types/l2.js";
 import { L2_REBUILD_LIMITS } from "../types/l2.js";
+import type { L2TrimStage } from "../types/l2.js";
+import { estimateTokens } from "./select-l3.js";
+import { renderL2 } from "./render-l2.js";
 import type { ForeshadowWeight } from "../types/events.js";
 import type { CharacterCard } from "../types/character.js";
 import type { ChapterNo, ForeshadowId, PlotLineId } from "../types/primitives.js";
@@ -26,8 +29,22 @@ import type { ForeshadowTimelineItem, PlotLineTrack } from "../types/projections
 /** §13.4 裁剪规则：次要角色仅列最近 N 章出现过的。 */
 export const MINOR_CHARACTER_WINDOW = 20;
 
+/** 深档收紧到这么窄 —— 被裁的仍在 L3，模型可用 `load_character` 取。 */
+export const MINOR_CHARACTER_WINDOW_TIGHT = 8;
+
 /** §13.4 距离衰减的两个分界。 */
 export const SYNOPSIS_DECAY = { recent: 8, mid: 30, midBucket: 5, farBucket: 15 } as const;
+
+/**
+ * L2 的硬预算（§13.4）。
+ *
+ * 设计文档给的目标区间是 2000–3000，取上沿。比 L3 的 5000 小：L2 是**最大的
+ * 可缓存前缀**，它涨则每一章的缓存写入成本都跟着涨。
+ *
+ * 卷纲能把增长压平（实测 2000 章：无卷纲 38347 tok、有卷纲 1733），但作者不写
+ * 卷纲时它仍随章数线性涨 —— 这个预算就是那种情况的兜底。
+ */
+export const L2_TOKEN_BUDGET = 3000;
 
 
 export interface L2BuildInput {
@@ -64,6 +81,7 @@ export interface L2BuildInput {
 function buildCharacterRows(
   characters: readonly CharacterCard[],
   currentChapter: ChapterNo,
+  window: number = MINOR_CHARACTER_WINDOW,
 ): { rows: readonly L2CharacterRow[]; totalCount: number; majorCount: number } {
   const majorCount = characters.filter(
     (c) => c.tier === "protagonist" || c.tier === "major",
@@ -72,7 +90,7 @@ function buildCharacterRows(
   const kept = characters.filter((c) => {
     if (c.tier === "protagonist" || c.tier === "major") return true;
     if (c.tier === "extra") return false;
-    return currentChapter - c.state.lastSeenAt <= MINOR_CHARACTER_WINDOW;
+    return currentChapter - c.state.lastSeenAt <= window;
   });
 
   // 显式按 id 排序 —— 绝不依赖数组的插入顺序（§13.7）。
@@ -91,9 +109,27 @@ function buildCharacterRows(
 
 // ── 章节梗概：距离衰减压缩 ──────────────────────────────────────────────
 
-/** 把一批章的梗概压成一句。取首句拼接，不调用模型 —— 这一步必须零成本。 */
-function condense(texts: readonly string[]): string {
-  return texts.map((t) => t.split(/[。！？]/)[0] ?? t).join("；");
+/**
+ * 把一批章的梗概压成一句。取首句拼接，不调用模型 —— 这一步必须零成本。
+ *
+ * `maxChars` 是**真正压缩**的那一步，`bucketize` 做不到：桶变大只是把 15 句并成
+ * 120 句，总字数一条没少（§13.4 那句「分桶本身不压缩内容」说的就是这个）。
+ * 超限时截断并留一个省略号 —— 让模型看得出这段是残的，而不是以为全书就这些事。
+ *
+ * `maxChars` 为 0 表示不限。
+ */
+function condense(texts: readonly string[], maxChars = 0): string {
+  if (maxChars <= 0) return texts.map((t) => t.split(/[。！？]/)[0] ?? t).join("；");
+  const parts: string[] = [];
+  let used = 0;
+  for (const t of texts) {
+    const first = t.split(/[。！？]/)[0] ?? t;
+    if (used + first.length > maxChars) break;
+    parts.push(first);
+    used += first.length + 1;
+  }
+  if (parts.length === 0) return "";
+  return parts.length < texts.length ? `${parts.join("；")}…` : parts.join("；");
 }
 
 function range(from: ChapterNo, to: ChapterNo): ChapterNo[] {
@@ -125,6 +161,8 @@ function buildSynopsisRows(
   synopses: readonly { readonly chapter: ChapterNo; readonly text: string }[],
   volumeSummaries: L2BuildInput["volumeSummaries"],
   currentChapter: ChapterNo,
+  farBucket: number = SYNOPSIS_DECAY.farBucket,
+  farChars = 0,
 ): readonly L2SynopsisRow[] {
   const sorted = [...synopses].sort((a, b) => a.chapter - b.chapter);
   const rows: L2SynopsisRow[] = [];
@@ -147,7 +185,7 @@ function buildSynopsisRows(
   for (const v of applied) {
     rows.push({ granularity: "per_15", range: `卷${v.volume}`, text: v.text });
   }
-  rows.push(...bucketize(far.filter((s) => !covered.has(s.chapter)), SYNOPSIS_DECAY.farBucket, "per_15"));
+  rows.push(...bucketize(far.filter((s) => !covered.has(s.chapter)), farBucket, "per_15", farChars));
   rows.push(...bucketize(mid, SYNOPSIS_DECAY.midBucket, "per_5"));
   for (const s of recent) {
     rows.push({ granularity: "per_chapter", range: `ch${s.chapter}`, text: s.text });
@@ -159,6 +197,7 @@ function bucketize(
   items: readonly { readonly chapter: ChapterNo; readonly text: string }[],
   size: number,
   granularity: SynopsisGranularity,
+  maxChars = 0,
 ): L2SynopsisRow[] {
   const buckets = new Map<number, { readonly chapter: ChapterNo; readonly text: string }[]>();
   for (const item of items) {
@@ -178,7 +217,7 @@ function bucketize(
       return {
         granularity,
         range: bucketRange(from, to),
-        text: condense(group.map((g) => g.text)),
+        text: condense(group.map((g) => g.text), maxChars),
       };
     });
 }
@@ -232,15 +271,50 @@ function buildPlotLineRows(tracks: readonly PlotLineTrack[]): readonly L2PlotLin
 
 // ── 入口 ────────────────────────────────────────────────────────────────
 
-export function buildL2Snapshot(input: L2BuildInput): L2Snapshot {
+/**
+ * 逐级裁剪，直到进预算为止（§13.4）。
+ *
+ * 与 `selectL3` 同构：一串档位，从最无害的试起。**只由内容决定，不由运行计数决定** ——
+ * 引入任何"裁了几次"之类的状态，都会让同一份输入在不同时刻产出不同索引，bp2 白重建。
+ *
+ * 档位走的是「越远越模糊」这条既有主张：变的只是远距离桶的大小。
+ * 人物、伏笔、情节线一律不裁 —— 它们是"要做的事"，裁了模型就漏了。
+ */
+function withTrim(input: L2BuildInput, stage: L2TrimStage, farBucket: number, farChars: number, window: number): L2Snapshot {
   return {
     formatVersion: 1,
-    characters: buildCharacterRows(input.characters, input.currentChapter),
-    synopsis: buildSynopsisRows(input.chapterSynopses, input.volumeSummaries, input.currentChapter),
+    trimStage: stage,
+    characters: buildCharacterRows(input.characters, input.currentChapter, window),
+    synopsis: buildSynopsisRows(input.chapterSynopses, input.volumeSummaries, input.currentChapter, farBucket, farChars),
     foreshadows: buildForeshadowRows(input.foreshadows, input.currentChapter, input.dueSoonWindow),
     plotLines: buildPlotLineRows(input.plotLines),
     pendingAppend: input.pendingAppend,
   };
+}
+
+/**
+ * 档位表。**真正压得动 token 的是 `farChars`（每桶限长）**，`farBucket` 只减行数 ——
+ * 单靠放大桶，2000 章仍有三万多 token。两者一起用才是「越远越模糊」的完整含义：
+ * 间隔更宽，每段也只剩一句半句。
+ */
+export const L2_TRIM_LADDER: readonly { readonly stage: L2TrimStage; readonly farBucket: number; readonly farChars: number; readonly window: number }[] = [
+  { stage: "none", farBucket: SYNOPSIS_DECAY.farBucket, farChars: 0, window: MINOR_CHARACTER_WINDOW },
+  { stage: "far_30", farBucket: 30, farChars: 200, window: MINOR_CHARACTER_WINDOW },
+  { stage: "far_60", farBucket: 60, farChars: 120, window: MINOR_CHARACTER_WINDOW },
+  { stage: "far_120", farBucket: 120, farChars: 60, window: MINOR_CHARACTER_WINDOW },
+  { stage: "minor_window_8", farBucket: 120, farChars: 40, window: MINOR_CHARACTER_WINDOW_TIGHT },
+];
+
+export function buildL2Snapshot(input: L2BuildInput, budget = L2_TOKEN_BUDGET): L2Snapshot {
+  let last = withTrim(input, "none", SYNOPSIS_DECAY.farBucket, 0, MINOR_CHARACTER_WINDOW);
+  for (const rung of L2_TRIM_LADDER) {
+    last = withTrim(input, rung.stage, rung.farBucket, rung.farChars, rung.window);
+    if (estimateTokens(renderL2(last)) <= budget) return last;
+  }
+  // 裁到最后一档还超：如实说明，不再无限裁下去。再裁就要动人物或伏笔了，
+  // 那是"为了省 token 让模型漏掉该做的事"，不划算。
+  return { ...last, trimStage: "overflow",
+    overflowNote: `章节梗概压到每 ${L2_TRIM_LADDER[L2_TRIM_LADDER.length - 1]!.farBucket} 章一句仍超出 L2 预算 ${budget}，请补写卷纲（卷纲会整段顶替它覆盖的章）。` };
 }
 
 /**
