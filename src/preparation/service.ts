@@ -9,6 +9,7 @@ import { project } from "../store/project.js";
 import { ChapterWriteError } from "../server/chapter-input.js";
 import type { Rules } from "../rules/schema.js";
 import type { RelationClaim } from "../types/relations.js";
+import type { PresenceScan } from "../types/presence.js";
 import type { GateFinding } from "../types/beat.js";
 import type { PreparationChanges, PreparationContent, PreparationProposal, PreparationView } from "./types.js";
 import { parsePreparationInput } from "./schema.js";
@@ -21,6 +22,8 @@ interface PreparationDeps {
   readonly checkChapter: (chapter: number) => void;
   /** 把确认过的关系声明落进事件流。关系不是资料的一部分，所以不走 `apply`。 */
   readonly commitRelations: (relations: readonly RelationClaim[]) => void;
+  /** 把扫正文得出的出场记录落进事件流。同理不走 `apply`：出场是故事事实，不是设定。 */
+  readonly commitPresence: (scans: readonly PresenceScan[]) => void;
   readonly rules: Rules;
 }
 const DIR = "preparation";
@@ -91,6 +94,13 @@ export class PreparationService {
       // 关系落进事件流（而不是资料文件）：它是故事事实，不是设定。
       // 放在 apply 之后：资料写不进去时不该先留下一批关系。
       this.deps.commitRelations(proposal.changes.relations ?? []);
+      // 出场记录同理。只扫本方案动过的人 —— 确认一份无关方案不该翻动所有人的出场轴，
+      // 与「已有人物的 introducedAt 原值不动」是同一个分寸。扫的是 apply 之后的
+      // 人物卡与当前正文，所以改名、加别名会立刻反映到轴上。
+      const touched = new Set((proposal.changes.characters ?? []).map((c) => c.id));
+      const applied = this.deps.snapshot();
+      this.deps.commitPresence(applied.characters.filter((c) => touched.has(c.id))
+        .map((c) => ({ characterId: c.id, chapters: appearances(applied, c) })));
       const confirmed: PreparationProposal = { ...proposal, status: "confirmed", updatedAt: new Date().toISOString() };
       this.save(confirmed);
       return { changed: true, proposal: confirmed };
@@ -150,20 +160,21 @@ export class PreparationService {
 }
 
 /**
- * 这个人在正文里第一次出现在第几章。0 = 从未出现（筹备期建卡）。
+ * 这个人的名字或别名在哪几章正文里出现过，按章号有序。
  *
  * 这是**确定性**判断，所以由代码做：模型给不出更准的答案，却可能给一个错的。
  * 名字与别名都算 —— 作者常把化名写在 aliases 里。
  */
-function firstAppearance(snapshot: ProjectSnapshot, character: { readonly name: string; readonly aliases: readonly string[] }): number {
+function appearances(snapshot: ProjectSnapshot, character: { readonly name: string; readonly aliases: readonly string[] }): readonly number[] {
   const names = [character.name, ...character.aliases].map((n) => n.trim()).filter((n) => n !== "");
-  if (names.length === 0) return 0;
-  let first = 0;
-  for (const [chapter, text] of snapshot.chapters) {
-    if (first !== 0 && chapter >= first) continue;
-    if (names.some((name) => text.includes(name))) first = chapter;
-  }
-  return first;
+  if (names.length === 0) return [];
+  return [...snapshot.chapters].filter(([, text]) => names.some((name) => text.includes(name)))
+    .map(([chapter]) => chapter).sort((a, b) => a - b);
+}
+
+/** 这个人在正文里第一次出现在第几章。0 = 从未出现（筹备期建卡）。 */
+function firstAppearance(snapshot: ProjectSnapshot, character: { readonly name: string; readonly aliases: readonly string[] }): number {
+  return appearances(snapshot, character)[0] ?? 0;
 }
 
 function upsert<T>(before: readonly T[], patch: readonly T[], key: (item: T) => string | number): readonly T[] {
@@ -252,7 +263,12 @@ function assertRemovable(
   final: { characters: readonly ProjectSnapshot["characters"][number][]; settings: ProjectSnapshot["settings"]; beats: ProjectSnapshot["beats"] },
   fail: (message: string) => never,
 ): void {
-  const committed = snapshot.events.filter((event) => accepted(event.envelope.provenance)).map((event) => event.payload);
+  // 扫正文得出的出场记录不算结构引用 —— 它就是「正文里提到了这个名字」的机器表示，
+  // 而那条路径本就走 impacts（作者改完正文自己消失）。拿它硬拒等于用一条派生事实
+  // 推翻上面那条判断，把作者逼回「只能改名绕过」的死路。
+  const committed = snapshot.events
+    .filter((event) => accepted(event.envelope.provenance) && event.envelope.origin !== "text_scan")
+    .map((event) => event.payload);
   const chapters = (list: readonly number[]): string => [...list].sort((a, b) => a - b).join("、");
 
   for (const id of removals.characters ?? []) {
