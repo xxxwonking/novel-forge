@@ -5,7 +5,7 @@ import { Chip } from "../components/Chip.js";
 import { BeatEditor, CharacterEditor, DraftDialog, PlotLineEditor, SettingEditor, VolumeEditor, type Editing } from "../components/PreparationEditors.js";
 import { ImportChapters } from "../components/ImportChapters.js";
 import { ReviewSettings } from "../components/ReviewSettings.js";
-import { api, type CharacterRecord, type PreparationContent, type PreparationPayload, type PreparationProposal, type SettingInput, type PlotLineInput, type VolumeCard } from "../api.js";
+import { api, type CharacterRecord, type DraftFocus, type PreparationContent, type PreparationPayload, type PreparationProposal, type SettingInput, type PlotLineInput, type VolumeCard } from "../api.js";
 import type { RelationClaim, Removals } from "../preparation-changes.js";
 import { useFetch, useRouteActive } from "../hooks.js";
 
@@ -19,7 +19,7 @@ export function Preparation({ refresh, proposalId }: { refresh: () => void; prop
   const [selected, setSelected] = useState<string | null>(proposalId);
   const [editing, setEditing] = useState(false);
   const [entity, setEntity] = useState<Editing | null>(null);
-  const [drafting, setDrafting] = useState<"characters" | "full" | "chapters" | null>(null);
+  const [drafting, setDrafting] = useState<DraftFocus | null>(null);
   const [importingProfile, setImportingProfile] = useState(false);
   const profilePicker = useRef<HTMLInputElement>(null);
   const [importing, setImporting] = useState(false);
@@ -219,20 +219,20 @@ function RelationList({ relations, current }: { relations: readonly RelationClai
 }
 
 /** 只读资料视图。传入 `onEdit` 时才出现手改入口 —— 方案预览复用本组件，那里不能编辑。 */
-function Content({ content, onEdit, onDraft, onImport, importing, expanded }: { content: PreparationContent; onEdit?: (editing: Editing) => void; onDraft?: (focus: "characters" | "full") => void; onImport?: () => void; importing?: boolean; expanded?: boolean }): React.ReactElement {
+function Content({ content, onEdit, onDraft, onImport, importing, expanded }: { content: PreparationContent; onEdit?: (editing: Editing) => void; onDraft?: (focus: DraftFocus) => void; onImport?: () => void; importing?: boolean; expanded?: boolean }): React.ReactElement {
   const s = content.setting;
   const add = (kind: Editing["kind"], label: string): React.ReactElement | null => onEdit === undefined ? null : <Button size="small" onClick={() => onEdit({ kind, base: null })}>{label}</Button>;
   // 起草是主路径，手改是纠正路径 —— 按钮的视觉权重按这个顺序排。
-  const draft = (label: string): React.ReactElement | null => onDraft === undefined ? null : <Button size="small" type="primary" ghost onClick={() => onDraft("characters")}>{label}</Button>;
+  const draft = (label: string, focus: DraftFocus): React.ReactElement | null => onDraft === undefined ? null : <Button size="small" type="primary" ghost onClick={() => onDraft(focus)}>{label}</Button>;
   const edit = (kind: Editing["kind"], base: unknown, name: string): React.ReactElement | null => onEdit === undefined ? null : <Button size="small" type="text" onClick={() => onEdit({ kind, base })}>编辑{name}</Button>;
   return <>
     <section className="prep-section"><h2>{s.title}</h2><dl className="prep-facts">{([
       ["故事想法", s.premise], ["核心冲突", s.centralConflict], ["故事起点", s.openingSituation], ["主角特征", s.protagonistTraits], ["行为边界", s.protagonistForbidden],
       ["特殊能力", s.specialAbility], ["能力限制", s.abilityLimits], ["世界规则", s.worldRules], ["感情线", s.romanceLine], ["风格", s.styleKeywords], ["不写的内容", s.taboos],
     ] as [string, string | string[]][]).map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{(Array.isArray(value) ? value.join("；") : value) || <span className="muted">尚未指定</span>}</dd></div>)}</dl></section>
-    <section className="prep-section"><div className="section-head"><h2>人物档案 <small>{content.characters.length}</small></h2><div className="row">{onImport === undefined ? null : <Button size="small" loading={importing === true} onClick={onImport}>导入人物档案</Button>}{draft("让 AI 起草人物")}{add("character", "手工补一个")}</div></div>{content.characters.length === 0 && <p className="muted">还没有人物档案。有现成的角色档案就导进来 —— 上传后会读它并整理出人物供你核对；也可以让 Agent 从正文起草，或直接手填。</p>}<div className="prep-card-grid">{content.characters.map((c) => <article className="prep-character" key={c.id}><div className="row"><h3>{c.name}</h3><Chip>{c.provenance === "proposed" ? "建议" : c.tier === "protagonist" ? "主角" : "已确认"}</Chip></div><p>{c.profile.role}</p><p className="muted">{c.profile.traits.join(" · ")}</p><dl className="prep-facts"><div><dt>想要什么</dt><dd>{c.profile.wants || "尚未指定"}</dd></div><div><dt>害怕什么</dt><dd>{c.profile.fears || "尚未指定"}</dd></div><div><dt>背景</dt><dd>{c.profile.background || "尚未指定"}</dd></div></dl><details open={expanded === true}><summary>外貌与说话方式</summary><p>{c.profile.appearance.map((a) => `${a.key}：${a.value}`).join("；")}</p>{c.speech.exemplars.map((line, i) => <blockquote key={i}>{line}</blockquote>)}{c.speech.forbiddenLexicon.length > 0 && <p>不使用：{c.speech.forbiddenLexicon.join("、")}</p>}</details>{edit("character", c, `「${c.name}」`)}</article>)}</div></section>
+    <section className="prep-section"><div className="section-head"><h2>人物档案 <small>{content.characters.length}</small></h2><div className="row">{onImport === undefined ? null : <Button size="small" loading={importing === true} onClick={onImport}>导入人物档案</Button>}{draft("让 AI 起草人物", "characters")}{add("character", "手工补一个")}</div></div>{content.characters.length === 0 && <p className="muted">还没有人物档案。有现成的角色档案就导进来 —— 上传后会读它并整理出人物供你核对；也可以让 Agent 从正文起草，或直接手填。</p>}<div className="prep-card-grid">{content.characters.map((c) => <article className="prep-character" key={c.id}><div className="row"><h3>{c.name}</h3><Chip>{c.provenance === "proposed" ? "建议" : c.tier === "protagonist" ? "主角" : "已确认"}</Chip></div><p>{c.profile.role}</p><p className="muted">{c.profile.traits.join(" · ")}</p><dl className="prep-facts"><div><dt>想要什么</dt><dd>{c.profile.wants || "尚未指定"}</dd></div><div><dt>害怕什么</dt><dd>{c.profile.fears || "尚未指定"}</dd></div><div><dt>背景</dt><dd>{c.profile.background || "尚未指定"}</dd></div></dl><details open={expanded === true}><summary>外貌与说话方式</summary><p>{c.profile.appearance.map((a) => `${a.key}：${a.value}`).join("；")}</p>{c.speech.exemplars.map((line, i) => <blockquote key={i}>{line}</blockquote>)}{c.speech.forbiddenLexicon.length > 0 && <p>不使用：{c.speech.forbiddenLexicon.join("、")}</p>}</details>{edit("character", c, `「${c.name}」`)}</article>)}</div></section>
     <section className="prep-section"><div className="section-head"><h2>地点与组织</h2>{add("setting", "新增地点／组织")}</div>{content.settings.length === 0 && <p className="muted">还没有地点或组织设定。</p>}{content.settings.map((place) => <article className="prep-place" key={place.id}><div className="row"><h3>{place.name} <span className="muted">{place.kind === "organization" ? "组织" : "地点"}</span></h3>{edit("setting", place, "设定")}</div><p>{place.description}</p>{place.facts.length > 0 && <ul>{place.facts.map((fact, i) => <li key={i}>{fact}</li>)}</ul>}</article>)}</section>
-    <section className="prep-section"><div className="section-head"><h2>情节方向</h2>{add("plotLine", "新增情节线")}</div>{content.plotLines.length === 0 ? <p className="muted">还没有情节线规划。</p> : <ul>{content.plotLines.map((line) => <li key={line.id}><Chip>{line.weight === "main" ? "主线" : line.weight === "sub" ? "支线" : "细节"}</Chip> {line.label}{edit("plotLine", line, "情节线")}</li>)}</ul>}</section>
+    <section className="prep-section"><div className="section-head"><h2>情节方向</h2><div className="row">{draft("从资料识别情节线", "plotlines")}{add("plotLine", "新增情节线")}</div></div>{content.plotLines.length === 0 ? <p className="muted">还没有情节线规划。有大纲或简介，就让 AI 从里面认出主线与支线供你核对；也可以直接手填。</p> : <ul>{content.plotLines.map((line) => <li key={line.id}><Chip>{line.weight === "main" ? "主线" : line.weight === "sub" ? "支线" : "细节"}</Chip> {line.label}{edit("plotLine", line, "情节线")}</li>)}</ul>}</section>
     <section className="prep-section"><div className="section-head"><h2>卷</h2>{add("volume", "新增一卷")}</div>
       <p className="muted">卷纲会顶替这几章的逐章梗概进入模型上下文 —— 章数一多，它是唯一能把远处的篇幅压下去的东西。哪几章属于哪一卷由下面章节计划的卷号决定。</p>
       {(() => {

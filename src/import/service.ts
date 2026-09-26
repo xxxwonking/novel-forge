@@ -184,7 +184,10 @@ export class ImportService {
 
   /** 这一章为什么不能被替换；可以替换时返回 null。 */
   private locked(chapter: number): string | null {
+    // 扫正文得出的出场不算：它没有锚点、不指向原文任何位置，正文换掉不会让它悬空 ——
+    // 它随正文一起作废（见 `putChapter`）。拿它锁住覆盖，作者就再也换不了自己的旧稿。
     const events = this.source.events().some((event) => event.envelope.chapter === chapter
+      && event.envelope.origin !== "text_scan"
       && (event.envelope.provenance === "committed" || event.envelope.provenance === "authored"));
     if (events) return "已有正式结构记录（事件、伏笔等指向现有正文）";
     return this.source.allDrafts().some((draft) => draft.chapter === chapter && draft.status === "adopted")

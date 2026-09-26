@@ -580,6 +580,9 @@ export interface ReviewSettings {
   semantics: boolean;
 }
 
+/** 起草的范围：人物 / 情节线 / 整份资料 / 后面几章的章计划。 */
+export type DraftFocus = "characters" | "plotlines" | "full" | "chapters";
+
 export interface PreparationDraftResult {
   /** 起草回合的说明：补了什么、哪里还需要作者拿主意。 */
   reply: string;
@@ -745,7 +748,7 @@ export const api = {
   rejectPreparation: (proposalId: string) => post<PreparationProposal>("/api/preparation/reject", { proposalId }),
   recordAuthorDetails: (input: { summary: string; baseFingerprint: string; changes: unknown }) => post<PreparationProposal>("/api/preparation/author", input),
   /** 让 AI 起草资料。apply=false 只交回草稿供表单试填，不落任何文件。 */
-  draftPreparation: (input: { focus: "characters" | "full" | "chapters"; apply: boolean; brief?: string; count?: number }) =>
+  draftPreparation: (input: { focus: DraftFocus; apply: boolean; brief?: string; count?: number }) =>
     post<PreparationDraftResult>("/api/preparation/draft", input),
   /** 跨章返修：清单只读；定位要花一次模型调用，所以由作者一章一章地点。 */
   revisionView: () => request<RevisionView>("/api/revision"),

@@ -14,7 +14,7 @@
 
 import { useRef, useState } from "react";
 import { Button, Input, InputNumber, Modal, Popconfirm, Select } from "antd";
-import { api, type CharacterRecord, type PreparationProposal, type ChapterBeat } from "../api.js";
+import { api, type CharacterRecord, type DraftFocus, type PreparationProposal, type ChapterBeat } from "../api.js";
 import {
   beatInput, characterInput, plotLineInput, settingInput, volumeInput, emptyCharacter, emptySetting, emptyPlotLine, emptyBeat, emptyVolume,
   type BeatInput, type BeatRecord, type CharacterInput, type EventKind, type PlotLineInput, type SettingInput, type VolumeInput, type Weight,
@@ -95,15 +95,23 @@ const num = (value: number | null, fallback: number): number => value ?? fallbac
  * 这里**只**触发起草并交回方案编号；确认、丢弃、确认并写全部复用既有的方案审阅流程，
  * 不另开一条拍板路径。
  */
+const SAMPLE_BRIEF = "例如：主要写一个账房和一个守夜的老人；基调要冷，别写感情线。";
+const DRAFT_COPY: Record<DraftFocus, { readonly title: string; readonly intro: string; readonly sample: string }> = {
+  characters: { title: "让 AI 起草人物", intro: "AI 会读作品的想法与你已确认的资料，推断出人物的性格、动机与说话方式，保存成一份待确认方案。", sample: SAMPLE_BRIEF },
+  plotlines: { title: "从资料识别情节线", intro: "AI 会读你的大纲、简介等资料和正文抽样，认出贯穿多章的主线与支线，保存成一份待确认方案。", sample: "例如：感情线算支线；单卷里就了结的案子不算。" },
+  chapters: { title: "让 AI 排后面几章", intro: "AI 会接着最后一章已确认的计划往后排，每章一份章计划，合成一份待确认方案；确认后就能授权连写。", sample: SAMPLE_BRIEF },
+  full: { title: "让 AI 起草整份资料", intro: "AI 会读作品的想法与你已确认的资料，补齐人物、地点组织、情节线和下一章的计划，保存成一份待确认方案。", sample: SAMPLE_BRIEF },
+};
+
 export function DraftDialog({ focus, onProposed, onClose }: {
-  focus: "characters" | "full" | "chapters"; onProposed: (proposalId: string) => void; onClose: () => void;
+  focus: DraftFocus; onProposed: (proposalId: string) => void; onClose: () => void;
 }): React.ReactElement {
   const [brief, setBrief] = useState("");
   const [count, setCount] = useState(3);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const characters = focus === "characters";
   const chapters = focus === "chapters";
+  const copy = DRAFT_COPY[focus];
   const submit = async (): Promise<void> => {
     if (busy) return;
     setBusy(true); setError(null);
@@ -115,19 +123,15 @@ export function DraftDialog({ focus, onProposed, onClose }: {
     } catch (e) { setError((e as Error).message); }
     finally { setBusy(false); }
   };
-  return <Modal open className="prep-editor" title={characters ? "让 AI 起草人物" : chapters ? "让 AI 排后面几章" : "让 AI 起草整份资料"} width={620}
+  return <Modal open className="prep-editor" title={copy.title} width={620}
     onCancel={() => { if (!busy) onClose(); }} maskClosable={!busy}
     footer={[<Button key="cancel" disabled={busy} onClick={onClose}>取消</Button>,
       <Button key="ok" type="primary" loading={busy} onClick={() => void submit()}>{busy ? "正在起草…" : "开始起草"}</Button>]}>
-    <p className="muted">{characters
-      ? "AI 会读作品的想法与你已确认的资料，推断出人物的性格、动机与说话方式，保存成一份待确认方案。"
-      : chapters
-        ? "AI 会接着最后一章已确认的计划往后排，每章一份章计划，合成一份待确认方案；确认后就能授权连写。"
-        : "AI 会读作品的想法与你已确认的资料，补齐人物、地点组织、情节线和下一章的计划，保存成一份待确认方案。"}它不会确认方案，也不会开始写章。</p>
+    <p className="muted">{copy.intro}它不会确认方案，也不会开始写章。</p>
     {chapters && <Field label="排几章"><Select value={count} disabled={busy} onChange={(value: number) => setCount(value)} options={[3, 5, 8].map((n) => ({ value: n, label: `${n} 章` }))} /></Field>}
     {error !== null && <div className="finding" role="alert" data-level="block">{error}</div>}
     <Field label="补充要求（可留空）" wide><Input.TextArea rows={3} value={brief} disabled={busy}
-      onChange={(e) => setBrief(e.target.value)} placeholder="例如：主要写一个账房和一个守夜的老人；基调要冷，别写感情线。" /></Field>
+      onChange={(e) => setBrief(e.target.value)} placeholder={copy.sample} /></Field>
     {busy && <p className="muted" role="status">正在起草，读完作品资料再写……这一步可能要几十秒。</p>}
   </Modal>;
 }

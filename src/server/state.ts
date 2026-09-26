@@ -39,6 +39,7 @@ import { createModelClient } from "../client/create.js";
 import { metered } from "../credits/meter.js";
 import { MaterialStore, type MaterialFile } from "../import/materials.js";
 import { NOT_IN_PROSE, type RelationClaim } from "../types/relations.js";
+import type { PresenceScan } from "../types/presence.js";
 import type { ImportFile } from "../import/split.js";
 import { characterSource } from "../preparation/sources.js";
 import { appendCreditEntry, readCreditEntries, summarize } from "../credits/ledger.js";
@@ -78,8 +79,8 @@ const PREPARATION_DRAFT_MAX_TOKENS = 8192;
 export interface PreparationDraftOptions {
   /** 作者的一句话补充要求，可空 —— 空了就只按作品想法推断。 */
   readonly brief?: string;
-  /** characters 只起草人物；full 连地点、情节线与下一章计划一起；chapters 只排后面 count 章的章计划。 */
-  readonly focus: "characters" | "full" | "chapters";
+  /** characters 只起草人物；plotlines 只认情节线；full 连地点、情节线与下一章计划一起；chapters 只排后面 count 章的章计划。 */
+  readonly focus: "characters" | "plotlines" | "full" | "chapters";
   readonly count?: number;
   /** true 落成候选方案；false 只把草稿交回来（表单试填），不写任何文件。 */
   readonly apply: boolean;
@@ -154,6 +155,7 @@ export class ProjectSession {
       transaction: (operation) => this.transact(operation), rules: this.rules,
       checkChapter: (chapter) => { buildChapterRunInput(this, chapter); },
       commitRelations: (relations) => this.appendRelations(relations),
+      commitPresence: (scans) => this.appendPresence(scans),
     });
     this.planning = new PlanningService(this, operation => this.transact(operation));
     this.exports = new TextExportService(root, this);
@@ -325,9 +327,49 @@ export class ProjectSession {
     this.invalidate();
   }
 
+  /**
+   * 把扫正文得出的出场记录落进事件流。
+   *
+   * **只补缺口**：该人该章已经有生效的出场记录就跳过。写章时声明的 `pov` 是读懂
+   * 那一章之后的判断，比扫描的「提到」重得多；而同一章记两遍会让弧线上叠出两根
+   * 竖条，看起来像出场了两次。
+   *
+   * 判「已有」看 `effective()` 而不是全部事件：章节重写会把旧的 C5 声明翻成
+   * rejected，那一章的出场随之失效 —— 这时正文里若仍有这个人，就该重新扫出来。
+   */
+  appendPresence(scans: readonly PresenceScan[]): void {
+    const stream = EventStream.restore(this.stream.all());
+    const superseded = scans.reduce((n, scan) => n + stream.supersedePresenceScan(scan.characterId, scan.chapters), 0);
+    const seen = new Set(stream.effective().flatMap((e) =>
+      e.payload.type === "character_presence" ? [`${e.payload.characterId}@${e.envelope.chapter}`] : []));
+    const ids = scans.flatMap((scan) => scan.chapters
+      .filter((chapter) => !seen.has(`${scan.characterId}@${chapter}`))
+      .map((chapter) => stream.append({
+        chapter, origin: "text_scan", provenance: "proposed",
+        payload: { type: "character_presence", characterId: scan.characterId, role: "mentioned" },
+      }).envelope.id));
+    if (ids.length === 0 && superseded === 0) return;
+    // 只落最终态：proposed 那一版从未写盘，账目干净。
+    const decided = stream.decideIds(ids, "committed");
+    if (superseded > 0) this.store.rewriteEvents(stream.all());
+    else this.store.appendEvents(decided);
+    this.stream = stream;
+    this.invalidate();
+  }
+
   putChapter(chapter: ChapterNo, text: string): void {
+    const replaced = this.chapters.has(chapter) && this.chapters.get(chapter) !== text;
     this.store.writeChapter(chapter, text);
     this.chapters = new Map(this.chapters).set(chapter, text);
+    // 扫正文得出的出场派生自旧正文：正文一换就过期，不能留着冒充新正文里的事实。
+    // 写章与导入都经过这里，所以只需在这一处作废。逐字相同的重写（重试）不算替换。
+    if (replaced) {
+      const stream = EventStream.restore(this.stream.all());
+      if (stream.supersedeChapter(chapter, ["text_scan"]) > 0) {
+        this.store.rewriteEvents(stream.all());
+        this.stream = stream;
+      }
+    }
     this.invalidate();
   }
 
@@ -611,10 +653,13 @@ export class ProjectSession {
   async draftPreparation(options: PreparationDraftOptions, observe?: ConversationObserver): Promise<PreparationDraftResult> {
     const client = this.getModelClient();
     const chapters = options.focus === "chapters" ? this.batchRange(options.count) : null;
-    const sources = options.focus === "characters" ? this.characterSources() : null;
+    // 情节线与人物读同一批材料：作者的大纲与简介里写着主线支线，正文抽样只作核对。
+    const sources = options.focus === "characters" || options.focus === "plotlines" ? this.characterSources() : null;
     const focus = options.focus === "characters"
       ? `这次**只**起草人物档案（changes.characters）。地点、情节线、章节计划一律不要动。把这本书里**已经出现过的人物**尽量都建出来，一人一张卡，并按出场权重分档：protagonist（主角）、major（主要）、minor（次要）、extra（龙套）；身份与定位写进 profile.role，关系与来历写进 profile.background。${sources !== null && sources.from.length > 0 ? "人物以作者提供的资料文件为准，正文抽样只用来核对谁真的出过场。资料里如果写了人物之间的关系（搭档、亲属、师徒、仇敌…），一并填进 changes.relations —— 每条一个方向，双向关系填两条，note 用一句话说清是什么关系；**只填资料里写明的，不要自己推测**。" : ""}`
-      : chapters !== null
+      : options.focus === "plotlines"
+        ? "这次**只**认出情节线（changes.plotLines）。人物、地点、章节计划一律不要动。情节线是**贯穿多章的叙事主干**（一桩要查到底的案子、一条感情线、某个组织的图谋），不是单章里发生的事 —— 一章就了结的写不成情节线。从作者的大纲、简介与正文抽样里认，每条给一个 P 开头的编号、一句话标签（label），并定权重：main（主线，断几章就该警觉）、sub（支线）、detail（细节线）。**只认资料里写明或正文里明显贯穿的**，宁可少认几条也不要为了凑数编造。"
+        : chapters !== null
         ? `这次**只**排章计划（changes.beats）：为第 ${chapters.from} 章到第 ${chapters.to} 章各起草一份，章号连续、volume 沿用最近一章的卷号（没有就填 1）。人物、地点、情节线一律不动，只能引用已确认的 ID。每章必须有具体的核心事件、阶段反馈与章末钩子，不要写「继续铺垫」「更大的风暴」这类空话；要收的伏笔只能是当前 open 的编号，埋设与兑现要跨章衔接，不要把所有兑现堆在最后一章。`
         : "起草这份作品现在还缺的资料：人物档案、必要的地点/组织、情节线，以及下一章的章计划。已经确认的内容不要重复提交。";
     const brief = (options.brief ?? "").trim();
@@ -624,12 +669,14 @@ export class ProjectSession {
       "先 get_preparation 读取作者已指定的想法与现有正式资料，再据此推断并补齐：",
       focus,
       ...(sources === null || sources.text === "" ? [] : ["以下是这本书已有的材料：", sources.text]),
-      ...(sources === null || sources.sampled.length === 0 ? [] : [`注意：正文只抽样了上面那 ${sources.sampled.length} 章的开头，全书共 ${this.chapterNumbers().length} 章。没有抽到的章里的人物如果资料文件提到了，也照样建卡；不要声称你读过全书。`]),
-      ...(chapters !== null ? [] : ["人物 profile 与 speech 必须是完整的：定位、外貌、性格标签、想要什么、害怕什么、背景，以及说话方式（语域、情绪表达、句长区间、句式偏好、至少一条正例台词）。作者的设定常常只有一句想法 —— 人物具体是什么样由你判断，不要回过头去问作者。"]),
+      ...(sources === null || sources.sampled.length === 0 ? [] : [`注意：正文只抽样了上面那 ${sources.sampled.length} 章的开头，全书共 ${this.chapterNumbers().length} 章。${options.focus === "plotlines" ? "资料文件里写了、抽样里没见到的线，也照样认出来" : "没有抽到的章里的人物如果资料文件提到了，也照样建卡"}；不要声称你读过全书。`]),
+      // 人物卡的完整性要求只对建人物的两档说 —— 排章计划与认情节线都不碰人物卡。
+      ...(options.focus === "characters" || options.focus === "full" ? ["人物 profile 与 speech 必须是完整的：定位、外貌、性格标签、想要什么、害怕什么、背景，以及说话方式（语域、情绪表达、句长区间、句式偏好、至少一条正例台词）。作者的设定常常只有一句想法 —— 人物具体是什么样由你判断，不要回过头去问作者。"] : []),
       "用 propose_preparation 保存为一份方案供作者审阅。不要确认方案，不要写章，不要采用任何稿件。",
       ...(brief === "" ? [] : [`作者这次的补充要求：${brief}`]),
       chapters !== null ? "最后用一段话说明每章推进了什么、哪几章收了哪些伏笔，以及哪里还需要作者拿主意。"
-        : "最后用一段话说明你补了哪些人物、各自的关键设定，以及哪里还需要作者拿主意。",
+        : options.focus === "plotlines" ? "最后用一段话说明你认出了哪几条线、各自贯穿到哪里，以及哪里还需要作者拿主意。"
+          : "最后用一段话说明你补了哪些人物、各自的关键设定，以及哪里还需要作者拿主意。",
     ].join("\n");
 
     let captured: PreparationInput | null = null;

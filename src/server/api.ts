@@ -583,7 +583,7 @@ async function chapterWrite(session: ProjectSession, body: unknown, start = fals
 async function preparationDraft(session: ProjectSession, body: unknown): Promise<ApiResponse> {
   if (!isRecord(body)) return bad("请求体必须是对象");
   const focus = body["focus"] ?? "characters";
-  if (focus !== "characters" && focus !== "full" && focus !== "chapters") return bad("focus 只能是 characters、full 或 chapters");
+  if (focus !== "characters" && focus !== "plotlines" && focus !== "full" && focus !== "chapters") return bad("focus 只能是 characters、plotlines、full 或 chapters");
   const count = body["count"];
   if (count !== undefined && !Number.isSafeInteger(count)) return bad("count 必须是整数");
   const apply = body["apply"] ?? true;
