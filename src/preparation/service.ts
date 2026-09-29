@@ -8,7 +8,7 @@ import { validatePlan, validateVolume } from "../beat/validate.js";
 import { project } from "../store/project.js";
 import { ChapterWriteError } from "../server/chapter-input.js";
 import type { Rules } from "../rules/schema.js";
-import type { RelationClaim } from "../types/relations.js";
+import type { ForeshadowClaim, RelationClaim } from "../types/relations.js";
 import type { PresenceScan } from "../types/presence.js";
 import type { CharacterId } from "../types/primitives.js";
 import type { GateFinding } from "../types/beat.js";
@@ -23,6 +23,8 @@ interface PreparationDeps {
   readonly checkChapter: (chapter: number) => void;
   /** 把确认过的关系声明落进事件流。关系不是资料的一部分，所以不走 `apply`。 */
   readonly commitRelations: (relations: readonly RelationClaim[]) => void;
+  /** 把确认过的伏笔规划落进事件流。同理不走 `apply`：伏笔是故事事实，不是设定。 */
+  readonly commitForeshadows: (claims: readonly ForeshadowClaim[]) => void;
   /** 把扫正文得出的出场记录落进事件流。同理不走 `apply`：出场是故事事实，不是设定。 */
   readonly commitPresence: (scans: readonly PresenceScan[]) => void;
   readonly rules: Rules;
@@ -95,6 +97,7 @@ export class PreparationService {
       // 关系落进事件流（而不是资料文件）：它是故事事实，不是设定。
       // 放在 apply 之后：资料写不进去时不该先留下一批关系。
       this.deps.commitRelations(proposal.changes.relations ?? []);
+      this.deps.commitForeshadows(proposal.changes.foreshadows ?? []);
       // 出场记录同理。只扫本方案动过的人 —— 确认一份无关方案不该翻动所有人的出场轴，
       // 与「已有人物的 introducedAt 原值不动」是同一个分寸。扫的是 apply 之后的
       // 人物卡与当前正文，所以改名、加别名会立刻反映到轴上。
@@ -254,10 +257,26 @@ function build(snapshot: ProjectSnapshot, changes: PreparationChanges, now: stri
       if (!characters.some((c) => c.id === who)) fail(`关系「${r.note}」的${端}人物 ${who} 不存在`);
     }
   }
+  const lastChapter = Math.max(0, ...snapshot.chapters.keys());
+  /**
+   * 伏笔规划的 label 必须在全书唯一。
+   *
+   * 这不是洁癖：C5 与逐章反推靠 label 认领规划（`c5-schema.ts` 的 planned→planted
+   * 匹配），同名两条会让那次匹配判为歧义，整章声明落不下来。在这里拦住，比让作者
+   * 几十章后收到一句「歧义」再回头找是哪两条便宜得多。
+   */
+  const planned = changes.foreshadows ?? [];
+  const labels = planned.map((f) => f.label.trim());
+  if (new Set(labels).size !== labels.length) fail("同一方案里的伏笔标签不能重复 —— 正文写到时要靠标签认领这条规划");
+  for (const f of planned) {
+    const clash = projection.foreshadows.find((item) => item.label.trim() === f.label.trim());
+    if (clash !== undefined) fail(`伏笔标签「${f.label.trim()}」已经被 ${clash.id} 用了，换一个说法`);
+    // 期限必须在已写出的正文之后：给一个已经过去的章号，等于一条生下来就逾期的规划。
+    if (f.expectedBy <= lastChapter) fail(`伏笔「${f.label.trim()}」的预期兑现章第 ${f.expectedBy} 章已经写完了，规划要落在未来`);
+  }
   const blocks = findings.filter((f) => f.level === "block");
   if (blocks.length > 0) fail(blocks.map((f) => f.message).join("\n"));
   // 卷纲只描述已经写完的卷。给还没写到的卷写纲，等于把规划当成已发生的剧情喂进 L2。
-  const lastChapter = Math.max(0, ...snapshot.chapters.keys());
   for (const v of changes.volumes ?? []) {
     if (v.summary.trim() === "") continue;
     const covered = beats.filter((b) => b.volume === v.volume).map((b) => b.chapter);

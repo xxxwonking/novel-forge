@@ -120,6 +120,8 @@ export interface PreparationChanges {
   beats?: readonly BeatInput[];
   /** 资料里声明的人物关系：没有正文出处，关系图上画虚线。 */
   relations?: readonly RelationClaim[];
+  /** 资料里读出的伏笔规划：同样没有正文出处，伏笔时间线上画虚线。不含编号，F 序号由服务端分配。 */
+  foreshadows?: readonly ForeshadowClaim[];
   /** 删除单独说：其余字段一律是按 ID/章号的 upsert，少送一条不等于删。 */
   removals?: Removals;
 }
@@ -130,6 +132,13 @@ export interface RelationClaim {
   fromKind: RelationKind | null;
   toKind: RelationKind;
   note: string;
+}
+
+export interface ForeshadowClaim {
+  label: string;
+  intent: string;
+  weight: Weight;
+  expectedBy: number;
 }
 
 export type RelationKind = "ally" | "hostile" | "kin" | "romantic" | "mentor" | "subordinate" | "acquaintance" | "unknown";

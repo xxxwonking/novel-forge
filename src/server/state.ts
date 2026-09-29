@@ -29,7 +29,7 @@ import type { CharacterCard } from "../types/character.js";
 import type { AlertId, ChapterNo, CharacterId, ForeshadowId, PlotLineId } from "../types/primitives.js";
 import type { C5Declaration, ForeshadowWeight } from "../types/events.js";
 import { ChapterWriter, type ChapterWriteOptions, type ChapterWriterOptions } from "./chapter-writer.js";
-import { ChapterWriteError, buildChapterReadSource, buildChapterRunInput, type ChapterSource } from "./chapter-input.js";
+import { ChapterWriteError, buildChapterReadSource, foreshadowAllocator, buildChapterRunInput, type ChapterSource } from "./chapter-input.js";
 import { ConversationStore } from "../agent/conversation-store.js";
 import { MainAgentService } from "../agent/service.js";
 import { runAgentLoop, type AgentActionOutcome, type MainAgentToolContext, type PlanAddInput } from "../agent/tool-exec.js";
@@ -38,7 +38,7 @@ import type { AlternativeIdea, ConversationMode, ConversationObserver, Conversat
 import { createModelClient } from "../client/create.js";
 import { metered } from "../credits/meter.js";
 import { MaterialStore, type MaterialFile } from "../import/materials.js";
-import { NOT_IN_PROSE, type RelationClaim } from "../types/relations.js";
+import { NOT_IN_PROSE, type ForeshadowClaim, type RelationClaim } from "../types/relations.js";
 import type { PresenceScan } from "../types/presence.js";
 import type { ImportFile } from "../import/split.js";
 import { characterSource } from "../preparation/sources.js";
@@ -79,8 +79,8 @@ const PREPARATION_DRAFT_MAX_TOKENS = 8192;
 export interface PreparationDraftOptions {
   /** 作者的一句话补充要求，可空 —— 空了就只按作品想法推断。 */
   readonly brief?: string;
-  /** characters 只起草人物；plotlines 只认情节线；full 连地点、情节线与下一章计划一起；chapters 只排后面 count 章的章计划。 */
-  readonly focus: "characters" | "plotlines" | "full" | "chapters";
+  /** characters 只起草人物；plotlines 只认情节线；foreshadows 只从资料反推伏笔规划；full 连地点、情节线与下一章计划一起；chapters 只排后面 count 章的章计划。 */
+  readonly focus: "characters" | "plotlines" | "foreshadows" | "full" | "chapters";
   readonly count?: number;
   /** true 落成候选方案；false 只把草稿交回来（表单试填），不写任何文件。 */
   readonly apply: boolean;
@@ -155,6 +155,7 @@ export class ProjectSession {
       transaction: (operation) => this.transact(operation), rules: this.rules,
       checkChapter: (chapter) => { buildChapterRunInput(this, chapter); },
       commitRelations: (relations) => this.appendRelations(relations),
+      commitForeshadows: (claims) => this.appendForeshadows(claims),
       commitPresence: (scans) => this.appendPresence(scans),
     });
     this.planning = new PlanningService(this, operation => this.transact(operation));
@@ -321,6 +322,35 @@ export class ProjectSession {
       payload: { type: "relation_changed", from: r.from, to: r.to, fromKind: r.fromKind ?? null, toKind: r.toKind, note: r.note },
     }).envelope.id);
     // 只落最终态：proposed 那一版从未写盘，账目干净。
+    const decided = stream.decideIds(ids, "committed");
+    this.store.appendEvents(decided);
+    this.stream = stream;
+    this.invalidate();
+  }
+
+  /**
+   * 追加一批**规划的伏笔**并立即定为正式。
+   *
+   * 与 `appendRelations` 是同一件事的另一个例子：来自作者资料、没有正文出处，
+   * 所以章号记 0、锚点的 quote 留空，时间线上画虚线。
+   *
+   * 编号由 `foreshadowAllocator` 分配 —— 模型不得生成 ID，而这里连模型都不经手：
+   * 提案里只有 label 与 intent。`origin: material_inference` 而不是 `P4_outline`：
+   * 后者是作者手工规划，把模型的推断记进去会让归因统计失真。
+   */
+  appendForeshadows(claims: readonly ForeshadowClaim[]): void {
+    if (claims.length === 0) return;
+    const stream = EventStream.restore(this.stream.all());
+    const allocate = foreshadowAllocator({ events: () => stream.all(), allDrafts: () => this.allDrafts() });
+    const ids = claims.map((claim) => stream.append({
+      chapter: NOT_IN_PROSE, origin: "material_inference", provenance: "proposed",
+      payload: {
+        type: "foreshadow_planted", foreshadowId: allocate(), label: claim.label, intent: claim.intent,
+        weight: claim.weight, visibility: "covert", expectedBy: claim.expectedBy,
+        // 规划没有正文依据；视图据此画虚线与空心点，不得显示成已埋设原文。
+        anchor: { chapter: NOT_IN_PROSE, quote: "", offsetHint: -1, occurrence: 0 },
+      },
+    }).envelope.id);
     const decided = stream.decideIds(ids, "committed");
     this.store.appendEvents(decided);
     this.stream = stream;
@@ -653,12 +683,22 @@ export class ProjectSession {
   async draftPreparation(options: PreparationDraftOptions, observe?: ConversationObserver): Promise<PreparationDraftResult> {
     const client = this.getModelClient();
     const chapters = options.focus === "chapters" ? this.batchRange(options.count) : null;
-    // 情节线与人物读同一批材料：作者的大纲与简介里写着主线支线，正文抽样只作核对。
-    const sources = options.focus === "characters" || options.focus === "plotlines" ? this.characterSources() : null;
+    // 人物、情节线、伏笔读同一批材料：作者的大纲与简介里写着这三样，正文抽样只作核对。
+    const sources = options.focus === "characters" || options.focus === "plotlines" || options.focus === "foreshadows" ? this.characterSources() : null;
     const focus = options.focus === "characters"
       ? `这次**只**起草人物档案（changes.characters）。地点、情节线、章节计划一律不要动。把这本书里**已经出现过的人物**尽量都建出来，一人一张卡，并按出场权重分档：protagonist（主角）、major（主要）、minor（次要）、extra（龙套）；身份与定位写进 profile.role，关系与来历写进 profile.background。${sources !== null && sources.from.length > 0 ? "人物以作者提供的资料文件为准，正文抽样只用来核对谁真的出过场。资料里如果写了人物之间的关系（搭档、亲属、师徒、仇敌…），一并填进 changes.relations —— 每条一个方向，双向关系填两条，note 用一句话说清是什么关系；**只填资料里写明的，不要自己推测**。" : ""}`
       : options.focus === "plotlines"
         ? "这次**只**认出情节线（changes.plotLines）。人物、地点、章节计划一律不要动。情节线是**贯穿多章的叙事主干**（一桩要查到底的案子、一条感情线、某个组织的图谋），不是单章里发生的事 —— 一章就了结的写不成情节线。从作者的大纲、简介与正文抽样里认，每条给一个 P 开头的编号、一句话标签（label），并定权重：main（主线，断几章就该警觉）、sub（支线）、detail（细节线）。**只认资料里写明或正文里明显贯穿的**，宁可少认几条也不要为了凑数编造。"
+        : options.focus === "foreshadows"
+          ? [
+            "这次**只**反推伏笔规划（changes.foreshadows）。人物、地点、情节线、章节计划一律不要动。",
+            "伏笔 = 作者先埋下、打算在后面章节兑现的承诺：一件没交代来历的东西、一句意味不明的话、一个没露面的名字、一笔对不上的账。",
+            "从作者的大纲、简介与正文抽样里认，每条填：label（短标签，几个字，正文写到时要靠它认领这条规划，**必须彼此不同、也不要与已有伏笔重名**）、",
+            "intent（这条将来要兑现什么 —— 这是最重要的字段，它决定了什么才算「收了」，写具体，不要写「会有反转」这类空话）、",
+            `weight（main 主线 / sub 支线 / detail 细节）、expectedBy（打算在第几章前兑现，必须大于第 ${this.chapterNumbers().length === 0 ? 0 : Math.max(...this.chapterNumbers())} 章）。`,
+            "**不要给编号** —— F 序号由系统分配，你填了也不会被采用。",
+            "只认资料里写明或抽样正文里明显悬着没交代的，宁可少认几条也不要凑数：多报一条假伏笔，作者后面每一章都会被提醒去兑现一件根本不存在的事。",
+          ].join("\n")
         : chapters !== null
         ? `这次**只**排章计划（changes.beats）：为第 ${chapters.from} 章到第 ${chapters.to} 章各起草一份，章号连续、volume 沿用最近一章的卷号（没有就填 1）。人物、地点、情节线一律不动，只能引用已确认的 ID。每章必须有具体的核心事件、阶段反馈与章末钩子，不要写「继续铺垫」「更大的风暴」这类空话；要收的伏笔只能是当前 open 的编号，埋设与兑现要跨章衔接，不要把所有兑现堆在最后一章。`
         : "起草这份作品现在还缺的资料：人物档案、必要的地点/组织、情节线，以及下一章的章计划。已经确认的内容不要重复提交。";
@@ -669,13 +709,14 @@ export class ProjectSession {
       "先 get_preparation 读取作者已指定的想法与现有正式资料，再据此推断并补齐：",
       focus,
       ...(sources === null || sources.text === "" ? [] : ["以下是这本书已有的材料：", sources.text]),
-      ...(sources === null || sources.sampled.length === 0 ? [] : [`注意：正文只抽样了上面那 ${sources.sampled.length} 章的开头，全书共 ${this.chapterNumbers().length} 章。${options.focus === "plotlines" ? "资料文件里写了、抽样里没见到的线，也照样认出来" : "没有抽到的章里的人物如果资料文件提到了，也照样建卡"}；不要声称你读过全书。`]),
+      ...(sources === null || sources.sampled.length === 0 ? [] : [`注意：正文只抽样了上面那 ${sources.sampled.length} 章的开头，全书共 ${this.chapterNumbers().length} 章。${options.focus === "plotlines" ? "资料文件里写了、抽样里没见到的线，也照样认出来" : options.focus === "foreshadows" ? "以资料文件为主：伏笔要靠通读全书才看得准，抽样的章首读不出中段埋的东西 —— 资料里没写明的，不要靠六段抽样去猜" : "没有抽到的章里的人物如果资料文件提到了，也照样建卡"}；不要声称你读过全书。`]),
       // 人物卡的完整性要求只对建人物的两档说 —— 排章计划与认情节线都不碰人物卡。
       ...(options.focus === "characters" || options.focus === "full" ? ["人物 profile 与 speech 必须是完整的：定位、外貌、性格标签、想要什么、害怕什么、背景，以及说话方式（语域、情绪表达、句长区间、句式偏好、至少一条正例台词）。作者的设定常常只有一句想法 —— 人物具体是什么样由你判断，不要回过头去问作者。"] : []),
       "用 propose_preparation 保存为一份方案供作者审阅。不要确认方案，不要写章，不要采用任何稿件。",
       ...(brief === "" ? [] : [`作者这次的补充要求：${brief}`]),
       chapters !== null ? "最后用一段话说明每章推进了什么、哪几章收了哪些伏笔，以及哪里还需要作者拿主意。"
         : options.focus === "plotlines" ? "最后用一段话说明你认出了哪几条线、各自贯穿到哪里，以及哪里还需要作者拿主意。"
+          : options.focus === "foreshadows" ? "最后用一段话说明你认出了哪几条伏笔、各自的依据在资料还是正文，以及哪几条你不太确定、需要作者自己判断。"
           : "最后用一段话说明你补了哪些人物、各自的关键设定，以及哪里还需要作者拿主意。",
     ].join("\n");
 

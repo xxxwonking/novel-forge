@@ -1,7 +1,7 @@
 import type { ProjectSnapshot } from "../store/persist.js";
 import type { ChapterPlan, GateFinding, WorkProfile } from "../types/beat.js";
 import type { WorkSetting } from "../types/work.js";
-import type { RelationClaim } from "../types/relations.js";
+import type { ForeshadowClaim, RelationClaim } from "../types/relations.js";
 
 export type PreparationContent = Pick<ProjectSnapshot, "setting" | "discipline" | "profile" | "characters" | "settings" | "plotLines" | "volumes" | "beats">;
 export type CharacterInput = Omit<ProjectSnapshot["characters"][number], "provenance" | "updatedAt" | "introducedAt">;
@@ -22,6 +22,11 @@ export interface PreparationChanges {
    * 区别只在有没有正文出处，这里没有。
    */
   readonly relations?: readonly RelationClaim[];
+  /**
+   * 从资料里反推出的伏笔规划。同样没有正文出处 —— 时间线上是虚线，
+   * 等逐章反推或 C5 写到那里，凭 label 认领它，虚线才变实线。
+   */
+  readonly foreshadows?: readonly ForeshadowClaim[];
   /** 删除单独说：`changes` 的其余部分一律是按 ID/章号的 upsert，没有「少送就等于删」。 */
   readonly removals?: {
     readonly characters?: readonly string[];

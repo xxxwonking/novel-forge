@@ -17,6 +17,7 @@ import { validatePlan } from "../beat/validate.js";
 import { deriveBudget } from "../beat/derive.js";
 import type { AlertAction, AlertState } from "../types/projections.js";
 import type { AlertId, ChapterNo, TextAnchor } from "../types/primitives.js";
+import { isPlanOrigin } from "../types/events.js";
 import type { EventWeight } from "../types/events.js";
 import { ChapterWriteError } from "./chapter-input.js";
 import type { ChapterWriteOptions } from "./chapter-writer.js";
@@ -399,7 +400,7 @@ function declaredEventWeights(session: ProjectSession, chapter: ChapterNo): read
       (e) =>
         e.envelope.chapter === chapter &&
         e.payload.type === "plot_event" &&
-        e.envelope.origin !== "P4_outline" &&
+        !isPlanOrigin(e.envelope.origin) &&
         (e.envelope.provenance === "committed" || e.envelope.provenance === "authored"),
     )
     .map((e) => (e.payload as { weight: EventWeight }).weight);
@@ -583,7 +584,7 @@ async function chapterWrite(session: ProjectSession, body: unknown, start = fals
 async function preparationDraft(session: ProjectSession, body: unknown): Promise<ApiResponse> {
   if (!isRecord(body)) return bad("请求体必须是对象");
   const focus = body["focus"] ?? "characters";
-  if (focus !== "characters" && focus !== "plotlines" && focus !== "full" && focus !== "chapters") return bad("focus 只能是 characters、plotlines、full 或 chapters");
+  if (focus !== "characters" && focus !== "plotlines" && focus !== "foreshadows" && focus !== "full" && focus !== "chapters") return bad("focus 只能是 characters、plotlines、foreshadows、full 或 chapters");
   const count = body["count"];
   if (count !== undefined && !Number.isSafeInteger(count)) return bad("count 必须是整数");
   const apply = body["apply"] ?? true;

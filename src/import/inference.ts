@@ -21,6 +21,7 @@ import { ChapterWriteError, foreshadowAllocator } from "../server/chapter-input.
 import { countWords } from "../text/measure.js";
 import type { ModelClient } from "../client/model.js";
 import { declarationOf } from "../store/event-stream.js";
+import { isPlanOrigin } from "../types/events.js";
 import type { C5Declaration, StructuralEvent } from "../types/events.js";
 import type { ChapterNo, ForeshadowId } from "../types/primitives.js";
 import { inferChapterStructure, SYNOPSIS_WINDOW, type PendingForeshadow } from "./infer.js";
@@ -170,7 +171,7 @@ export class InferenceService {
   private chapterView(chapter: ChapterNo, run: InferenceRun | undefined): InferenceChapterView {
     const text = this.deps.source.chapterText(chapter) ?? "";
     const events = this.deps.source.events().filter((e) => e.envelope.chapter === chapter);
-    const formal = events.some((e) => e.envelope.origin !== ORIGIN && e.envelope.origin !== "P4_outline"
+    const formal = events.some((e) => e.envelope.origin !== ORIGIN && !isPlanOrigin(e.envelope.origin)
       && (e.envelope.provenance === "committed" || e.envelope.provenance === "authored"));
     const inferred = events.filter((e) => e.envelope.origin === ORIGIN);
     const pending = inferred.filter((e) => e.envelope.provenance === "proposed");
@@ -238,7 +239,7 @@ export class InferenceService {
     const byChapter = new Map<ChapterNo, string[]>();
     for (const event of this.deps.source.events()) {
       const { chapter: n, origin, provenance } = event.envelope;
-      if (n >= chapter || event.payload.type !== "plot_event" || origin === "P4_outline") continue;
+      if (n >= chapter || event.payload.type !== "plot_event" || isPlanOrigin(origin)) continue;
       if (provenance === "rejected" || (provenance === "proposed" && origin !== ORIGIN)) continue;
       byChapter.set(n, [...(byChapter.get(n) ?? []), event.payload.summary]);
     }

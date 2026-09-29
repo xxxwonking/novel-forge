@@ -8,6 +8,7 @@
  * 只消费 effective()（committed + authored），proposed 不进视图（§12.0）。
  */
 
+import { isPlanOrigin } from "../types/events.js";
 import type { StructuralEvent } from "../types/events.js";
 import type {
   Alert,
@@ -94,14 +95,14 @@ function projectForeshadows(input: ProjectionInput): readonly ForeshadowTimeline
     if (p.type === "foreshadow_planted") {
       const previous = drafts.get(p.foreshadowId);
       // 规划与正文共用编号；规划不能覆盖真实埋设，正文不能抹掉独立作者决定。
-      if (e.envelope.origin === "P4_outline" && previous !== undefined && previous.status !== "planned") continue;
+      if (isPlanOrigin(e.envelope.origin) && previous !== undefined && previous.status !== "planned") continue;
       drafts.set(p.foreshadowId, {
         id: p.foreshadowId,
         label: p.label,
         intent: p.intent,
         weight: p.weight,
         visibility: p.visibility,
-        status: previous?.status === "abandoned" || previous?.status === "resolved" ? previous.status : e.envelope.origin === "P4_outline" ? "planned" : "open",
+        status: previous?.status === "abandoned" || previous?.status === "resolved" ? previous.status : isPlanOrigin(e.envelope.origin) ? "planned" : "open",
         plantedAt: e.envelope.chapter,
         plantedAnchor: p.anchor,
         expectedBy: rescheduled.get(p.foreshadowId) ?? p.expectedBy,
@@ -121,7 +122,7 @@ function projectForeshadows(input: ProjectionInput): readonly ForeshadowTimeline
     if (d === undefined) continue;
 
     if (p.type === "foreshadow_resolved") {
-      if (d.status === "planned" || d.status === "abandoned" || e.envelope.origin === "P4_outline") continue;
+      if (d.status === "planned" || d.status === "abandoned" || isPlanOrigin(e.envelope.origin)) continue;
       d.resolutions.push({
         chapter: e.envelope.chapter,
         completeness: p.completeness,
@@ -165,7 +166,7 @@ function projectPlotLines(input: ProjectionInput): readonly PlotLineTrack[] {
   for (const def of input.plotLineDefs) points.set(def.id, []);
 
   for (const e of input.events) {
-    if (e.envelope.origin === "P4_outline") continue;
+    if (isPlanOrigin(e.envelope.origin)) continue;
     const p = e.payload;
     if (p.type !== "plot_event" || p.plotLine === null) continue;
     const bucket = points.get(p.plotLine);
@@ -207,7 +208,7 @@ function projectArcs(input: ProjectionInput): readonly CharacterArc[] {
   const shadowed = shadowedScans(input.events);
 
   for (const e of input.events) {
-    if (e.envelope.origin === "P4_outline" || shadowed(e)) continue;
+    if (isPlanOrigin(e.envelope.origin) || shadowed(e)) continue;
     const p = e.payload;
     if (p.type === "character_presence") {
       push(presence, p.characterId, { chapter: e.envelope.chapter, role: p.role });
@@ -278,7 +279,7 @@ function projectRelations(input: ProjectionInput): readonly RelationEdge[] {
   const edges = new Map<string, Draft>();
 
   for (const e of input.events) {
-    if (e.envelope.origin === "P4_outline") continue;
+    if (isPlanOrigin(e.envelope.origin)) continue;
     const p = e.payload;
     if (p.type !== "relation_changed") continue;
     const key = `${p.from}->${p.to}`;
@@ -346,7 +347,7 @@ export function projectCharacterState(
   const shadowed = shadowedScans(events);
 
   for (const e of events) {
-    if (e.envelope.origin === "P4_outline" || shadowed(e)) continue;
+    if (isPlanOrigin(e.envelope.origin) || shadowed(e)) continue;
     const p = e.payload;
     if (p.type === "character_presence" && p.characterId === characterId) {
       lastSeenAt = e.envelope.chapter;

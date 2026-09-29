@@ -8,6 +8,7 @@ import { volumeRanges } from "../beat/volumes.js";
 import { selectL3, type PlantedExcerpt } from "../context/select-l3.js";
 import { anchorContext, resolveAnchor } from "../anchor/resolve.js";
 import { project, projectCharacterState } from "../store/project.js";
+import { isPlanOrigin } from "../types/events.js";
 import { fullResolution, remainingPlan } from "../planning/effective.js";
 import type { ToolReadSource } from "../task/service.js";
 import type { ChapterBeat } from "../types/beat.js";
@@ -50,7 +51,7 @@ function readContext(session: ChapterSource, chapter: ChapterNo) {
   validateChapterNumber(chapter);
   const meta = session.meta;
   const events = session.events()
-    .filter((e) => (e.envelope.chapter < chapter || e.envelope.origin === "P4_outline" ||
+    .filter((e) => (e.envelope.chapter < chapter || isPlanOrigin(e.envelope.origin) ||
       (e.envelope.origin === "user_edit" && (e.payload.type === "foreshadow_rescheduled" || e.payload.type === "foreshadow_abandoned"))) &&
       (e.envelope.provenance === "committed" || e.envelope.provenance === "authored"))
     .sort((a, b) => a.envelope.seq - b.envelope.seq);
@@ -70,7 +71,7 @@ function readContext(session: ChapterSource, chapter: ChapterNo) {
     .map((n) => [n, session.chapterText(n)!] as const));
   const summaries = new Map<ChapterNo, string[]>();
   for (const event of events) {
-    if (event.payload.type !== "plot_event" || event.envelope.origin === "P4_outline") continue;
+    if (event.payload.type !== "plot_event" || isPlanOrigin(event.envelope.origin)) continue;
     const existing = summaries.get(event.envelope.chapter) ?? [];
     existing.push(event.payload.summary);
     summaries.set(event.envelope.chapter, existing);

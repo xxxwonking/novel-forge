@@ -78,6 +78,11 @@ export const PREPARATION_CHANGES_SCHEMA = object({
     toKind: enumeration(..."ally hostile kin romantic mentor subordinate acquaintance unknown".split(" ")),
     note: nonempty,
   })),
+  /**
+   * 资料里读出的伏笔规划。**不含编号** —— F 序号由 `foreshadowAllocator` 分配，
+   * 模型给的值一律不采信（与 C5 同一条纪律）。
+   */
+  foreshadows: array(object({ label: nonempty, intent: nonempty, weight, expectedBy: integer(1) })),
   removals: object({
     characters: array(id("C")), settings: array(id("S")), plotLines: array(id("P")),
     volumes: array(integer(1)), beats: array(integer(1)),

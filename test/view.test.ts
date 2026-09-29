@@ -12,7 +12,7 @@ import { textSourceOf } from "../src/anchor/resolve.js";
 import { loadRules } from "../src/rules/load.js";
 import { asDerived, foreshadows, plotLines } from "./fixtures.js";
 import type { ChapterNo, TextAnchor } from "../src/types/primitives.js";
-import type { CharacterArc, PlotLineTrack, RelationEdge } from "../src/types/projections.js";
+import type { CharacterArc, ForeshadowTimelineItem, PlotLineTrack, RelationEdge } from "../src/types/projections.js";
 
 const rules = loadRules().anchor;
 const characterAbsent = loadRules().crossChapter.characterAbsent;
@@ -76,20 +76,34 @@ describe("视图一：伏笔时间线", () => {
   it("埋点锚点被解析，能点回原文", () => {
     const vm = buildViewModel(input({ foreshadows }), rules);
     const f03 = vm.foreshadows.find((x) => x.id === "F03")!;
-    const r = f03.planted.resolution;
+    const r = f03.planted!.resolution;
 
     // fixture 的 offsetHint 是 1840（真实长章里的位置），而测试正文是短片段，
     // 所以这里必然判 shifted —— 那正是"作者删掉了前面大段内容"的形状。
     // 视图层要的只是"能定位"，exact 与 shifted 都算能点。
     expect(r.status).toBe("shifted");
     if (r.status === "stale") return;
-    expect(CH5.slice(r.offset, r.offset + r.length)).toBe(f03.planted.anchor.quote);
+    expect(CH5.slice(r.offset, r.offset + r.length)).toBe(f03.planted!.anchor.quote);
   });
 
   it("正文缺失时降级为 stale 而不是丢掉这条伏笔", () => {
     const vm = buildViewModel(input({ foreshadows, text: () => undefined }), rules);
     expect(vm.foreshadows).toHaveLength(foreshadows.length);
-    expect(vm.foreshadows[0]?.planted.resolution.status).toBe("stale");
+    expect(vm.foreshadows[0]?.planted?.resolution.status).toBe("stale");
+  });
+
+  it("没有埋设原文的规划给 planted: null，而不是编一个章号出来", () => {
+    // 两种规划都走这条约定：资料反推的章号是 0，作者 P4 规划带着起草那一章的章号，
+    // 但两者的锚点都没有引文。按章号判会把后者放过去，在图上画成一个"已埋设"的
+    // 空心点 —— 作者会以为正文里已经写了这一笔。
+    const planned = (id: string, plantedAt: number) => ({
+      id, label: `规划 ${id}`, intent: "还没写到", weight: "sub", visibility: "covert", status: "planned",
+      plantedAt, plantedAnchor: anchor(plantedAt as ChapterNo, ""), expectedBy: 60, resolutions: [], overdueBy: asDerived(-8),
+    } as ForeshadowTimelineItem);
+    const vm = buildViewModel(input({ foreshadows: [planned("F90", 0), planned("F91", 9)] }), rules);
+
+    expect(vm.foreshadows.map((f) => f.id)).toEqual(["F90", "F91"]);
+    expect(vm.foreshadows.every((f) => f.planted === null)).toBe(true);
   });
 
   it("逾期段只覆盖「期限 → 当前章」，供前端单独上色", () => {

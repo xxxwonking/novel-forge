@@ -698,6 +698,12 @@ button[data-quiet="true"]:hover:not(:disabled) {
   border-radius: 2px;
 }
 
+/* 与时间线上规划线的 strokeDasharray="4 3" 对应。 */
+.swatch-dashed {
+  background: repeating-linear-gradient(to right, var(--ink-dim) 0 4px, transparent 4px 7px);
+  border-radius: 0;
+}
+
 /* ── 表 ──────────────────────────────────────────────────────────────── */
 
 table {

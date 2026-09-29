@@ -4,6 +4,9 @@
  * 一条伏笔一行：埋点 ● ──── 期限 ┃ ──逾期段── 现在。
  * 逾期段单独上色是这张图的全部意义 —— 用户扫一眼就知道哪几条拖太久了，
  * 不必读任何数字。
+ *
+ * 还没落进正文的规划（`planted === null`）画成虚线，从轴首拉到期限，不给埋点。
+ * 它没有"第几章埋的"可言 —— 编一个章号出来，作者会当成已经写过。
  */
 
 import type { ForeshadowLane } from "../api.js";
@@ -29,7 +32,8 @@ export function Timeline({ axis, lanes, onJump, highlight }: TimelineProps): Rea
 
         {lanes.map((lane, row) => {
           const y = scale.y(row);
-          const from = scale.x(lane.planted.chapter);
+          // 无落点的规划从轴首起：这条线表达的是"到期限为止还欠着"，没有起点。
+          const from = scale.x(lane.planted?.chapter ?? axis.from);
           const end = lane.resolutions.at(-1)?.point.chapter ?? Math.max(axis.current, lane.expectedBy);
           const strong = highlight === lane.id;
           const done = lane.status === "resolved" || lane.status === "abandoned";
@@ -84,15 +88,17 @@ export function Timeline({ axis, lanes, onJump, highlight }: TimelineProps): Rea
                 strokeWidth={1.5}
               />
 
-              <AnchorDot
-                point={lane.planted}
-                x={from}
-                y={y}
-                r={LAYOUT.nodeRadius}
-                fill={weightColor(lane.weight)}
-                title={`第 ${lane.planted.chapter} 章埋下：${lane.intent}`}
-                onJump={onJump}
-              />
+              {lane.planted !== null && (
+                <AnchorDot
+                  point={lane.planted}
+                  x={from}
+                  y={y}
+                  r={LAYOUT.nodeRadius}
+                  fill={weightColor(lane.weight)}
+                  title={`第 ${lane.planted.chapter} 章埋下：${lane.intent}`}
+                  onJump={onJump}
+                />
+              )}
 
               {lane.resolutions.map((r, i) => (
                 <AnchorDot
