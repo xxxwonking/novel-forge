@@ -1067,6 +1067,7 @@ export class ProjectSession {
           arcs: projections.arcs,
           relations: projections.relations,
           text: (c) => this.chapters.get(c),
+          characterAbsent: this.rules.crossChapter.characterAbsent,
         },
         this.rules.anchor,
       ),

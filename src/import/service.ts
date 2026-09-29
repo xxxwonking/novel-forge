@@ -59,6 +59,13 @@ export interface ImportPreview extends SplitResult {
   readonly ready: boolean;
   /** 勾上覆盖后能导入。 */
   readonly readyWithOverwrite: boolean;
+  /**
+   * 会被收进作品资料的文件名（大纲、角色档案这类）。
+   *
+   * 预览里就要说出来：正文逐字相同的那一次导入，章节一章都不动，唯一的作用
+   * 就是收下这些资料 —— 按钮只写「导入 0 章」，作者会以为自己白点了一下。
+   */
+  readonly materials: readonly string[];
 }
 
 export interface ImportResult {
@@ -131,6 +138,8 @@ export class ImportService {
       totalWords: split.chapters.reduce((sum, chapter) => sum + chapter.words, 0),
       ready: usable && conflicts.every((c) => c.identical),
       readyWithOverwrite: usable && conflicts.every((c) => !c.locked),
+      // 过大的那几份 materialNotes 已经点名说不收，这里就不该再算进「会收下」。
+      materials: materials.filter((m) => m.text.length <= MATERIAL_MAX_CHARS).map((m) => m.name),
     };
   }
 

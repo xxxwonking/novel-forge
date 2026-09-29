@@ -274,8 +274,8 @@ export function joinChapterFiles(files: readonly ImportFile[]): JoinResult {
   }
 
   const notes: string[] = [];
-  if (skipped.length > 0) notes.push(`${skipped.length} 个文件里没有章节标记，本次不导入：${skipped.join("、")}。大纲、人物档案这类资料请到「作品资料」里录入。`);
-  if (contents.length > 0) notes.push(`${contents.join("、")} 看起来是目录（有章节标题但没有正文），本次不导入。`);
+  if (skipped.length > 0) notes.push(`${skipped.length} 个文件里没有章节标记，不作为正文导入，会收进作品资料：${skipped.join("、")}。`);
+  if (contents.length > 0) notes.push(`${contents.join("、")} 看起来是目录（有章节标题但没有正文），不作为正文导入，会收进作品资料。`);
   if (prefaced.length > 0) {
     const named = prefaced.slice(0, 3).map((f) => `${f.name}（${f.words} 字）`).join("、");
     notes.push(`${prefaced.length} 个文件在标记行之前有未编号内容，本次不导入：${named}${prefaced.length > 3 ? " 等" : ""}。需要它的话请并进该章正文。`);

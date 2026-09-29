@@ -10,6 +10,7 @@ import { ChapterWriteError } from "../server/chapter-input.js";
 import type { Rules } from "../rules/schema.js";
 import type { RelationClaim } from "../types/relations.js";
 import type { PresenceScan } from "../types/presence.js";
+import type { CharacterId } from "../types/primitives.js";
 import type { GateFinding } from "../types/beat.js";
 import type { PreparationChanges, PreparationContent, PreparationProposal, PreparationView } from "./types.js";
 import { parsePreparationInput } from "./schema.js";
@@ -100,7 +101,7 @@ export class PreparationService {
       const touched = new Set((proposal.changes.characters ?? []).map((c) => c.id));
       const applied = this.deps.snapshot();
       this.deps.commitPresence(applied.characters.filter((c) => touched.has(c.id))
-        .map((c) => ({ characterId: c.id, chapters: appearances(applied, c) })));
+        .map((c) => ({ characterId: c.id, chapters: appearances(applied, c, applied.characters) })));
       const confirmed: PreparationProposal = { ...proposal, status: "confirmed", updatedAt: new Date().toISOString() };
       this.save(confirmed);
       return { changed: true, proposal: confirmed };
@@ -159,22 +160,38 @@ export class PreparationService {
   }
 }
 
+/** 扫正文认人时用得上的那几个字段。`id` 用来把「别人的名字」与「自己的别名」分开。 */
+type NameCard = { readonly id: CharacterId; readonly name: string; readonly aliases: readonly string[] };
+
+const terms = (card: Pick<NameCard, "name" | "aliases">): readonly string[] =>
+  [card.name, ...card.aliases].map((n) => n.trim()).filter((n) => n !== "");
+
 /**
  * 这个人的名字或别名在哪几章正文里出现过，按章号有序。
  *
  * 这是**确定性**判断，所以由代码做：模型给不出更准的答案，却可能给一个错的。
  * 名字与别名都算 —— 作者常把化名写在 aliases 里。
+ *
+ * **别人更长的名字把这个名字整个含住时不算**：「徐柏年」出场的章里并没有
+ * 「徐柏」，照子串直接命中会凭空给徐柏记上十一章。只剔更长的那个 —— 等长的
+ * 同名是两个人共用一个称呼，那是真歧义，代码判不出该算谁，宁可都记上。
  */
-function appearances(snapshot: ProjectSnapshot, character: { readonly name: string; readonly aliases: readonly string[] }): readonly number[] {
-  const names = [character.name, ...character.aliases].map((n) => n.trim()).filter((n) => n !== "");
+function appearances(snapshot: ProjectSnapshot, character: NameCard, roster: readonly NameCard[]): readonly number[] {
+  const names = terms(character);
   if (names.length === 0) return [];
-  return [...snapshot.chapters].filter(([, text]) => names.some((name) => text.includes(name)))
+  const masks = [...new Set(roster.filter((other) => other.id !== character.id).flatMap(terms))]
+    .filter((mask) => names.some((name) => mask.length > name.length && mask.includes(name)))
+    .sort((a, b) => b.length - a.length);
+  // 换行符替掉被含住的那一处：它不可能出现在名字里，所以剩下的文本不会拼出新的命中。
+  const visible = (text: string): string => masks.reduce((rest, mask) => rest.split(mask).join("\n"), text);
+  return [...snapshot.chapters]
+    .filter(([, text]) => { const rest = masks.length === 0 ? text : visible(text); return names.some((name) => rest.includes(name)); })
     .map(([chapter]) => chapter).sort((a, b) => a - b);
 }
 
 /** 这个人在正文里第一次出现在第几章。0 = 从未出现（筹备期建卡）。 */
-function firstAppearance(snapshot: ProjectSnapshot, character: { readonly name: string; readonly aliases: readonly string[] }): number {
-  return appearances(snapshot, character)[0] ?? 0;
+function firstAppearance(snapshot: ProjectSnapshot, character: NameCard, roster: readonly NameCard[]): number {
+  return appearances(snapshot, character, roster)[0] ?? 0;
 }
 
 function upsert<T>(before: readonly T[], patch: readonly T[], key: (item: T) => string | number): readonly T[] {
@@ -201,7 +218,9 @@ function build(snapshot: ProjectSnapshot, changes: PreparationChanges, now: stri
   const characters = drop(upsert(snapshot.characters, (changes.characters ?? []).map((c) => ({ ...c, provenance: "proposed" as const,
     // 新人物按正文扫出首次出场章；已有人物一律不动 —— 那是一份已经用过的事实，
     // 不会因为这次提交而改变，改了反而会让依赖它的东西莫名其妙地过期。
-    introducedAt: snapshot.characters.find((old) => old.id === c.id)?.introducedAt ?? firstAppearance(snapshot, c), updatedAt: now })), (c) => c.id),
+    // 花名册要把本批新人一起算进去：同批建的「徐柏年」照样能含住「徐柏」。
+    introducedAt: snapshot.characters.find((old) => old.id === c.id)?.introducedAt
+      ?? firstAppearance(snapshot, c, [...snapshot.characters, ...(changes.characters ?? [])]), updatedAt: now })), (c) => c.id),
     removals.characters, (c) => c.id, "人物", (changes.characters ?? []).map((c) => c.id));
   const settings = drop(upsert(snapshot.settings, changes.settings ?? [], (s) => s.id), removals.settings, (s) => s.id, "地点／组织", (changes.settings ?? []).map((s) => s.id));
   const plotLines = drop(upsert(snapshot.plotLines, changes.plotLines ?? [], (p) => p.id), removals.plotLines, (p) => p.id, "情节线", (changes.plotLines ?? []).map((p) => p.id));

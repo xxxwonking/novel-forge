@@ -101,6 +101,40 @@ describe("出场轴由代码扫正文补出", () => {
     expect(chaptersOf(new ProjectSession(root, undefined), "C03")).toEqual([]);
   });
 
+  it("别人更长的名字含住这个名字时不算 ——「徐柏年」出场的章里并没有「徐柏」", () => {
+    const { session } = imported();
+    // C01 叫「李长风」，两章都有他。新人物「李长」是它的前缀，按子串直接命中
+    // 就会把这两章凭空记到李长头上 —— 真机上「徐柏」因此多出十一章假出场。
+    reconfirm(session, 0, (card) => ({ ...card, id: "C03", name: "李长", aliases: [] }));
+    expect(chaptersOf(session, "C03")).toEqual([]);
+  });
+
+  it("剔除只挡被含住的那一处，本人真出现的章照记", () => {
+    const { session } = seeded((base) => ({
+      ...base, events: [],
+      chapters: new Map([...base.chapters, [3, "李长独自守在门口，一直没等到李长风。"]]),
+    }));
+    // 同一章里两个名字都在：挡掉「李长风」那一处之后，「李长」自己那一处仍然算数。
+    reconfirm(session, 0, (card) => ({ ...card, id: "C03", name: "李长", aliases: [] }));
+    expect(chaptersOf(session, "C03")).toEqual([3]);
+  });
+
+  it("等长的同名不剔除 —— 两个人共用一个称呼是真歧义，代码判不出该算谁", () => {
+    const { session } = imported();
+    reconfirm(session, 0, (card) => ({ ...card, id: "C03", name: "厉无咎", aliases: ["守夜人"] }));
+    reconfirm(session, 0, (card) => ({ ...card, id: "C04", name: "秦无咎", aliases: ["守夜人"] }));
+    expect(chaptersOf(session, "C03")).toEqual([1]);
+    expect(chaptersOf(session, "C04")).toEqual([1]);
+  });
+
+  it("扫出来的出场算正文记录 —— 进度页不能再说「没有对应正文记录」", () => {
+    const { session } = imported();
+    reconfirm(session, 0, (card) => ({ ...card, id: "C03", name: "厉无咎", aliases: ["守夜人"] }));
+    const entry = session.storyProgress().find((p) => p.id === "character:C03");
+    expect(entry?.state).toBe("resolved");
+    expect(entry?.evidence.map((e) => e.chapter)).toEqual([1]);
+  });
+
   it("已有的出场声明不被扫描覆盖，也不重复记一条", () => {
     const { session } = seeded();
     // C01 第 2 章已由 C5 声明为 pov —— 那是读懂正文后的判断，比「提到」重。

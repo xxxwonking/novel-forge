@@ -633,6 +633,7 @@ export interface ImportPreview {
   totalWords: number;
   ready: boolean;
   readyWithOverwrite: boolean;
+  materials: string[];
 }
 export interface InferenceDeclaration {
   events: { summary: string; participants: string[]; anchor: TextAnchor }[];

@@ -110,7 +110,7 @@ export interface ArcLane {
     readonly to: string;
     readonly point: AnchorPoint;
   }[];
-  /** 当前缺席段。前端画成断裂。 */
+  /** 当前缺席段：**超过本档位阈值**才给。前端画成断裂。 */
   readonly absenceSpan: { readonly from: ChapterNo; readonly to: ChapterNo } | null;
 }
 
@@ -156,6 +156,13 @@ export interface BuildViewInput {
   readonly arcs: readonly CharacterArc[];
   readonly relations: readonly RelationEdge[];
   readonly text: ChapterTextSource;
+  /**
+   * 缺席多少章才算「消失」，按人物档位，来自 `rules.crossChapter.characterAbsent`。
+   *
+   * 与首页告警同一份阈值：图上画了红条而告警不报，作者只会认为两边有一个是坏的。
+   * 从外部传入而不是在这里读 rules —— 与 `plotLineGap` 进投影同理，这一层要保持纯。
+   */
+  readonly characterAbsent: Record<CharacterTier, number>;
 }
 
 export function buildViewModel(input: BuildViewInput, rules: AnchorRules): ViewModel {
@@ -281,8 +288,10 @@ function buildArcLanes(input: BuildViewInput, resolve: Resolver): readonly ArcLa
         to: t.to,
         point: resolve(t.anchor),
       })),
+      // 只有越过本档位阈值才算缺席 —— 判据与 alerts/compute.ts 的角色消失一致。
+      // 龙套的阈值本就大到「消失不是问题」，主角则紧到隔一两章就该问一句。
       absenceSpan:
-        arc.presence.length > 0 && gap > 0
+        arc.presence.length > 0 && gap > input.characterAbsent[arc.tier]
           ? { from: arc.lastSeenAt, to: input.currentChapter }
           : null,
     };

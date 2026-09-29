@@ -15,6 +15,7 @@ import type { ChapterNo, TextAnchor } from "../src/types/primitives.js";
 import type { CharacterArc, PlotLineTrack, RelationEdge } from "../src/types/projections.js";
 
 const rules = loadRules().anchor;
+const characterAbsent = loadRules().crossChapter.characterAbsent;
 
 const CH5 = "他把那把生锈的钥匙塞回怀里，站起身。";
 const CH12 = "信纸边角被烧去一块，剩下的字迹还认得出。";
@@ -36,6 +37,7 @@ function input(over: Partial<BuildViewInput> = {}): BuildViewInput {
     arcs: [],
     relations: [],
     text: textSourceOf(texts),
+    characterAbsent,
     ...over,
   };
 }
@@ -212,6 +214,29 @@ describe("视图三：人物弧线", () => {
   it("从未出场的卡没有缺席段（不是消失，是还没登场）", () => {
     const vm = buildViewModel(input({ arcs: [arc({ characterId: "C08", presence: [], lastSeenAt: 0 })] }), rules);
     expect(vm.arcs[0]?.absenceSpan).toBeNull();
+  });
+
+  it("没超过本档位阈值不算缺席 —— 与首页告警同一把尺子", () => {
+    // 主要角色的阈值是 15 章。末次出场第 26 章、当前第 30 章只差 4 章，
+    // 告警不报而图上画红条，作者会以为两边有一个坏了。
+    const vm = buildViewModel(input({ currentChapter: 30, arcs: [arc({ characterId: "C05" })] }), rules);
+    expect(vm.arcs[0]?.absenceSpan).toBeNull();
+  });
+
+  it("龙套缺席多少章都不画 —— 阈值本来就把它排除在外", () => {
+    const vm = buildViewModel(
+      input({ currentChapter: 99, arcs: [arc({ characterId: "C09", tier: "extra" })] }),
+      rules,
+    );
+    expect(vm.arcs[0]?.absenceSpan).toBeNull();
+  });
+
+  it("主角的尺子最紧，同样的缺席段对主角就该画出来", () => {
+    const vm = buildViewModel(
+      input({ currentChapter: 30, arcs: [arc({ characterId: "C01", tier: "protagonist" })] }),
+      rules,
+    );
+    expect(vm.arcs[0]?.absenceSpan).toEqual({ from: 26, to: 30 });
   });
 
   it("转折点带锚点，能点回那一段", () => {
