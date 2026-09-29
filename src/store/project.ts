@@ -204,9 +204,10 @@ function projectPlotLines(input: ProjectionInput): readonly PlotLineTrack[] {
 function projectArcs(input: ProjectionInput): readonly CharacterArc[] {
   const presence = new Map<CharacterId, CharacterArc["presence"][number][]>();
   const turning = new Map<CharacterId, CharacterArc["turningPoints"][number][]>();
+  const shadowed = shadowedScans(input.events);
 
   for (const e of input.events) {
-    if (e.envelope.origin === "P4_outline") continue;
+    if (e.envelope.origin === "P4_outline" || shadowed(e)) continue;
     const p = e.payload;
     if (p.type === "character_presence") {
       push(presence, p.characterId, { chapter: e.envelope.chapter, role: p.role });
@@ -242,6 +243,23 @@ function push<K, V>(map: Map<K, V[]>, key: K, value: V): void {
   const existing = map.get(key);
   if (existing === undefined) map.set(key, [value]);
   else existing.push(value);
+}
+
+/**
+ * 扫正文得出的出场只补缺口：同一人同一章另有声明（写章 / 反推），扫描那条让位，
+ * **与先后无关** —— 声明读过那一章、给得出档位，扫描只知道名字出现过。
+ *
+ * 在投影里判而不只在写入时判：反推的确认不经过正文替换，先扫后反推时两条都在流里。
+ */
+function shadowedScans(events: readonly StructuralEvent[]): (event: StructuralEvent) => boolean {
+  const declared = new Set<string>();
+  for (const e of events) {
+    if (e.payload.type === "character_presence" && e.envelope.origin !== "text_scan") {
+      declared.add(`${e.payload.characterId}@${e.envelope.chapter}`);
+    }
+  }
+  return (e) => e.envelope.origin === "text_scan" && e.payload.type === "character_presence"
+    && declared.has(`${e.payload.characterId}@${e.envelope.chapter}`);
 }
 
 // ── 关系图 ──────────────────────────────────────────────────────────────
@@ -325,9 +343,10 @@ export function projectCharacterState(
   let condition = "";
   let lastSeenAt = fallbackChapter;
   let appearanceCount = 0;
+  const shadowed = shadowedScans(events);
 
   for (const e of events) {
-    if (e.envelope.origin === "P4_outline") continue;
+    if (e.envelope.origin === "P4_outline" || shadowed(e)) continue;
     const p = e.payload;
     if (p.type === "character_presence" && p.characterId === characterId) {
       lastSeenAt = e.envelope.chapter;

@@ -160,8 +160,11 @@ export class EventStream {
    * 重写而作废。旧稿反推必须一起翻 —— 否则重写一章旧稿后，反推出的旧事实与新稿
    * 的事实会并存在同一章上。翻成 rejected 后
    * `effective()` 自动过滤，新稿的 committed 事件即取代旧事实，无需改投影器。
+   *
+   * `origins` 让调用方只翻某一类：正文被替换时，扫正文得出的出场（`text_scan`）
+   * 随之过期，而那一刻未必有新的结构声明来接替。缺省就是上面说的两类。
    */
-  supersedeChapter(chapter: ChapterNo): number {
+  supersedeChapter(chapter: ChapterNo, origins: readonly EventOrigin[] = ["C5_declaration", "import_inference"]): number {
     let n = 0;
     for (let i = 0; i < this.events.length; i += 1) {
       const e = this.events[i];
@@ -169,7 +172,7 @@ export class EventStream {
       if (
         e.envelope.chapter === chapter &&
         e.envelope.provenance === "committed" &&
-        (e.envelope.origin === "C5_declaration" || e.envelope.origin === "import_inference")
+        origins.includes(e.envelope.origin)
       ) {
         this.events[i] = {
           envelope: {
@@ -182,6 +185,24 @@ export class EventStream {
         };
         n += 1;
       }
+    }
+    return n;
+  }
+
+  /** 人物名称/别名变动后，只作废该人物不再匹配正文的扫描结果。其他人物与结构声明不受影响。 */
+  supersedePresenceScan(characterId: string, keepChapters: readonly ChapterNo[]): number {
+    const keep = new Set(keepChapters);
+    let n = 0;
+    for (let i = 0; i < this.events.length; i += 1) {
+      const e = this.events[i];
+      if (e === undefined || e.envelope.origin !== "text_scan" || e.envelope.provenance !== "committed"
+        || e.payload.type !== "character_presence" || e.payload.characterId !== characterId
+        || keep.has(e.envelope.chapter)) continue;
+      this.events[i] = {
+        envelope: { ...e.envelope, provenance: "rejected", decidedAt: this.clock(), reviewNote: "人物名称或别名变动，正文扫描结果作废" },
+        payload: e.payload,
+      };
+      n += 1;
     }
     return n;
   }

@@ -59,6 +59,13 @@ export interface ImportPreview extends SplitResult {
   readonly ready: boolean;
   /** 勾上覆盖后能导入。 */
   readonly readyWithOverwrite: boolean;
+  /**
+   * 会被收进作品资料的文件名（大纲、角色档案这类）。
+   *
+   * 预览里就要说出来：正文逐字相同的那一次导入，章节一章都不动，唯一的作用
+   * 就是收下这些资料 —— 按钮只写「导入 0 章」，作者会以为自己白点了一下。
+   */
+  readonly materials: readonly string[];
 }
 
 export interface ImportResult {
@@ -131,6 +138,8 @@ export class ImportService {
       totalWords: split.chapters.reduce((sum, chapter) => sum + chapter.words, 0),
       ready: usable && conflicts.every((c) => c.identical),
       readyWithOverwrite: usable && conflicts.every((c) => !c.locked),
+      // 过大的那几份 materialNotes 已经点名说不收，这里就不该再算进「会收下」。
+      materials: materials.filter((m) => m.text.length <= MATERIAL_MAX_CHARS).map((m) => m.name),
     };
   }
 
@@ -184,7 +193,10 @@ export class ImportService {
 
   /** 这一章为什么不能被替换；可以替换时返回 null。 */
   private locked(chapter: number): string | null {
+    // 扫正文得出的出场不算：它没有锚点、不指向原文任何位置，正文换掉不会让它悬空 ——
+    // 它随正文一起作废（见 `putChapter`）。拿它锁住覆盖，作者就再也换不了自己的旧稿。
     const events = this.source.events().some((event) => event.envelope.chapter === chapter
+      && event.envelope.origin !== "text_scan"
       && (event.envelope.provenance === "committed" || event.envelope.provenance === "authored"));
     if (events) return "已有正式结构记录（事件、伏笔等指向现有正文）";
     return this.source.allDrafts().some((draft) => draft.chapter === chapter && draft.status === "adopted")

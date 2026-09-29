@@ -888,6 +888,12 @@ th.num {
   border-radius: 10px;
 }
 
+/* 错误兜底是 .empty 里唯一有多段文字的，单行横排会把三段挤成一行。 */
+.empty[data-kind="render-failed"] {
+  flex-direction: column;
+  padding: 30px 24px;
+}
+
 .row {
   display: flex;
   align-items: center;

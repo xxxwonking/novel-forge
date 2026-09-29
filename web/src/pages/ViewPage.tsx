@@ -172,8 +172,8 @@ function PlotBody({ views, onJump, highlight }: BodyProps): React.ReactElement {
               </td>
               <td className="num">{t.nodes.length}</td>
               <td className="num">{t.lastAdvancedAt === 0 ? "—" : t.lastAdvancedAt}</td>
-              <td className="num" style={{ color: t.currentGap > t.gapLimit ? "var(--alarm)" : undefined }}>
-                {t.currentGap}
+              <td className="num" style={{ color: t.lastAdvancedAt > 0 && t.currentGap > t.gapLimit ? "var(--alarm)" : undefined }}>
+                {t.lastAdvancedAt === 0 ? "—" : t.currentGap}
               </td>
               <td className="num muted">{t.gapLimit}</td>
               <td className="muted">{t.nodes.at(-1)?.summary ?? "尚未推进"}</td>

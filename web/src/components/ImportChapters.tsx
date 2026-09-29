@@ -28,6 +28,19 @@ import { readTextFile } from "../files.js";
  * 让服务端返回一句「请求体过大」，作者根本不知道该怎么办。
  */
 const MAX_BYTES = 3.5 * 1024 * 1024;
+
+/** 连号折成区间：`[1…100]` → 「1–100」，`[1,2,4]` → 「1–2、4」。导出只为单测。 */
+export function ranges(numbers: readonly number[]): string {
+  const sorted = [...numbers].sort((a, b) => a - b);
+  const parts: string[] = [];
+  for (let i = 0; i < sorted.length;) {
+    let end = i;
+    while (end + 1 < sorted.length && sorted[end + 1] === sorted[end]! + 1) end += 1;
+    parts.push(i === end ? `${sorted[i]}` : `${sorted[i]}–${sorted[end]}`);
+    i = end + 1;
+  }
+  return parts.join("、");
+}
 const tooLarge = (payload: unknown): string | null => {
   const bytes = new TextEncoder().encode(JSON.stringify(payload)).length;
   return bytes <= MAX_BYTES ? null
@@ -86,14 +99,27 @@ export function ImportChapters({ onImported, onClose }: {
   const blocked = preview !== null && preview.problems.length > 0;
   const canImport = preview !== null && (preview.ready || (overwrite && preview.readyWithOverwrite));
   const replacing = preview?.conflicts.filter((c) => !c.identical && !c.locked) ?? [];
+  const skipping = preview?.conflicts.filter((c) => c.identical) ?? [];
+  const deciding = preview?.conflicts.filter((c) => !c.identical) ?? [];
+  const incoming = preview === null ? 0 : preview.chapters.length - preview.conflicts.filter((c) => c.identical).length;
+  /**
+   * 主按钮自己会先去预览。
+   *
+   * 原先它写着「先预览切分」却是灰的，真正能点的是旁边那个次按钮 —— 作者选完
+   * 文件看到主按钮不亮，得到的结论是「导入坏了」，而不是「我该先点另一个」。
+   * 一个按钮只说一件事：现在该做什么，点它就做什么。
+   */
+  const primary = preview === null
+    ? { label: "预览切分", disabled: !hasContent, action: "preview" as const }
+    : { label: incoming > 0 ? `导入 ${incoming} 章` : preview.materials.length > 0 ? `收下 ${preview.materials.length} 份资料` : "确认导入",
+      disabled: !canImport, action: "apply" as const };
 
   return <Modal open className="prep-editor" title="导入已有正文" width={720}
     onCancel={() => { if (!busy) onClose(); }} maskClosable={!busy}
     footer={[
       <Button key="cancel" disabled={busy} onClick={onClose}>取消</Button>,
-      <Button key="preview" disabled={busy || !hasContent} onClick={() => void run("preview")}>预览切分</Button>,
-      <Button key="ok" type="primary" loading={busy} disabled={!canImport} onClick={() => void run("apply")}>
-        {preview === null ? "先预览切分" : `导入 ${preview.chapters.length - preview.conflicts.filter((c) => c.identical).length} 章`}
+      <Button key="ok" type="primary" loading={busy} disabled={primary.disabled} onClick={() => void run(primary.action)}>
+        {primary.label}
       </Button>,
     ]}>
     <p className="muted">
@@ -118,12 +144,18 @@ export function ImportChapters({ onImported, onClose }: {
       <Input.TextArea rows={6} value={text} disabled={busy} onChange={(e) => replace(e.target.value, null)}
         placeholder={"第一章 破庙\n少年在破庙里醒来……\n\n第二章 断剑\n……"} />
     </label>
-    <p className="muted">每章标题独占一行即可：「第一章」「第1章」「第一回」「Chapter 1」都能识别。每章一个文件的，把这一批文件一起选中即可，按文件名里的章号排序；大纲、人物档案这类没有章节标记的文件会被跳过并列出来。</p>
+    <p className="muted">每章标题独占一行即可：「第一章」「第1章」「第一回」「Chapter 1」都能识别。每章一个文件的，把这一批文件一起选中即可，按文件名里的章号排序；大纲、人物档案这类没有章节标记的文件会收进作品资料，不当正文。</p>
 
     {preview !== null && <div className="import-preview">
       {preview.problems.map((problem, i) => <div key={i} className="finding" data-level="block">{problem}</div>)}
       {preview.notes.map((note, i) => <div key={i} className="finding" data-level="warn">{note}</div>)}
-      {preview.conflicts.map((conflict) => <div key={conflict.chapter} className="finding" data-level={conflict.locked ? "block" : conflict.identical ? "info" : "warn"}>{conflict.reason}</div>)}
+      {/* 逐字相同的章折成一条。重导一本完本会刷出上百行「本次跳过」，把真正要作者
+          拿主意的那几条（锁住的、要覆盖的）埋掉 —— 不需要动作的信息不配占一百行。 */}
+      {skipping.length === 1 && <div className="finding" data-level="info">{skipping[0]!.reason}</div>}
+      {skipping.length > 1 && <div className="finding" data-level="info">
+        第 {ranges(skipping.map((c) => c.chapter))} 章已有逐字相同的正文，共 {skipping.length} 章，本次全部跳过。
+      </div>}
+      {deciding.map((conflict) => <div key={conflict.chapter} className="finding" data-level={conflict.locked ? "block" : "warn"}>{conflict.reason}</div>)}
 
       {!blocked && preview.chapters.length > 0 && <>
         <p><strong>按「{preview.marker}」切出 {preview.chapters.length} 章</strong>，共 {preview.totalWords} 字，
@@ -136,6 +168,10 @@ export function ImportChapters({ onImported, onClose }: {
             <td className="import-excerpt">{chapter.body.slice(0, 30)}…</td>
           </tr>)}</tbody></table></div>
       </>}
+
+      {!blocked && preview.materials.length > 0 && <p className="muted">
+        这些文件没有章节标记，会收进作品资料（识别人物、认情节线时用得上）：{preview.materials.join("、")}。
+      </p>}
 
       {replacing.length > 0 && <Checkbox checked={overwrite} disabled={busy} onChange={(e) => setOverwrite(e.target.checked)}>
         覆盖第 {replacing.map((c) => c.chapter).join("、")} 章已有的正文（原内容不保留，无法撤销）

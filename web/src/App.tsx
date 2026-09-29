@@ -12,6 +12,7 @@ import { MenuOutlined } from "@ant-design/icons";
 import { api, selectedProjectId, type Alert, type AlertAction, type PlanningAction } from "./api.js";
 import { useFetch, usePolling, useRoute, useToast } from "./hooks.js";
 import { TaskPanel } from "./components/TaskPanel.js";
+import { ErrorBoundary } from "./components/ErrorBoundary.js";
 import type { ChapterTaskView } from "./api.js";
 import { actionLabel } from "./components/AlertCard.js";
 import { Home } from "./pages/Home.js";
@@ -177,18 +178,22 @@ function ProjectApp(): React.ReactElement {
         <TaskPanel tasks={tasks.data ?? []} error={tasks.error} route={route} reload={tasks.reload} />
         {overview.error !== null && <div className="empty">读取失败：{overview.error}</div>}
         {overview.data !== null && (
-          <Routed
-            route={route}
-            overview={overview.data}
-            onAction={onAction}
-            onIgnore={onIgnore}
-            onJump={onJump}
-            refresh={refresh}
-            tasks={tasks.data ?? []}
-            reloadTasks={tasks.reload}
-            refreshKey={nonce}
-            onPlanningAction={onPlanningAction}
-          />
+          // 按路由重置：换一页就该重新试一次，否则一处出错会粘住整个会话。
+          // 只包住内容区，导航栏留在外面 —— 出错时作者仍然走得掉。
+          <ErrorBoundary key={route} onReset={refresh}>
+            <Routed
+              route={route}
+              overview={overview.data}
+              onAction={onAction}
+              onIgnore={onIgnore}
+              onJump={onJump}
+              refresh={refresh}
+              tasks={tasks.data ?? []}
+              reloadTasks={tasks.reload}
+              refreshKey={nonce}
+              onPlanningAction={onPlanningAction}
+            />
+          </ErrorBoundary>
         )}
       </main>
 

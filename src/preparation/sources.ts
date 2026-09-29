@@ -80,6 +80,6 @@ export function characterSource(input: CharacterSourceInput): CharacterSource {
       ? [`从正文里抽样了 ${sampled.length} 章的开头（全书共 ${input.chapterNumbers.length} 章，没有读全文）：`, ...excerpts]
       : []),
   ];
-  const text = parts.length > 0 ? parts.join("\n\n") : "这本书还没有正文，作者也没有提供资料文件。请说明这一点，不要编造人物。";
+  const text = parts.length > 0 ? parts.join("\n\n") : "这本书还没有正文，作者也没有提供资料文件。请说明这一点，不要凭空编造。";
   return { text, from, sampled };
 }

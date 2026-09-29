@@ -120,8 +120,13 @@ export function buildStoryProgress(source: Source): readonly StoryProgress[] {
   }
   for (const character of source.meta.characters.filter(c => confirmed(c.provenance))) {
     const targets = beatsByCharacter.get(character.id as string) ?? [];
-    const records = (factsByCharacter.get(character.id as string) ?? []).flatMap(e => e.payload.type === "character_presence" && e.payload.role !== "mentioned"
-      ? [{ chapter: e.envelope.chapter, label: `${character.name}的已采用出场记录` }] : []);
+    // 扫正文得出的出场也算一条正文记录：它本来就是「这一章的正文里有这个名字」，
+    // 而导进来的旧稿除此之外没有别的依据。按 role 一刀切会让整本书的人都显示
+    // 「没有对应正文记录」，与弧线上密密麻麻的出场轴当场打架。标签分开写，
+    // 作者一眼能看出这条是机器扫的还是写章时声明的。
+    const records = (factsByCharacter.get(character.id as string) ?? []).flatMap(e => e.payload.type !== "character_presence" ? []
+      : e.envelope.origin === "text_scan" ? [{ chapter: e.envelope.chapter, label: `${character.name}的名字出现在第 ${e.envelope.chapter} 章正文` }]
+        : e.payload.role !== "mentioned" ? [{ chapter: e.envelope.chapter, label: `${character.name}的已采用出场记录` }] : []);
     const own = eventsByCharacter.get(character.id as string) ?? [];
     const authorExits = own.filter(e => e.envelope.origin === "user_edit" && e.envelope.chapter <= currentChapter && e.payload.type === "character_state_changed" && e.payload.field === "vital" && e.payload.to === "missing" && !e.payload.anchor.quote.trim());
     const exitHistory: StoryProgress["history"] = authorExits.map(e => ({ chapter: e.envelope.chapter, state: "exited", detail: "作者确认退场" }));
