@@ -115,16 +115,62 @@ describe("全文检索", () => {
     expect(result.chapters[0]?.snippets.length).toBeLessThan(20);
   });
 
-  it("长篇下是线性扫描：2000 章 600 万字一次查询不塌", () => {
-    const base = writingSnapshot();
+  /**
+   * 规模用例的替身来源。
+   *
+   * `searchWork` 只要 `meta` / `events` / `chapterNumbers` / `chapterText` 四项，所以
+   * **不必为了量扫描速度去真写 2000 个文件** —— 旧版走 `seeded()` 即 `ProjectStore.save()`，
+   * 2000 章就是 2000 个文件，而 `withFileTransaction` 会为每个文件在日志里记
+   * `before`+`after` 全文，一次搭夹具在内存里攒下约两份 600 万字。那是 §51 记录的
+   * worker 崩溃的来源，而它量的也不是检索本身。
+   */
+  const scanOf = (session: ProjectSession, count: number) => {
     const chapters = new Map<number, string>();
-    for (let n = 1; n <= 2000; n++) chapters.set(n, `${"风从旧库的缝里吹进来。".repeat(272)}钥匙在第 ${n} 章。`);
-    const session = seeded({ ...base, chapters });
-    const started = performance.now();
-    const result = searchWork(session, "钥匙");
-    const elapsed = performance.now() - started;
-    expect(result.chapters.length).toBeGreaterThan(0);
-    expect(elapsed).toBeLessThan(1000);
+    for (let n = 1; n <= count; n++) chapters.set(n, `${"风从旧库的缝里吹进来。".repeat(272)}钥匙在第 ${n} 章。`);
+    return { meta: session.meta, events: () => session.events(),
+      chapterNumbers: () => [...chapters.keys()], chapterText: (n: number) => chapters.get(n) };
+  };
+
+  /**
+   * 线性扫描用**相对基准**守，不用绝对墙钟（§51 → §52 的结论）。
+   *
+   * 旧版断言 `elapsed < 1000`，量的其实是「这台机器这一刻有多闲」：同一台机器上
+   * 单跑必过、并行全量必败，后来测试套更大了反而三次全过。一条随环境翻面的断言
+   * 比没有断言更坏 —— 它会教人忽略红灯。
+   *
+   * 章数翻 10 倍，线性实现的耗时也该约 10 倍。两个规模在**同一进程里紧挨着量**，
+   * 机器快慢会同时缩放掉，剩下的就是复杂度。余量给到 25 倍：真退化成平方是 100 倍量级，
+   * 抓得住；而 GC 抖动进不来。
+   *
+   * ⚠ **计时必须用一个扫不到的词。** `MAX_CHAPTERS = 50` 会让常见词在第 51 章就
+   * `break` —— 实测「钥匙」在 200 章和 2000 章下都只访问 **51 章**，两档做的是同样的活，
+   * 比值恒为 1。旧版标题写着「2000 章 600 万字」，其实从来没扫过 2000 章；
+   * 那条绝对阈值量到的是搭夹具的副作用与机器负载。扫不到的词才走满全程（实测 200 / 2000）。
+   *
+   * **这条守不住的东西**（写明白，别误以为它管）：每次查询多出来的**固定**开销
+   * （比如每次现建一份索引）会让比值变小而不是变大，这里看不出来。它守的是
+   * 「不许超线性退化」这一件事。
+   */
+  it("长篇下是线性扫描：章数翻 10 倍，耗时不该翻几十倍", () => {
+    const session = seeded();
+    const small = scanOf(session, 200);
+    const large = scanOf(session, 2000);
+    const MISS = "整本书都不会出现的检索词";
+    const run = (source: ReturnType<typeof scanOf>): number => {
+      searchWork(source, MISS); // 预热：第一次要付 JIT 与首次分配的账，不该记在任何一档头上。
+      const started = performance.now();
+      for (let i = 0; i < 5; i++) searchWork(source, MISS);
+      return performance.now() - started;
+    };
+    // 先确认计时用的词确实走满全程（没命中即没有提前 break），常见词则照常截断。
+    expect(searchWork(large, MISS).chapters).toEqual([]);
+    expect(searchWork(large, "钥匙").truncated).toBe(true);
+    expect(searchWork(large, "钥匙").chapters.length).toBe(50);
+
+    const smallMs = run(small);
+    const largeMs = run(large);
+    expect(smallMs).toBeGreaterThan(0); // 计时器分辨率兜底：为 0 时比值无意义。
+    expect(largeMs / smallMs).toBeLessThan(25);
   });
 
   it("端点返回与服务同形，查询词原样回显", () => {
