@@ -121,6 +121,29 @@ describe("积分记账", () => {
     expect(summarize(entries).credits).toBe(0);
   });
 
+  it("每次调用记下耗时（两个钟都记），汇总按用途给出平均耗时", async () => {
+    // §37：调超时之前要先有真实分布。账本本来就每次调用落一行，耗时顺手记进去，
+    // 作者跑一轮逐章反推，就攒下一百个真实样本。
+    const { root, session } = fixture({ official: false, call: async () => {
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      return priced("好的。");
+    } });
+    await session.converse("随便聊聊。");
+    const entry = readCreditEntries(root)[0]!;
+    expect(entry.timing?.monotonicMs).toBeGreaterThanOrEqual(25);
+    expect(entry.timing?.wallMs).toBeGreaterThanOrEqual(25);
+    expect(summarize(readCreditEntries(root)).byPurpose["conversation"]?.avgMs).toBeGreaterThanOrEqual(25);
+  });
+
+  it("旧账目没有耗时：平均值只算有耗时的条目，一条都没有时是 null 而不是 0", () => {
+    const { root } = fixture({ official: false, call: async () => priced("好的。") });
+    const base = { model: "claude-opus-5", role: "creative", purpose: "chapter", tokens: { input: 1, output: 1, cacheWrite: null, cacheRead: null }, credits: 1, priced: true } as const;
+    appendCreditEntry(root, { ...base, at: "2026-09-01T00:00:00.000Z" });
+    expect(summarize(readCreditEntries(root)).byPurpose["chapter"]?.avgMs).toBeNull();
+    appendCreditEntry(root, { ...base, at: "2026-09-02T00:00:00.000Z", timing: { monotonicMs: 2000, wallMs: 2001 } });
+    expect(summarize(readCreditEntries(root)).byPurpose["chapter"]).toMatchObject({ calls: 2, avgMs: 2000 });
+  });
+
   it("端点给出本作品的消耗与用途分组", async () => {
     const { session } = fixture({ official: false, call: async () => priced("好的。") });
     await session.converse("随便聊聊。");

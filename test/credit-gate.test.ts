@@ -34,7 +34,7 @@ function spend(root: string, credits: number): void {
   });
 }
 
-/** 按 claude-opus-5 计价的应答：1000 输入 + 500 输出 = 5.25 积分，足以把 1 积分的余额扣成负数。 */
+/** 按 claude-opus-5 计价的应答：1000 输入 + 500 输出 = 1.75 积分（p2 官方价），足以把 1 积分的余额扣成负数。 */
 function priced(text: string): CallResult {
   const message = modelMessage([{ type: "text", text, citations: [] } as never]);
   return { kind: "ok", message: { ...message, model: "claude-opus-5", usage: { ...message.usage, input_tokens: 1000, output_tokens: 500, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 } } as never };

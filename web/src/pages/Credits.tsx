@@ -6,6 +6,8 @@ const PURPOSE_LABELS: Record<string, string> = {
   chapter: "写章", conversation: "对话", preparation: "让 AI 起草资料", inference: "从正文反推结构", revision: "跨章返修定位", other: "其他",
 };
 const credits = (value: number): string => value.toLocaleString("zh-CN", { maximumFractionDigits: 2 });
+/** 模型调用以秒计；不到一秒的（脚本化替身）也照实写成毫秒，不取整成 0 秒。 */
+const seconds = (ms: number): string => ms < 1000 ? `${Math.round(ms)} 毫秒/次` : `${(ms / 1000).toFixed(1)} 秒/次`;
 
 export function Credits(): React.ReactElement {
   const work = useFetch(() => api.credits(), []);
@@ -49,6 +51,7 @@ export function Credits(): React.ReactElement {
               <div className="credit-row" key={purpose}>
                 <strong>{PURPOSE_LABELS[purpose] ?? purpose}</strong>
                 <span className="muted">{row.calls} 次</span>
+                <span className="muted">{row.avgMs === null ? "—" : `平均 ${seconds(row.avgMs)}`}</span>
                 <span>{credits(row.credits)} 积分</span>
               </div>
             ))}
