@@ -199,7 +199,10 @@ export class InferenceService {
   private chapterView(chapter: ChapterNo, run: InferenceRun | undefined): InferenceChapterView {
     const text = this.deps.source.chapterText(chapter) ?? "";
     const events = this.deps.source.events().filter((e) => e.envelope.chapter === chapter);
-    const formal = events.some((e) => e.envelope.origin !== ORIGIN && !isPlanOrigin(e.envelope.origin)
+    // 「已有正式结构」指写章或手工标注留下的声明。扫正文得出的出场（text_scan）不算：
+    // 它在确认人物时就会给几乎每一章落一条 committed，算进来的话导入的旧稿整本都成了
+    // 「已有记录」，逐章反推一章也开不了（与 import/service.ts 的覆盖判据同一口径）。
+    const formal = events.some((e) => e.envelope.origin !== ORIGIN && e.envelope.origin !== "text_scan" && !isPlanOrigin(e.envelope.origin)
       && (e.envelope.provenance === "committed" || e.envelope.provenance === "authored"));
     const inferred = events.filter((e) => e.envelope.origin === ORIGIN);
     const pending = inferred.filter((e) => e.envelope.provenance === "proposed");

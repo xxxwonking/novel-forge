@@ -334,6 +334,26 @@ describe("逐章反推结构·边界与接口", () => {
     expect(s.inference.view().chapters[0]?.state).toBe("written");
   });
 
+  it("扫正文得出的出场不算正式结构：确认人物之后每一章仍然可以反推", async () => {
+    // 真机撞出来的（100 章旧稿）：确认人物时代码扫正文落下 committed 的 text_scan 出场，
+    // 旧判据把它当成「这一章已有正式结构」—— 100 章全显示「已有记录」、预估 0 次调用，
+    // 逐章反推根本开不了头，情节线因此永远有轨无点。
+    const { root } = project([OLD1, OLD2, OLD3]);
+    const { session: s, calls } = session(root, [INFER1]);
+    s.appendPresence([{ characterId: "C01" as never, chapters: [1, 2, 3] as never }]);
+    expect(s.events().filter((e) => e.envelope.origin === "text_scan" && e.envelope.provenance === "committed")).toHaveLength(3);
+
+    expect(s.inference.view().chapters.map((c) => c.state)).toEqual(["none", "none", "none"]);
+    expect(s.inference.view().nextChapter).toBe(1);
+    const body = (await estimate(s)).body as { modes: readonly { key: string; calls: { min: number; max: number } }[] };
+    expect(body.modes[1]?.calls).toEqual({ min: 3, max: 3 });
+
+    expect((await s.inference.infer({ chapter: 1 })).state).toBe("pending");
+    expect(calls).toHaveLength(1);
+    expect(s.inference.confirm({ chapter: 1 }).committed).toBeGreaterThan(0);
+    expect(s.inference.view().chapters[0]?.state).toBe("confirmed");
+  });
+
   it("还没有人物档案时先说清要补什么，不去空跑模型", async () => {
     const { root, store } = project([OLD1]);
     store.save({ ...store.load(), characters: [] });
