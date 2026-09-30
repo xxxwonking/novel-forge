@@ -6,6 +6,7 @@ import { BeatEditor, CharacterEditor, DraftDialog, PlotLineEditor, SettingEditor
 import { ImportChapters } from "../components/ImportChapters.js";
 import { InferenceChooser } from "../components/InferenceChooser.js";
 import { ReviewSettings } from "../components/ReviewSettings.js";
+import { WorkStatus } from "../components/WorkStatus.js";
 import { api, type CharacterRecord, type DraftFocus, type ForeshadowClaim, type PreparationContent, type PreparationPayload, type PreparationProposal, type SettingInput, type PlotLineInput, type VolumeCard } from "../api.js";
 import type { RelationClaim, Removals } from "../preparation-changes.js";
 import { useFetch, useRouteActive } from "../hooks.js";
@@ -123,7 +124,7 @@ export function Preparation({ refresh, proposalId }: { refresh: () => void; prop
           <input type="file" accept=".txt,.md,text/plain" multiple ref={profilePicker} style={{ display: "none" }}
             onChange={(e) => { void importProfile(e.target.files); e.target.value = ""; }} />
           {editing ? <AuthorForm view={view} onSaved={saved} /> : <Content content={view.confirmed} onEdit={setEntity} onDraft={setDrafting} onImport={() => profilePicker.current?.click()} importing={importingProfile} />}
-          <section className="prep-section"><div className="section-head"><h2>未来伏笔计划</h2><Button size="small" type="primary" ghost onClick={() => setDrafting("foreshadows")}>从资料反推伏笔</Button></div><p className="muted">这些安排已确认，尚未写成正文中的埋设或兑现。</p>{view.plannedForeshadows.length === 0 ? <p className="muted">还没有独立的未来伏笔规划。有大纲或简介，就让 AI 从里面认出你已经安排好的伏笔供你核对 —— 确认后它们会以虚线出现在伏笔时间线上。</p> : view.plannedForeshadows.map(plan => <div className="draft-change" key={plan.id}><strong>{plan.label}</strong><p>{plan.intent}</p><small>预期第 {plan.expectedBy} 章前兑现 · 尚未埋设</small></div>)}</section>
+          <section className="prep-section"><div className="section-head"><h2>未来伏笔计划</h2><Button size="small" type="primary" ghost onClick={() => setDrafting("foreshadows")}>从资料反推伏笔</Button></div><p className="muted">这些安排已确认，尚未写成正文中的埋设或兑现。</p><WorkStatus onChanged={refresh} />{view.plannedForeshadows.length === 0 ? <p className="muted">还没有独立的未来伏笔规划。有大纲或简介，就让 AI 从里面认出你已经安排好的伏笔供你核对 —— 确认后它们会以虚线出现在伏笔时间线上。</p> : view.plannedForeshadows.map(plan => <div className="draft-change" key={plan.id}><strong>{plan.label}</strong><p>{plan.intent}</p><small>预期第 {plan.expectedBy} 章前兑现 · 尚未埋设</small></div>)}</section>
           <section className="prep-section"><h2>备选想法</h2>{view.ideas.length === 0 ? <p className="muted">暂时没有记录。可以在对话中说“把这个想法记为备选”。</p> : <ul>{view.ideas.map((idea) => <li key={idea.id}>{idea.text}</li>)}</ul>}</section>
         </> : <>
           <div className="prep-proposal-head"><Chip color={candidate.stale ? "orange" : "cyan"}>{status(candidate)}</Chip><h2>{candidate.summary}</h2><p className="muted">{candidate.source === "author" ? "作者指定的修改" : "Agent 提出的建议"} · {new Date(candidate.createdAt).toLocaleString("zh-CN")}</p></div>

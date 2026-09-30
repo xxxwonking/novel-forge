@@ -28,6 +28,8 @@ interface PreparationDeps {
   /** 把扫正文得出的出场记录落进事件流。同理不走 `apply`：出场是故事事实，不是设定。 */
   readonly commitPresence: (scans: readonly PresenceScan[]) => void;
   readonly rules: Rules;
+  /** 作品已完结时，伏笔规划的期限可以落在已写章节里（§57）。 */
+  readonly completed: () => boolean;
 }
 const DIR = "preparation";
 const proposalId = /^proposal-[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/u;
@@ -75,7 +77,7 @@ export class PreparationService {
     const existing = this.list().find((p) => p.status === "proposed" && p.source === source && p.baseFingerprint === input.baseFingerprint && same(p.changes, input.changes));
     if (existing !== undefined) return existing;
     const now = new Date().toISOString();
-    const built = build(this.deps.snapshot(), input.changes, now, this.deps.rules);
+    const built = build(this.deps.snapshot(), input.changes, now, this.deps.rules, this.deps.completed());
     const proposal: PreparationProposal = { ...input, id: `proposal-${randomUUID()}`, source, status: "proposed", createdAt: now, updatedAt: now, ...built };
     this.save(proposal);
     return proposal;
@@ -125,7 +127,7 @@ export class PreparationService {
     if (proposal.status === "confirmed") return preparationContent(this.deps.snapshot());
     if (proposal.status === "rejected") throw new ChapterWriteError(409, "该方案已丢弃");
     if (proposal.baseFingerprint !== this.fingerprint()) throw new ChapterWriteError(409, "方案基于较早版本，作品资料或已采用正文发生变化，请先重新整理方案");
-    const built = build(this.deps.snapshot(), proposal.changes, proposal.createdAt, this.deps.rules);
+    const built = build(this.deps.snapshot(), proposal.changes, proposal.createdAt, this.deps.rules, this.deps.completed());
     if (built.impacts.length > 0) throw new ChapterWriteError(409, `方案影响已采用正文，先处理相关章节：${built.impacts.map((i) => i.message).join("；")}`);
     const changedCharacters = new Set(proposal.changes.characters?.map((c) => c.id));
     const changedBeats = new Set(proposal.changes.beats?.map((b) => b.chapter));
@@ -204,7 +206,7 @@ function upsert<T>(before: readonly T[], patch: readonly T[], key: (item: T) => 
   return [...before.map((item) => { const value = changes.get(key(item)) ?? item; changes.delete(key(item)); return value; }), ...changes.values()];
 }
 
-function build(snapshot: ProjectSnapshot, changes: PreparationChanges, now: string, rules: Rules): Pick<PreparationProposal, "content" | "impacts" | "findings"> {
+function build(snapshot: ProjectSnapshot, changes: PreparationChanges, now: string, rules: Rules, completed: boolean): Pick<PreparationProposal, "content" | "impacts" | "findings"> {
   const fail = (message: string): never => { throw new ChapterWriteError(400, message); };
   for (const key of ["genre", "platform"] as const) if (changes.setting?.[key] !== undefined && changes.profile?.[key] !== undefined && changes.setting[key] !== changes.profile[key]) fail(`作品设定与发布配置的 ${key} 不一致`);
   const profile = { ...snapshot.profile, ...changes.profile, ...(changes.setting?.genre === undefined ? {} : { genre: changes.setting.genre }), ...(changes.setting?.platform === undefined ? {} : { platform: changes.setting.platform }) };
@@ -271,8 +273,9 @@ function build(snapshot: ProjectSnapshot, changes: PreparationChanges, now: stri
   for (const f of planned) {
     const clash = projection.foreshadows.find((item) => item.label.trim() === f.label.trim());
     if (clash !== undefined) fail(`伏笔标签「${f.label.trim()}」已经被 ${clash.id} 用了，换一个说法`);
-    // 期限必须在已写出的正文之后：给一个已经过去的章号，等于一条生下来就逾期的规划。
-    if (f.expectedBy <= lastChapter) fail(`伏笔「${f.label.trim()}」的预期兑现章第 ${f.expectedBy} 章已经写完了，规划要落在未来`);
+    // 连载中：期限必须在已写出的正文之后，给一个已经过去的章号等于一条生下来就逾期的规划。
+    // 已完结（§57）：伏笔本来就兑现在书里，期限指向已写的章才是如实记录。
+    if (!completed && f.expectedBy <= lastChapter) fail(`伏笔「${f.label.trim()}」的预期兑现章第 ${f.expectedBy} 章已经写完了，规划要落在未来（这本书如果已经完结，可以在资料页标记为已完结）`);
   }
   const blocks = findings.filter((f) => f.level === "block");
   if (blocks.length > 0) fail(blocks.map((f) => f.message).join("\n"));

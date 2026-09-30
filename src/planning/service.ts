@@ -16,7 +16,7 @@ export interface PlanningResult {
   readonly promotedToPayoff?: boolean;
   readonly adjustedChapters: readonly number[];
 }
-type Host = Pick<ProjectSession, "meta" | "currentChapter" | "derived" | "rules" | "events" | "beatFor" | "putBeat" | "appendEvents" | "alertState" | "putAlertState" | "syncAlertStates">;
+type Host = Pick<ProjectSession, "meta" | "currentChapter" | "derived" | "rules" | "events" | "beatFor" | "putBeat" | "appendEvents" | "alertState" | "putAlertState" | "syncAlertStates" | "workCompleted">;
 const confirmed = (provenance: string) => provenance === "authored" || provenance === "committed";
 const fail = (status: 400 | 404 | 409, message: string): never => { throw new ChapterWriteError(status, message); };
 const text = (value: unknown, field: string): string => typeof value === "string" && value.trim() ? value.trim() : fail(400, `${field} 不能为空`);
@@ -134,7 +134,12 @@ export class PlanningService {
       if (!Number.isSafeInteger(value["targetChapter"]) || (value["targetChapter"] as number) < 1) fail(400, "目标章号必须是正整数");
       if (kind === "add_resolution_to_beat" && (!["main", "sub", "detail"].includes(String(value["weight"])) || !["full", "partial"].includes(String(value["completeness"])))) fail(400, "伏笔权重或兑现目标无效");
     }
-    if (kind === "reschedule" && (!Number.isSafeInteger(value["expectedBy"]) || (value["expectedBy"] as number) <= this.source.currentChapter)) fail(400, "预期兑现章号必须是未来的正整数");
+    if (kind === "reschedule") {
+      const expectedBy = value["expectedBy"];
+      if (!Number.isSafeInteger(expectedBy) || (expectedBy as number) < 1) fail(400, "预期兑现章号必须是正整数");
+      // 已完结的书（§57）可以把期限改到已写的章 —— 那是在如实记录它实际兑现在哪。
+      if (!this.source.workCompleted && (expectedBy as number) <= this.source.currentChapter) fail(400, "预期兑现章号必须是未来的正整数（这本书如果已经完结，可以在资料页标记为已完结）");
+    }
     return { ...value, [field]: id } as PlanningAction;
   }
 }

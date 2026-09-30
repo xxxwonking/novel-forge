@@ -198,7 +198,7 @@ function ProjectApp(): React.ReactElement {
       </main>
 
       {toast !== null && <div className="toast">{toast}</div>}
-      {planningAction !== null && <PlanningActionDialog title={planningAction.title} action={planningAction.action} currentChapter={overview.data?.currentChapter ?? 0}
+      {planningAction !== null && <PlanningActionDialog title={planningAction.title} action={planningAction.action} currentChapter={overview.data?.currentChapter ?? 0} completed={overview.data?.completed ?? false}
         onClose={() => setPlanningAction(null)} onApply={async (action, reason) => {
           const result = planningAction.alertId === undefined ? await api.planningAction(action, reason) : await api.action(planningAction.alertId, action, reason);
           showToast(result.message ?? "安排已保存");

@@ -4,12 +4,15 @@ import type { AlertAction } from "../api.js";
 
 export type EditablePlanningAction = Extract<AlertAction, { kind: "reschedule" | "abandon" }>;
 
-export function PlanningActionDialog({ title, action, currentChapter, onApply, onClose }: {
+export function PlanningActionDialog({ title, action, currentChapter, completed = false, onApply, onClose }: {
   title: string; action: EditablePlanningAction; currentChapter: number;
+  /** 作品已完结时期限可以改到已写的章（§57）；下限由服务端同一条规则兜底。 */
+  completed?: boolean;
   onApply: (action: EditablePlanningAction, reason?: string) => Promise<void>; onClose: () => void;
 }): React.ReactElement {
   const reschedule = action.kind === "reschedule";
-  const [chapter, setChapter] = useState<number | null>(reschedule ? Math.max(currentChapter + 1, action.expectedBy + 1) : currentChapter + 1);
+  const minChapter = completed ? 1 : currentChapter + 1;
+  const [chapter, setChapter] = useState<number | null>(reschedule ? (completed ? action.expectedBy : Math.max(currentChapter + 1, action.expectedBy + 1)) : currentChapter + 1);
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -17,7 +20,7 @@ export function PlanningActionDialog({ title, action, currentChapter, onApply, o
   const submit = (): void => {
     if (busy) return;
     const expectedBy = Number(chapter);
-    if (reschedule && (!Number.isSafeInteger(expectedBy) || expectedBy <= currentChapter)) { setError("请输入未来的正整数章号。"); return; }
+    if (reschedule && (!Number.isSafeInteger(expectedBy) || expectedBy < minChapter)) { setError(completed ? "请输入正整数章号。" : "请输入未来的正整数章号。"); return; }
     setBusy(true); setError(null);
     void onApply(reschedule ? { ...action, expectedBy } : action, reason)
       .then(onClose).catch(cause => setError(cause instanceof Error ? cause.message : String(cause))).finally(() => setBusy(false));
@@ -40,8 +43,8 @@ export function PlanningActionDialog({ title, action, currentChapter, onApply, o
       {reschedule ? (
         <>
           <label htmlFor="planning-chapter">新的预期章号</label>
-          <InputNumber id="planning-chapter" min={currentChapter + 1} step={1} value={chapter} onChange={setChapter} disabled={busy} style={{ width: "100%" }} />
-          <p className="muted">原期限是第 {action.expectedBy} 章。这里只调整预期期限，已有具体章节安排会保留，伏笔仍未兑现。</p>
+          <InputNumber id="planning-chapter" min={minChapter} step={1} value={chapter} onChange={setChapter} disabled={busy} style={{ width: "100%" }} />
+          <p className="muted">原期限是第 {action.expectedBy} 章。这里只调整预期期限，已有具体章节安排会保留，伏笔仍未兑现。{completed ? "这本书已标记为完结，可以改到已经写好的章，如实记下它兑现在哪。" : ""}</p>
         </>
       ) : (
         <>

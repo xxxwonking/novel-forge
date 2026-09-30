@@ -165,6 +165,8 @@ export interface Overview {
   nextChapter: number;
   chapterCount: number;
   characterCount: number;
+  /** 作品已完结（§57）：伏笔期限可以落在已写的章。 */
+  completed: boolean;
   nextBeat: ChapterBeat | null;
   homepage: Alert[];
   counts: {
@@ -767,6 +769,8 @@ export const api = {
   preparation: () => request<PreparationPayload>("/api/preparation"),
   reviewSettings: () => request<ReviewSettings>("/api/review-settings"),
   saveReviewSettings: (value: ReviewSettings) => post<ReviewSettings>("/api/review-settings", value),
+  workStatus: () => request<{ completed: boolean }>("/api/work-status"),
+  saveWorkStatus: (completed: boolean) => post<{ completed: boolean }>("/api/work-status", { completed }),
   confirmPreparation: (proposalId: string) => post<{ changed: boolean; proposal: PreparationProposal }>("/api/preparation/confirm", { proposalId }),
   rejectPreparation: (proposalId: string) => post<PreparationProposal>("/api/preparation/reject", { proposalId }),
   recordAuthorDetails: (input: { summary: string; baseFingerprint: string; changes: unknown }) => post<PreparationProposal>("/api/preparation/author", input),
