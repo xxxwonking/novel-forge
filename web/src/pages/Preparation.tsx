@@ -5,7 +5,7 @@ import { Chip } from "../components/Chip.js";
 import { BeatEditor, CharacterEditor, DraftDialog, PlotLineEditor, SettingEditor, VolumeEditor, type Editing } from "../components/PreparationEditors.js";
 import { ImportChapters } from "../components/ImportChapters.js";
 import { ReviewSettings } from "../components/ReviewSettings.js";
-import { api, type CharacterRecord, type DraftFocus, type PreparationContent, type PreparationPayload, type PreparationProposal, type SettingInput, type PlotLineInput, type VolumeCard } from "../api.js";
+import { api, type CharacterRecord, type DraftFocus, type ForeshadowClaim, type PreparationContent, type PreparationPayload, type PreparationProposal, type SettingInput, type PlotLineInput, type VolumeCard } from "../api.js";
 import type { RelationClaim, Removals } from "../preparation-changes.js";
 import { useFetch, useRouteActive } from "../hooks.js";
 
@@ -120,13 +120,14 @@ export function Preparation({ refresh, proposalId }: { refresh: () => void; prop
           <input type="file" accept=".txt,.md,text/plain" multiple ref={profilePicker} style={{ display: "none" }}
             onChange={(e) => { void importProfile(e.target.files); e.target.value = ""; }} />
           {editing ? <AuthorForm view={view} onSaved={saved} /> : <Content content={view.confirmed} onEdit={setEntity} onDraft={setDrafting} onImport={() => profilePicker.current?.click()} importing={importingProfile} />}
-          <section className="prep-section"><h2>未来伏笔计划</h2><p className="muted">这些安排已确认，尚未写成正文中的埋设或兑现。</p>{view.plannedForeshadows.length === 0 ? <p className="muted">暂时没有独立的未来伏笔规划。</p> : view.plannedForeshadows.map(plan => <div className="draft-change" key={plan.id}><strong>{plan.label}</strong><p>{plan.intent}</p><small>预期第 {plan.expectedBy} 章前兑现 · 尚未埋设</small></div>)}</section>
+          <section className="prep-section"><div className="section-head"><h2>未来伏笔计划</h2><Button size="small" type="primary" ghost onClick={() => setDrafting("foreshadows")}>从资料反推伏笔</Button></div><p className="muted">这些安排已确认，尚未写成正文中的埋设或兑现。</p>{view.plannedForeshadows.length === 0 ? <p className="muted">还没有独立的未来伏笔规划。有大纲或简介，就让 AI 从里面认出你已经安排好的伏笔供你核对 —— 确认后它们会以虚线出现在伏笔时间线上。</p> : view.plannedForeshadows.map(plan => <div className="draft-change" key={plan.id}><strong>{plan.label}</strong><p>{plan.intent}</p><small>预期第 {plan.expectedBy} 章前兑现 · 尚未埋设</small></div>)}</section>
           <section className="prep-section"><h2>备选想法</h2>{view.ideas.length === 0 ? <p className="muted">暂时没有记录。可以在对话中说“把这个想法记为备选”。</p> : <ul>{view.ideas.map((idea) => <li key={idea.id}>{idea.text}</li>)}</ul>}</section>
         </> : <>
           <div className="prep-proposal-head"><Chip color={candidate.stale ? "orange" : "cyan"}>{status(candidate)}</Chip><h2>{candidate.summary}</h2><p className="muted">{candidate.source === "author" ? "作者指定的修改" : "Agent 提出的建议"} · {new Date(candidate.createdAt).toLocaleString("zh-CN")}</p></div>
           {candidate.stale && <p className="finding" data-level="warn">这份方案依据的资料已改变。请回到对话重新整理，避免覆盖你的新选择。</p>}
           <RemovalList removals={candidate.changes.removals} current={view.confirmed} />
           <RelationList relations={candidate.changes.relations} current={view.confirmed} />
+          <ForeshadowList foreshadows={candidate.changes.foreshadows} />
           {candidate.impacts.map((impact, index) => <div key={index} className="finding" data-level="warn"><strong>{impact.message}</strong><div>{impact.chapters.map((n) => <a key={n} href={`#/chapter/${n}`}>第 {n} 章　</a>)}</div><p>先形成相应章节的候选修改，再核对这些设定。</p></div>)}
           {candidate.findings.map((finding, index) => <div key={index} className="finding" data-level={finding.level}>{finding.message}</div>)}
           {candidate.status === "proposed" && <div className="prep-proposal-actions">
@@ -156,7 +157,7 @@ export function Preparation({ refresh, proposalId }: { refresh: () => void; prop
       const done = [result.imported.length > 0 ? `新增 ${result.imported.length} 章` : "", result.replaced.length > 0 ? `覆盖 ${result.replaced.length} 章` : "", result.unchanged.length > 0 ? `${result.unchanged.length} 章内容未变` : ""].filter(Boolean).join("、");
       const kept = result.materials.length > 0 ? `另外收下 ${result.materials.length} 份资料：${result.materials.join("、")}。` : "";
       // 明确说出"结构还没有" —— 让作者以为导进来就什么都有了，比不做这个功能更糟。
-      setNotice(`已导入正文：${done}${result.totalWords > 0 ? `，共 ${result.totalWords} 字` : ""}，下一章是第 ${result.nextChapter} 章。${kept}接着用「让 AI 起草资料」补出人物（它会读这些资料），再用「从正文反推结构」逐章补出事件与伏笔 —— 在那之前伏笔时间线仍是空的。`);
+      setNotice(`已导入正文：${done}${result.totalWords > 0 ? `，共 ${result.totalWords} 字` : ""}，下一章是第 ${result.nextChapter} 章。${kept}接着用「让 AI 起草资料」补出人物（它会读这些资料）。结构有两条路：「从资料反推伏笔」一次调用读你的大纲，便宜，只认资料里写明的安排；「从正文反推结构」逐章读正文，贵得多，但能认出正文里实际埋的事件与伏笔 —— 两条都没走过之前，伏笔时间线是空的。`);
       data.reload(); refresh();
     }} />}
     {entity?.kind === "beat" && <BeatEditor base={entity.base as never} chapter={view.nextChapter} characters={view.confirmed.characters} settings={view.confirmed.settings} plotLines={view.confirmed.plotLines} fingerprint={view.fingerprint} onSaved={saved} onClose={() => setEntity(null)} />}
@@ -215,6 +216,21 @@ function RelationList({ relations, current }: { relations: readonly RelationClai
     <strong>这份方案会声明 {relations.length} 条人物关系</strong>
     <p>{relations.map((r) => `${name(r.from)} → ${name(r.to)}：${r.note}`).join("；")}</p>
     <p className="muted">它们来自资料、尚未写进正文，在关系图上画虚线；正文写到那里就会变成实线。</p>
+  </div>;
+}
+
+/**
+ * 方案里声明的**伏笔规划**。
+ *
+ * 与关系清单同一条理由：预览是资料卡，不含伏笔，不说出来作者就不知道确认这份方案
+ * 会往时间线上添什么。标签也在这里给作者过一眼 —— 正文写到那里要靠它认领这条规划。
+ */
+function ForeshadowList({ foreshadows }: { foreshadows: readonly ForeshadowClaim[] | undefined }): React.ReactElement | null {
+  if (foreshadows === undefined || foreshadows.length === 0) return null;
+  return <div className="finding" data-level="info">
+    <strong>这份方案会规划 {foreshadows.length} 条伏笔</strong>
+    {foreshadows.map((f, index) => <p key={index}>{f.label}：{f.intent}<span className="muted"> · 预期第 {f.expectedBy} 章前兑现</span></p>)}
+    <p className="muted">它们来自资料、尚未写进正文，在伏笔时间线上画虚线；正文写到那里凭标签认领，虚线才变实线。</p>
   </div>;
 }
 

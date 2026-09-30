@@ -70,7 +70,7 @@ describe("作者规划进入正文的伏笔生命周期", () => {
     const entries = reopened.derived.projections.foreshadows.filter(f => f.label === plan.label);
     expect(entries).toHaveLength(1);
     expect(entries[0]).toMatchObject({ id: "F03", status: "open", plantedAt: 3, plantedAnchor: { chapter: 3, quote: QUOTE } });
-    expect(reopened.derived.views.foreshadows.find(f => f.id === "F03")?.planted.resolution.status).toBe("exact");
+    expect(reopened.derived.views.foreshadows.find(f => f.id === "F03")?.planted?.resolution.status).toBe("exact");
   });
 
   it("同名规划不能唯一定位时保留正文并停止声明，不另造伏笔", async () => {

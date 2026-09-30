@@ -17,7 +17,7 @@ import { RelationMap } from "../components/RelationMap.js";
 
 const BLURB: Record<string, string> = {
   "/foreshadow":
-    "图中展示已经埋设的伏笔：埋点 → 期限 → 收束。红条表示逾期，点击有依据的点可跳到原文。尚未埋设的未来规划列在下方表格中。",
+    "实线是已经埋进正文的伏笔：埋点 → 期限 → 收束。红条表示逾期，点击有依据的点可跳到原文。虚线是还没埋的规划，只有期限，等正文写到那里才会长出埋点。",
   "/plotlines":
     "每条线一行，圆点是事件（越大权重越高）。红条是断线段，虚线是还没推进但阈值内。断线阈值按权重派生：主线 3 章、支线 12、细节 20。",
   "/arcs": "竖条是出场（越高越吃重），菱形是状态转折点，红条是当前缺席段。阈值按人物档位派生：主角 2 章、主要 15、次要 30。",
@@ -97,10 +97,13 @@ function ForeshadowBody({ views, onJump, highlight }: BodyProps): React.ReactEle
         <span>
           <i className="swatch" style={{ background: "var(--warn)", width: 3, height: 12 }} /> 期限
         </span>
+        <span>
+          <i className="swatch swatch-dashed" /> 尚未埋设
+        </span>
         <span>空心点 = 原文已变动，无法定位</span>
       </div>
 
-      <Timeline axis={views.axis} lanes={views.foreshadows.filter(f => f.status !== "planned" && f.planted.anchor.quote.trim())} onJump={onJump} highlight={highlight} />
+      <Timeline axis={views.axis} lanes={views.foreshadows} onJump={onJump} highlight={highlight} />
 
       <div className="table-panel">
       <table>
@@ -126,7 +129,7 @@ function ForeshadowBody({ views, onJump, highlight }: BodyProps): React.ReactEle
                   </div>
                 </td>
                 <td>{f.intent}</td>
-                <td className="num">{f.planted.anchor.quote.trim() ? f.planted.chapter : "尚未埋设"}</td>
+                <td className="num">{f.planted?.chapter ?? "尚未埋设"}</td>
                 <td className="num">{f.expectedBy}</td>
                 <td>
                   <Chip color={f.status === "open" ? "processing" : undefined}>

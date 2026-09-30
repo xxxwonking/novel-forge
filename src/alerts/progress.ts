@@ -2,6 +2,7 @@
 import type { ProjectSession } from "../server/state.js";
 import type { TextAnchor } from "../types/primitives.js";
 import type { ChapterBeat } from "../types/beat.js";
+import { isPlanOrigin } from "../types/events.js";
 import { resolveAnchor } from "../anchor/resolve.js";
 import { fullResolution } from "../planning/effective.js";
 import type { PlanningAction } from "../planning/service.js";
@@ -28,7 +29,7 @@ export function buildStoryProgress(source: Source): readonly StoryProgress[] {
   // 它被 verified() 逐条调到，所以必须只取一次 —— 否则长篇下的二次增长原样回来。
   const currentChapter = source.currentChapter;
   const events = source.events().filter(e => confirmed(e.envelope.provenance));
-  const facts = events.filter(e => e.envelope.origin !== "P4_outline" && e.envelope.chapter <= currentChapter && source.chapterText(e.envelope.chapter) !== undefined);
+  const facts = events.filter(e => !isPlanOrigin(e.envelope.origin) && e.envelope.chapter <= currentChapter && source.chapterText(e.envelope.chapter) !== undefined);
   const beats = source.meta.beats.filter(b => confirmed(b.provenance));
   const future = beats.filter(b => b.chapter > currentChapter);
   const verified = (anchor: TextAnchor) => Boolean(anchor.quote.trim()) && anchor.chapter <= currentChapter && resolveAnchor(anchor, chapter => source.chapterText(chapter), source.rules.anchor).status !== "stale";
@@ -103,10 +104,11 @@ export function buildStoryProgress(source: Source): readonly StoryProgress[] {
     }
     for (const e of related) {
       const p = e.payload;
-      if (p.type === "foreshadow_planted") history.push({ chapter: e.envelope.chapter, state: e.envelope.origin === "P4_outline" ? "planned" : "pending", detail: e.envelope.origin === "P4_outline" ? "作者确认未来规划" : "已采用正文中的埋设" });
+      if (p.type === "foreshadow_planted") history.push({ chapter: e.envelope.chapter, state: isPlanOrigin(e.envelope.origin) ? "planned" : "pending",
+        detail: e.envelope.origin === "P4_outline" ? "作者确认未来规划" : e.envelope.origin === "material_inference" ? "从作品资料反推出的规划" : "已采用正文中的埋设" });
       if (p.type === "foreshadow_rescheduled") history.push({ chapter: e.envelope.chapter, state: "rescheduled", detail: `预期期限改为第 ${p.expectedBy} 章` });
       if (p.type === "foreshadow_abandoned") history.push({ chapter: e.envelope.chapter, state: "abandoned", detail: p.reason });
-      if (p.type === "foreshadow_resolved" && e.envelope.origin !== "P4_outline" && verified(p.anchor)) history.push({ chapter: e.envelope.chapter, state: p.completeness === "full" ? "resolved" : "partial", detail: p.completeness === "full" ? "正文完整兑现" : "正文部分兑现，剩余承诺继续跟踪" });
+      if (p.type === "foreshadow_resolved" && !isPlanOrigin(e.envelope.origin) && verified(p.anchor)) history.push({ chapter: e.envelope.chapter, state: p.completeness === "full" ? "resolved" : "partial", detail: p.completeness === "full" ? "正文完整兑现" : "正文部分兑现，剩余承诺继续跟踪" });
     }
     out.push({ id: `foreshadow:${f.id}`, kind: "foreshadow", title: f.label, state, detail, expectedBy: f.expectedBy, arrangements, actions,
       evidence: state === "abandoned" || state === "planned" ? [] : valid.map(r => ({ chapter: r.chapter, label: r.completeness === "full" ? "完整兑现依据" : "部分兑现依据", anchor: r.anchor })), history: history.sort((a, b) => a.chapter - b.chapter) });
@@ -130,7 +132,7 @@ export function buildStoryProgress(source: Source): readonly StoryProgress[] {
     const own = eventsByCharacter.get(character.id as string) ?? [];
     const authorExits = own.filter(e => e.envelope.origin === "user_edit" && e.envelope.chapter <= currentChapter && e.payload.type === "character_state_changed" && e.payload.field === "vital" && e.payload.to === "missing" && !e.payload.anchor.quote.trim());
     const exitHistory: StoryProgress["history"] = authorExits.map(e => ({ chapter: e.envelope.chapter, state: "exited", detail: "作者确认退场" }));
-    const lastVital = own.findLast(e => e.envelope.origin !== "P4_outline" && e.envelope.chapter <= currentChapter && e.payload.type === "character_state_changed" && e.payload.field === "vital");
+    const lastVital = own.findLast(e => !isPlanOrigin(e.envelope.origin) && e.envelope.chapter <= currentChapter && e.payload.type === "character_state_changed" && e.payload.field === "vital");
     const lastExit = authorExits.at(-1);
     if (lastExit !== undefined && lastVital === lastExit && !records.some(r => r.chapter > lastExit.envelope.chapter)) {
       const arrangements = targets.filter(b => b.chapter > currentChapter).map(b => ({ chapter: b.chapter, goal: "人物出场" }));

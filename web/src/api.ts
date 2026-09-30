@@ -6,7 +6,7 @@
  * 在这里重新声明一遍是诚实的：它描述的是报文，不是内存里的对象。
  */
 
-import type { CharacterInput, CharacterRecord, PlotLineInput, RelationClaim, Removals, SettingInput } from "./preparation-changes.js";
+import type { CharacterInput, CharacterRecord, ForeshadowClaim, PlotLineInput, RelationClaim, Removals, SettingInput } from "./preparation-changes.js";
 
 export type ForeshadowWeight = "main" | "sub" | "detail";
 export type CharacterTier = "protagonist" | "major" | "minor" | "extra";
@@ -256,7 +256,8 @@ export interface ForeshadowLane {
   weight: ForeshadowWeight;
   visibility: "overt" | "covert";
   status: "planned" | "open" | "resolved" | "abandoned";
-  planted: AnchorPoint;
+  /** null = 还没写进正文（资料反推出的规划）。与关系边的 point 是同一条约定。 */
+  planted: AnchorPoint | null;
   expectedBy: number;
   resolutions: { completeness: "full" | "partial"; point: AnchorPoint }[];
   overdueSpan: { from: number; to: number } | null;
@@ -533,7 +534,7 @@ export interface AdoptResponse {
  * 人物卡与说话方式的形状定义在 `preparation-changes.ts` —— 那份类型同时是
  * "编辑后要发出去的载荷" 的契约，两边共用一个定义才不会各写一份走样。
  */
-export type { CharacterRecord, CharacterAttribute, SpeechProfile, CharacterInput, SettingInput, PlotLineInput, BeatInput, BeatRecord, ChapterPlanInput, PreparationChanges, Removals, RelationClaim, RelationKind } from "./preparation-changes.js";
+export type { CharacterRecord, CharacterAttribute, SpeechProfile, CharacterInput, SettingInput, PlotLineInput, BeatInput, BeatRecord, ChapterPlanInput, PreparationChanges, Removals, RelationClaim, RelationKind, ForeshadowClaim } from "./preparation-changes.js";
 export type CharacterCard = CharacterRecord;
 
 /** 卷名与卷纲。章号范围不在这里 —— 由节拍表的 volume 推出。 */
@@ -559,7 +560,7 @@ export interface PreparationProposal {
   id: string; summary: string; source: "author" | "assistant"; status: "proposed" | "confirmed" | "rejected";
   stale: boolean; createdAt: string; updatedAt: string;
   /** 只声明界面要读的那部分：删除在 content 预览里是隐形的，必须单独说出来。 */
-  changes: { removals?: Removals; relations?: RelationClaim[] };
+  changes: { removals?: Removals; relations?: RelationClaim[]; foreshadows?: ForeshadowClaim[] };
   content: PreparationContent;
   impacts: { message: string; chapters: number[] }[];
   findings: GateFinding[];
@@ -581,7 +582,7 @@ export interface ReviewSettings {
 }
 
 /** 起草的范围：人物 / 情节线 / 整份资料 / 后面几章的章计划。 */
-export type DraftFocus = "characters" | "plotlines" | "full" | "chapters";
+export type DraftFocus = "characters" | "plotlines" | "foreshadows" | "full" | "chapters";
 
 export interface PreparationDraftResult {
   /** 起草回合的说明：补了什么、哪里还需要作者拿主意。 */

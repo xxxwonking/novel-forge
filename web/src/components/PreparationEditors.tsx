@@ -99,6 +99,7 @@ const SAMPLE_BRIEF = "例如：主要写一个账房和一个守夜的老人；�
 const DRAFT_COPY: Record<DraftFocus, { readonly title: string; readonly intro: string; readonly sample: string }> = {
   characters: { title: "让 AI 起草人物", intro: "AI 会读作品的想法与你已确认的资料，推断出人物的性格、动机与说话方式，保存成一份待确认方案。", sample: SAMPLE_BRIEF },
   plotlines: { title: "从资料识别情节线", intro: "AI 会读你的大纲、简介等资料和正文抽样，认出贯穿多章的主线与支线，保存成一份待确认方案。", sample: "例如：感情线算支线；单卷里就了结的案子不算。" },
+  foreshadows: { title: "从资料反推伏笔", intro: "AI 会读你的大纲、简介等资料和正文抽样，认出你已经安排好、但还没写到的伏笔，保存成一份待确认方案。它只认资料里的安排，不逐章读正文 —— 一次调用，便宜。", sample: "例如：只认真正埋了线的安排，别把普通设定当伏笔。" },
   chapters: { title: "让 AI 排后面几章", intro: "AI 会接着最后一章已确认的计划往后排，每章一份章计划，合成一份待确认方案；确认后就能授权连写。", sample: SAMPLE_BRIEF },
   full: { title: "让 AI 起草整份资料", intro: "AI 会读作品的想法与你已确认的资料，补齐人物、地点组织、情节线和下一章的计划，保存成一份待确认方案。", sample: SAMPLE_BRIEF },
 };

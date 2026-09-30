@@ -19,6 +19,7 @@ import { ChapterWriteError } from "../server/chapter-input.js";
 import { declarationOf } from "../store/event-stream.js";
 import type { ModelClient } from "../client/model.js";
 import type { ProjectSession } from "../server/state.js";
+import { isPlanOrigin } from "../types/events.js";
 import type { C5Declaration, StructuralEventPayload } from "../types/events.js";
 import type { ChapterNo } from "../types/primitives.js";
 import { diffDeclarations, impactedChapters, PROSE_ONLY_CHANGE, type ImpactReason, type ImpactSeverity, type LaterChapter, type RevisionImpact } from "./impact.js";
@@ -268,7 +269,7 @@ export class ReviseService {
     const byChapter = new Map<ChapterNo, StructuralEventPayload[]>();
     for (const event of this.deps.source.events()) {
       const { chapter, origin, provenance } = event.envelope;
-      if (chapter <= source || origin === "P4_outline") continue;
+      if (chapter <= source || isPlanOrigin(origin)) continue;
       if (provenance !== "committed" && provenance !== "authored") continue;
       byChapter.set(chapter, [...(byChapter.get(chapter) ?? []), event.payload]);
     }

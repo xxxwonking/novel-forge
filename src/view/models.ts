@@ -58,7 +58,12 @@ export interface ForeshadowLane {
   readonly weight: ForeshadowWeight;
   readonly visibility: ForeshadowTimelineItem["visibility"];
   readonly status: ForeshadowStatus;
-  readonly planted: AnchorPoint;
+  /**
+   * 埋点。**null = 还没写进正文**（作者的 P4 规划、资料反推出的规划）——
+   * 与关系边的 `point` 是同一条约定：不是"解析失败"，而是"这条还没有落点"。
+   * 编一个章号给它，图上就会出现一个可以点的埋点，作者会当成正文里已经写过。
+   */
+  readonly planted: AnchorPoint | null;
   readonly expectedBy: ChapterNo;
   readonly resolutions: readonly {
     readonly completeness: "full" | "partial";
@@ -195,6 +200,16 @@ function buildAxis(input: BuildViewInput): ChapterAxis {
   return { from: 1, to, current: input.currentChapter };
 }
 
+/**
+ * 这条伏笔还没有正文落点：锚点的引文为空。
+ *
+ * 判引文而不是判章号，是为了把两种规划收在同一条约定下 —— 作者的 P4 规划带着
+ * 起草那一章的章号，资料反推的规划连章号都没有（`NOT_IN_PROSE`），但两者都没有
+ * 可定位的原文。按章号判会让前者漏出去，在图上显示成一个"已埋设"的空心点，
+ * 那正是 `proposals.ts` 那条注释要防的事。
+ */
+const notInProse = (f: ForeshadowTimelineItem): boolean => f.plantedAnchor.quote.trim() === "";
+
 type Resolver = (anchor: TextAnchor) => AnchorPoint;
 
 function buildForeshadowLanes(input: BuildViewInput, resolve: Resolver): readonly ForeshadowLane[] {
@@ -210,7 +225,9 @@ function buildForeshadowLanes(input: BuildViewInput, resolve: Resolver): readonl
 
     return {
       f,
-      span: { from: f.plantedAt, to: end },
+      // 无落点的规划从轴首起，与前端画出来的一致 —— 装箱用的跨度短于实际线段，
+      // 同一轨道里就会叠上另一条线。
+      span: { from: notInProse(f) ? 1 : f.plantedAt, to: end },
       lane: {
         id: f.id,
         label: f.label,
@@ -218,7 +235,7 @@ function buildForeshadowLanes(input: BuildViewInput, resolve: Resolver): readonl
         weight: f.weight,
         visibility: f.visibility,
         status: f.status,
-        planted: resolve(f.plantedAnchor),
+        planted: notInProse(f) ? null : resolve(f.plantedAnchor),
         expectedBy: f.expectedBy,
         resolutions: f.resolutions.map((r) => ({
           completeness: r.completeness,
