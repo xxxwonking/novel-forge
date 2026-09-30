@@ -27,12 +27,18 @@ export function Credits(): React.ReactElement {
         <div><span className="credit-figure">{credits(balance.granted)}</span><small>赠送额度</small></div>
       </section>
     )}
+    {balance !== null && balance.exhausted && (
+      <div className="finding" role="alert" data-level="block">
+        积分已用完：对话、写章、审查与反推的新调用都会被拦下，不会发出也不会扣费。
+        已有正文、草稿与资料不受影响，阅读、手动修改和导出照常可用；补充额度后，被拦下的步骤可以直接重试。
+      </div>
+    )}
     {balance !== null && balance.unpricedCalls > 0 && (
       <p className="finding" data-level="warn">
         有 {balance.unpricedCalls} 次调用用的模型不在价格表里：用量照记，但没有折进余额。补上 pricing.yaml 里对应的型号，这部分才算得进来。
       </p>
     )}
-    <p className="muted">本批只有赠送额度，还没有充值入口。余额 = 赠送额度 − 已消耗。</p>
+    <p className="muted">本批只有赠送额度，还没有充值入口。余额 = 赠送额度 − 已消耗；余额不是正数时新的模型调用会被拦下，最后一次放行的调用可能让余额略低于零。</p>
 
     {summary !== null && (
       <section className="prep-section">

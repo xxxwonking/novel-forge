@@ -97,7 +97,9 @@ export function Works(): React.ReactElement {
       <div className="library-mast">
         <span className="wordmark"><i aria-hidden="true" />novel-forge</span>
         <span className="library-tagline">你的故事，慢慢成形。</span>
-        {workspace.data !== null && <span className="library-balance">剩余 {workspace.data.credits.balance.toLocaleString("zh-CN", { maximumFractionDigits: 0 })} 积分</span>}
+        {workspace.data !== null && (workspace.data.credits.exhausted
+          ? <span className="library-balance" data-state="exhausted" role="status">积分已用完 · 新的模型调用会被拦下</span>
+          : <span className="library-balance">剩余 {workspace.data.credits.balance.toLocaleString("zh-CN", { maximumFractionDigits: 0 })} 积分</span>)}
       </div>
 
       {/* 标语进左列，与表单并排：表单从页首就在手边，不必先滚过一屏标语。 */}

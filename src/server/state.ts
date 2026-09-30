@@ -37,6 +37,7 @@ import { buildMainAgentSystem, type MainAgentContextInfo } from "../agent/system
 import type { AlternativeIdea, ConversationMode, ConversationObserver, ConversationReply, ConversationTurn } from "../agent/types.js";
 import { createModelClient, resolveModelName } from "../client/create.js";
 import { metered } from "../credits/meter.js";
+import { gated } from "../credits/gate.js";
 import { MaterialStore, type MaterialFile } from "../import/materials.js";
 import { NOT_IN_PROSE, type ForeshadowClaim, type RelationClaim } from "../types/relations.js";
 import type { PresenceScan } from "../types/presence.js";
@@ -106,6 +107,14 @@ export interface PreparationDraftResult {
   readonly characters: readonly CharacterInput[];
 }
 
+export interface ProjectSessionOptions extends ChapterWriterOptions {
+  /**
+   * 全局剩余积分，每次模型调用前现问一次。工作区提供它（汇总全部作品，含回收站）。
+   * 不经工作区单独构造会话时退回本作品自己的账 —— 仍然有闸门，只是看不见别的作品。
+   */
+  readonly creditBalance?: () => number;
+}
+
 export class ProjectSession {
   readonly preparation: PreparationService;
   readonly planning: PlanningService;
@@ -134,12 +143,14 @@ export class ProjectSession {
   private progress: ReturnType<typeof buildStoryProgress> | null = null;
   private readonly conversation: ConversationStore;
   private modelClient: ModelClient | undefined;
+  private readonly creditBalance: (() => number) | undefined;
 
   constructor(
     private readonly root: string,
     readonly rules: Rules = loadRules(),
-    writing: ChapterWriterOptions = {},
+    writing: ProjectSessionOptions = {},
   ) {
+    this.creditBalance = writing.creditBalance;
     this.store = new ProjectStore(root);
     this.drafts = new DraftStore(root);
     const snap = this.store.load();
@@ -880,7 +891,7 @@ export class ProjectSession {
     return estimateModes([materials, this.inference.estimateFacts(resolveModelName("creative"))], readCreditEntries(this.root), loadPricing());
   }
 
-  /** 全流程唯一的客户端出口：在这里包上计量，任何调用点都不会绕过记账。 */
+  /** 全流程唯一的客户端出口：在这里包上计量与余额闸门，任何调用点都不会绕过记账或拦截。 */
   getModelClient(): ModelClient {
     if (this.modelClient === undefined) {
       try {
@@ -902,8 +913,13 @@ export class ProjectSession {
     });
   }
 
+  /** 闸门在计量外面：被拦下的调用没有发出，也就不进账。 */
   private meter(client: ModelClient): ModelClient {
-    return metered(client, (entry) => appendCreditEntry(this.root, entry));
+    return gated(metered(client, (entry) => appendCreditEntry(this.root, entry)), () => this.balance());
+  }
+
+  private balance(): number {
+    return this.creditBalance?.() ?? loadPricing().signupGrant - this.credits().credits;
   }
 
   private agentContextInfo(): MainAgentContextInfo {
