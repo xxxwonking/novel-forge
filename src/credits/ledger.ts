@@ -12,6 +12,7 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { EntryTokens } from "./pricing.js";
+import type { CallTiming } from "../client/claude.js";
 
 const FILE = "credits.jsonl";
 
@@ -26,6 +27,18 @@ export interface CreditEntry {
   readonly credits: number;
   /** 价格表里有没有这个模型。false 时 credits 为 0，消耗仍照记。 */
   readonly priced: boolean;
+  /**
+   * 这次调用从发出到拿回结果用了多久，两个钟都记（理由见 `CallTiming`）。
+   * 旧账目没有这一项。调超时之前要先有真实分布（§37），账本本来就每次调用落一行。
+   */
+  readonly timing?: CallTiming;
+}
+
+export interface PurposeSummary {
+  readonly calls: number;
+  readonly credits: number;
+  /** 有耗时记录的调用的平均单调钟耗时；一条都没有时是 null（不知道），不是 0。 */
+  readonly avgMs: number | null;
 }
 
 export interface CreditSummary {
@@ -33,7 +46,7 @@ export interface CreditSummary {
   readonly credits: number;
   readonly unpricedCalls: number;
   readonly tokens: { readonly input: number; readonly output: number; readonly cacheWrite: number; readonly cacheRead: number };
-  readonly byPurpose: Readonly<Record<string, { readonly calls: number; readonly credits: number }>>;
+  readonly byPurpose: Readonly<Record<string, PurposeSummary>>;
 }
 
 /** 直接追加，不走文件事务：账目落盘失败不该把一次已经花掉的调用回滚成没发生。 */
@@ -62,7 +75,7 @@ export function readCreditEntries(root: string): readonly CreditEntry[] {
 
 export function summarize(entries: readonly CreditEntry[]): CreditSummary {
   const tokens = { input: 0, output: 0, cacheWrite: 0, cacheRead: 0 };
-  const byPurpose: Record<string, { calls: number; credits: number }> = {};
+  const slots: Record<string, { calls: number; credits: number; timed: number; totalMs: number }> = {};
   let credits = 0;
   let unpricedCalls = 0;
   for (const entry of entries) {
@@ -72,8 +85,15 @@ export function summarize(entries: readonly CreditEntry[]): CreditSummary {
     tokens.output += entry.tokens.output;
     tokens.cacheWrite += entry.tokens.cacheWrite ?? 0;
     tokens.cacheRead += entry.tokens.cacheRead ?? 0;
-    const slot = byPurpose[entry.purpose] ?? { calls: 0, credits: 0 };
-    byPurpose[entry.purpose] = { calls: slot.calls + 1, credits: slot.credits + entry.credits };
+    const slot = slots[entry.purpose] ?? { calls: 0, credits: 0, timed: 0, totalMs: 0 };
+    const ms = entry.timing?.monotonicMs;
+    const timed = typeof ms === "number" && Number.isFinite(ms);
+    slots[entry.purpose] = {
+      calls: slot.calls + 1, credits: slot.credits + entry.credits,
+      timed: slot.timed + (timed ? 1 : 0), totalMs: slot.totalMs + (timed ? ms : 0),
+    };
   }
+  const byPurpose = Object.fromEntries(Object.entries(slots).map(([purpose, slot]) =>
+    [purpose, { calls: slot.calls, credits: slot.credits, avgMs: slot.timed === 0 ? null : slot.totalMs / slot.timed }]));
   return { calls: entries.length, credits, unpricedCalls, tokens, byPurpose };
 }

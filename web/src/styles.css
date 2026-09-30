@@ -281,8 +281,10 @@ a.book-card:hover .book-cta { color: var(--main); }
 /* 数字用等宽变体，几行叠在一起时小数点对得齐。 */
 .credit-figure { font: 500 26px/1.2 var(--serif); font-variant-numeric: tabular-nums; }
 .credit-rows { display: grid; gap: 2px; margin: 12px 0; }
-.credit-row { display: grid; grid-template-columns: minmax(0, 1fr) 80px 120px; gap: 12px; align-items: baseline; padding: 10px 0; border-top: 1px solid var(--line); }
+.credit-row { display: grid; grid-template-columns: minmax(0, 1fr) 64px 112px 110px; gap: 12px; align-items: baseline; padding: 10px 0; border-top: 1px solid var(--line); }
 .credit-row span:last-child { text-align: right; font-variant-numeric: tabular-nums; }
+/* 窄屏：用途名独占一行，次数、耗时、积分排在下一行 —— 四列挤在 320px 里名字会被压成一两个字宽。 */
+@media (max-width: 720px) { .credit-row { grid-template-columns: auto minmax(0, 1fr) auto; row-gap: 4px; } .credit-row strong { grid-column: 1 / -1; } }
 .search-box { max-width: 560px; margin: 4px 0 22px; }
 .search-chapter { border-top: 1px solid var(--line); padding: 16px 0; }
 .search-chapter h3 { margin: 0; font: 500 15px/1.4 var(--serif); }

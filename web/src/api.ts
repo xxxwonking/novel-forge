@@ -34,7 +34,8 @@ export interface CreditSummary {
   credits: number;
   unpricedCalls: number;
   tokens: { input: number; output: number; cacheWrite: number; cacheRead: number };
-  byPurpose: Record<string, { calls: number; credits: number }>;
+  /** avgMs：有耗时记录的调用的平均耗时；旧账目没记，全无记录时为 null。 */
+  byPurpose: Record<string, { calls: number; credits: number; avgMs: number | null }>;
 }
 
 /** `exhausted` 由服务端按闸门同一判据给出：为 true 时新的模型调用会被拦下。 */

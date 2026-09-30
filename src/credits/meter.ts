@@ -11,6 +11,7 @@
  */
 
 import type { ModelClient } from "../client/model.js";
+import { startTiming } from "../client/claude.js";
 import type { CreditEntry } from "./ledger.js";
 import { creditsFor, loadPricing, type EntryTokens, type Pricing } from "./pricing.js";
 
@@ -30,7 +31,9 @@ export function metered(
   return {
     ...client,
     call: async (options) => {
+      const elapsed = startTiming();
       const result = await client.call(options);
+      const timing = elapsed();
       // 抛出与 kind:"error" 都不记账：没拿到用量就不知道花了多少，
       // 「发生过一次没量到的调用」由 TaskUsage.unmeasuredCalls 记着。
       if (result.kind === "error") return result;
@@ -40,7 +43,7 @@ export function metered(
       const credits = creditsFor(pricing.models[model], tokens, pricing);
       record({
         at: now(), model, role: options.role, purpose: options.purpose ?? "other",
-        tokens, credits: credits ?? 0, priced: credits !== null,
+        tokens, credits: credits ?? 0, priced: credits !== null, timing,
       });
       return result;
     },
