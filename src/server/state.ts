@@ -35,7 +35,7 @@ import { MainAgentService } from "../agent/service.js";
 import { runAgentLoop, type AgentActionOutcome, type MainAgentToolContext, type PlanAddInput } from "../agent/tool-exec.js";
 import { buildMainAgentSystem, type MainAgentContextInfo } from "../agent/system-prompt.js";
 import type { AlternativeIdea, ConversationMode, ConversationObserver, ConversationReply, ConversationTurn } from "../agent/types.js";
-import { createModelClient } from "../client/create.js";
+import { createModelClient, resolveModelName } from "../client/create.js";
 import { metered } from "../credits/meter.js";
 import { MaterialStore, type MaterialFile } from "../import/materials.js";
 import { NOT_IN_PROSE, type ForeshadowClaim, type RelationClaim } from "../types/relations.js";
@@ -43,6 +43,9 @@ import type { PresenceScan } from "../types/presence.js";
 import type { ImportFile } from "../import/split.js";
 import { characterSource } from "../preparation/sources.js";
 import { appendCreditEntry, readCreditEntries, summarize } from "../credits/ledger.js";
+import { estimateModes, type InferenceEstimate, type ModeFacts } from "../credits/estimate.js";
+import { loadPricing } from "../credits/pricing.js";
+import { estimateTokens } from "../context/select-l3.js";
 import type { ModelClient } from "../client/model.js";
 import { countWords } from "../text/measure.js";
 import { withFileTransaction } from "../store/transaction.js";
@@ -75,6 +78,13 @@ export interface SessionDerived {
 
 /** 起草一次要容纳完整人物档案与首章规划；短回复仍要求简洁。 */
 const PREPARATION_DRAFT_MAX_TOKENS = 8192;
+/**
+ * 起草资料在账本里的用途标签。
+ *
+ * 不跟着 `runAgentLoop` 默认的 `conversation` 走：那会把「让 AI 起草资料」的消耗
+ * 混进作者的日常对话里，用量页分不开，费用预估也就找不到同类实测记录。
+ */
+const PREPARATION_PURPOSE = "preparation";
 
 export interface PreparationDraftOptions {
   /** 作者的一句话补充要求，可空 —— 空了就只按作品想法推断。 */
@@ -667,6 +677,51 @@ export class ProjectSession {
   }
 
   /**
+   * 起草这一档要发给模型的那段话。
+   *
+   * 单独抽出来是为了让费用预估能算出**真实的**输入规模 —— 资料全文最多 6 万字，
+   * 按一个拍出来的常数算会差出一个量级，而这个数字正是作者选路线的依据。
+   */
+  private preparationAsk(options: PreparationDraftOptions, chapters: { readonly from: number; readonly to: number } | null): string {
+      // 人物、情节线、伏笔读同一批材料：作者的大纲与简介里写着这三样，正文抽样只作核对。
+      const sources = options.focus === "characters" || options.focus === "plotlines" || options.focus === "foreshadows" ? this.characterSources() : null;
+      const focus = options.focus === "characters"
+        ? `这次**只**起草人物档案（changes.characters）。地点、情节线、章节计划一律不要动。把这本书里**已经出现过的人物**尽量都建出来，一人一张卡，并按出场权重分档：protagonist（主角）、major（主要）、minor（次要）、extra（龙套）；身份与定位写进 profile.role，关系与来历写进 profile.background。${sources !== null && sources.from.length > 0 ? "人物以作者提供的资料文件为准，正文抽样只用来核对谁真的出过场。资料里如果写了人物之间的关系（搭档、亲属、师徒、仇敌…），一并填进 changes.relations —— 每条一个方向，双向关系填两条，note 用一句话说清是什么关系；**只填资料里写明的，不要自己推测**。" : ""}`
+        : options.focus === "plotlines"
+          ? "这次**只**认出情节线（changes.plotLines）。人物、地点、章节计划一律不要动。情节线是**贯穿多章的叙事主干**（一桩要查到底的案子、一条感情线、某个组织的图谋），不是单章里发生的事 —— 一章就了结的写不成情节线。从作者的大纲、简介与正文抽样里认，每条给一个 P 开头的编号、一句话标签（label），并定权重：main（主线，断几章就该警觉）、sub（支线）、detail（细节线）。**只认资料里写明或正文里明显贯穿的**，宁可少认几条也不要为了凑数编造。"
+          : options.focus === "foreshadows"
+            ? [
+              "这次**只**反推伏笔规划（changes.foreshadows）。人物、地点、情节线、章节计划一律不要动。",
+              "伏笔 = 作者先埋下、打算在后面章节兑现的承诺：一件没交代来历的东西、一句意味不明的话、一个没露面的名字、一笔对不上的账。",
+              "从作者的大纲、简介与正文抽样里认，每条填：label（短标签，几个字，正文写到时要靠它认领这条规划，**必须彼此不同、也不要与已有伏笔重名**）、",
+              "intent（这条将来要兑现什么 —— 这是最重要的字段，它决定了什么才算「收了」，写具体，不要写「会有反转」这类空话）、",
+              `weight（main 主线 / sub 支线 / detail 细节）、expectedBy（打算在第几章前兑现，必须大于第 ${this.chapterNumbers().length === 0 ? 0 : Math.max(...this.chapterNumbers())} 章）。`,
+              "**不要给编号** —— F 序号由系统分配，你填了也不会被采用。",
+              "只认资料里写明或抽样正文里明显悬着没交代的，宁可少认几条也不要凑数：多报一条假伏笔，作者后面每一章都会被提醒去兑现一件根本不存在的事。",
+            ].join("\n")
+          : chapters !== null
+          ? `这次**只**排章计划（changes.beats）：为第 ${chapters.from} 章到第 ${chapters.to} 章各起草一份，章号连续、volume 沿用最近一章的卷号（没有就填 1）。人物、地点、情节线一律不动，只能引用已确认的 ID。每章必须有具体的核心事件、阶段反馈与章末钩子，不要写「继续铺垫」「更大的风暴」这类空话；要收的伏笔只能是当前 open 的编号，埋设与兑现要跨章衔接，不要把所有兑现堆在最后一章。`
+          : "起草这份作品现在还缺的资料：人物档案、必要的地点/组织、情节线，以及下一章的章计划。已经确认的内容不要重复提交。";
+      const brief = (options.brief ?? "").trim();
+      // 提示词仍然写明边界，与受限工具集互补：工具集管"做不到"，提示词管"该怎么用"。
+      return [
+        "（这条请求来自资料页的「让 AI 起草」按钮，不是作者在对话里打的字，请直接执行，不要反问。）",
+        "先 get_preparation 读取作者已指定的想法与现有正式资料，再据此推断并补齐：",
+        focus,
+        ...(sources === null || sources.text === "" ? [] : ["以下是这本书已有的材料：", sources.text]),
+        ...(sources === null || sources.sampled.length === 0 ? [] : [`注意：正文只抽样了上面那 ${sources.sampled.length} 章的开头，全书共 ${this.chapterNumbers().length} 章。${options.focus === "plotlines" ? "资料文件里写了、抽样里没见到的线，也照样认出来" : options.focus === "foreshadows" ? "以资料文件为主：伏笔要靠通读全书才看得准，抽样的章首读不出中段埋的东西 —— 资料里没写明的，不要靠六段抽样去猜" : "没有抽到的章里的人物如果资料文件提到了，也照样建卡"}；不要声称你读过全书。`]),
+        // 人物卡的完整性要求只对建人物的两档说 —— 排章计划与认情节线都不碰人物卡。
+        ...(options.focus === "characters" || options.focus === "full" ? ["人物 profile 与 speech 必须是完整的：定位、外貌、性格标签、想要什么、害怕什么、背景，以及说话方式（语域、情绪表达、句长区间、句式偏好、至少一条正例台词）。作者的设定常常只有一句想法 —— 人物具体是什么样由你判断，不要回过头去问作者。"] : []),
+        "用 propose_preparation 保存为一份方案供作者审阅。不要确认方案，不要写章，不要采用任何稿件。",
+        ...(brief === "" ? [] : [`作者这次的补充要求：${brief}`]),
+        chapters !== null ? "最后用一段话说明每章推进了什么、哪几章收了哪些伏笔，以及哪里还需要作者拿主意。"
+          : options.focus === "plotlines" ? "最后用一段话说明你认出了哪几条线、各自贯穿到哪里，以及哪里还需要作者拿主意。"
+            : options.focus === "foreshadows" ? "最后用一段话说明你认出了哪几条伏笔、各自的依据在资料还是正文，以及哪几条你不太确定、需要作者自己判断。"
+            : "最后用一段话说明你补了哪些人物、各自的关键设定，以及哪里还需要作者拿主意。",
+      ].join("\n");
+  }
+
+  /**
    * 资料页的「让 AI 起草」：跑一次**没有人坐在旁边**的起草回合。
    *
    * 三处刻意的取舍：
@@ -683,42 +738,7 @@ export class ProjectSession {
   async draftPreparation(options: PreparationDraftOptions, observe?: ConversationObserver): Promise<PreparationDraftResult> {
     const client = this.getModelClient();
     const chapters = options.focus === "chapters" ? this.batchRange(options.count) : null;
-    // 人物、情节线、伏笔读同一批材料：作者的大纲与简介里写着这三样，正文抽样只作核对。
-    const sources = options.focus === "characters" || options.focus === "plotlines" || options.focus === "foreshadows" ? this.characterSources() : null;
-    const focus = options.focus === "characters"
-      ? `这次**只**起草人物档案（changes.characters）。地点、情节线、章节计划一律不要动。把这本书里**已经出现过的人物**尽量都建出来，一人一张卡，并按出场权重分档：protagonist（主角）、major（主要）、minor（次要）、extra（龙套）；身份与定位写进 profile.role，关系与来历写进 profile.background。${sources !== null && sources.from.length > 0 ? "人物以作者提供的资料文件为准，正文抽样只用来核对谁真的出过场。资料里如果写了人物之间的关系（搭档、亲属、师徒、仇敌…），一并填进 changes.relations —— 每条一个方向，双向关系填两条，note 用一句话说清是什么关系；**只填资料里写明的，不要自己推测**。" : ""}`
-      : options.focus === "plotlines"
-        ? "这次**只**认出情节线（changes.plotLines）。人物、地点、章节计划一律不要动。情节线是**贯穿多章的叙事主干**（一桩要查到底的案子、一条感情线、某个组织的图谋），不是单章里发生的事 —— 一章就了结的写不成情节线。从作者的大纲、简介与正文抽样里认，每条给一个 P 开头的编号、一句话标签（label），并定权重：main（主线，断几章就该警觉）、sub（支线）、detail（细节线）。**只认资料里写明或正文里明显贯穿的**，宁可少认几条也不要为了凑数编造。"
-        : options.focus === "foreshadows"
-          ? [
-            "这次**只**反推伏笔规划（changes.foreshadows）。人物、地点、情节线、章节计划一律不要动。",
-            "伏笔 = 作者先埋下、打算在后面章节兑现的承诺：一件没交代来历的东西、一句意味不明的话、一个没露面的名字、一笔对不上的账。",
-            "从作者的大纲、简介与正文抽样里认，每条填：label（短标签，几个字，正文写到时要靠它认领这条规划，**必须彼此不同、也不要与已有伏笔重名**）、",
-            "intent（这条将来要兑现什么 —— 这是最重要的字段，它决定了什么才算「收了」，写具体，不要写「会有反转」这类空话）、",
-            `weight（main 主线 / sub 支线 / detail 细节）、expectedBy（打算在第几章前兑现，必须大于第 ${this.chapterNumbers().length === 0 ? 0 : Math.max(...this.chapterNumbers())} 章）。`,
-            "**不要给编号** —— F 序号由系统分配，你填了也不会被采用。",
-            "只认资料里写明或抽样正文里明显悬着没交代的，宁可少认几条也不要凑数：多报一条假伏笔，作者后面每一章都会被提醒去兑现一件根本不存在的事。",
-          ].join("\n")
-        : chapters !== null
-        ? `这次**只**排章计划（changes.beats）：为第 ${chapters.from} 章到第 ${chapters.to} 章各起草一份，章号连续、volume 沿用最近一章的卷号（没有就填 1）。人物、地点、情节线一律不动，只能引用已确认的 ID。每章必须有具体的核心事件、阶段反馈与章末钩子，不要写「继续铺垫」「更大的风暴」这类空话；要收的伏笔只能是当前 open 的编号，埋设与兑现要跨章衔接，不要把所有兑现堆在最后一章。`
-        : "起草这份作品现在还缺的资料：人物档案、必要的地点/组织、情节线，以及下一章的章计划。已经确认的内容不要重复提交。";
-    const brief = (options.brief ?? "").trim();
-    // 提示词仍然写明边界，与受限工具集互补：工具集管"做不到"，提示词管"该怎么用"。
-    const ask = [
-      "（这条请求来自资料页的「让 AI 起草」按钮，不是作者在对话里打的字，请直接执行，不要反问。）",
-      "先 get_preparation 读取作者已指定的想法与现有正式资料，再据此推断并补齐：",
-      focus,
-      ...(sources === null || sources.text === "" ? [] : ["以下是这本书已有的材料：", sources.text]),
-      ...(sources === null || sources.sampled.length === 0 ? [] : [`注意：正文只抽样了上面那 ${sources.sampled.length} 章的开头，全书共 ${this.chapterNumbers().length} 章。${options.focus === "plotlines" ? "资料文件里写了、抽样里没见到的线，也照样认出来" : options.focus === "foreshadows" ? "以资料文件为主：伏笔要靠通读全书才看得准，抽样的章首读不出中段埋的东西 —— 资料里没写明的，不要靠六段抽样去猜" : "没有抽到的章里的人物如果资料文件提到了，也照样建卡"}；不要声称你读过全书。`]),
-      // 人物卡的完整性要求只对建人物的两档说 —— 排章计划与认情节线都不碰人物卡。
-      ...(options.focus === "characters" || options.focus === "full" ? ["人物 profile 与 speech 必须是完整的：定位、外貌、性格标签、想要什么、害怕什么、背景，以及说话方式（语域、情绪表达、句长区间、句式偏好、至少一条正例台词）。作者的设定常常只有一句想法 —— 人物具体是什么样由你判断，不要回过头去问作者。"] : []),
-      "用 propose_preparation 保存为一份方案供作者审阅。不要确认方案，不要写章，不要采用任何稿件。",
-      ...(brief === "" ? [] : [`作者这次的补充要求：${brief}`]),
-      chapters !== null ? "最后用一段话说明每章推进了什么、哪几章收了哪些伏笔，以及哪里还需要作者拿主意。"
-        : options.focus === "plotlines" ? "最后用一段话说明你认出了哪几条线、各自贯穿到哪里，以及哪里还需要作者拿主意。"
-          : options.focus === "foreshadows" ? "最后用一段话说明你认出了哪几条伏笔、各自的依据在资料还是正文，以及哪几条你不太确定、需要作者自己判断。"
-          : "最后用一段话说明你补了哪些人物、各自的关键设定，以及哪里还需要作者拿主意。",
-    ].join("\n");
+    const ask = this.preparationAsk(options, chapters);
 
     let captured: PreparationInput | null = null;
     const base = this.buildAgentContext(ask);
@@ -739,6 +759,7 @@ export class ProjectSession {
 
     const loop = await runAgentLoop(client, {
       role: "judge",
+      purpose: PREPARATION_PURPOSE,
       maxTokens: PREPARATION_DRAFT_MAX_TOKENS,
       tools: PREPARATION_DRAFT_TOOLS,
       system: buildMainAgentSystem(this.agentContextInfo()),
@@ -827,6 +848,36 @@ export class ProjectSession {
   /** 本作品的模型消耗。余额是全局的，由工作区汇总各作品减出来。 */
   credits(): ReturnType<typeof summarize> {
     return summarize(readCreditEntries(this.root));
+  }
+
+  /**
+   * 两条反推路线各要花多少。
+   *
+   * 作者在资料页面对的是同一个目标（把空白的结构补出来）下的两个按钮，而它们的代价
+   * 可以差两个量级。不把这个数摆出来，"更仔细"就成了唯一可比的维度，于是所有人都
+   * 会去点那条按章计费的。
+   *
+   * 两档的模型**按各自的 role 分别解析**：资料反推走 judge、逐章反推走 creative，
+   * 在 Claude 直连下那是 haiku 与 opus，输出价差 15 倍；chat 接入下两者是同一个模型。
+   * 这也是费用不能在前端按一个常数算的原因。
+   */
+  inferenceEstimate(): readonly InferenceEstimate[] {
+    const rounds = this.rules.agent.maxConversationRounds;
+    // 智能体循环每轮重放同一份基础提示词（系统提示 + 工具定义 + 这段请求），
+    // 第二轮起再叠上 get_preparation 的返回。模型自己提交的方案载荷也会被重放，
+    // 那部分事前不可知 —— 与输出按上限算的偏高方向相反，两边都写在这里。
+    const base = estimateTokens(buildMainAgentSystem(this.agentContextInfo()).map((b) => b.text).join("\n"))
+      + estimateTokens(JSON.stringify(PREPARATION_DRAFT_TOOLS))
+      + estimateTokens(this.preparationAsk({ focus: "foreshadows", apply: true }, null));
+    const toolResult = estimateTokens(JSON.stringify(this.preparation.view()));
+    const materials: ModeFacts = {
+      key: "materials", model: resolveModelName("judge"), purpose: PREPARATION_PURPOSE,
+      maxOutputTokens: PREPARATION_DRAFT_MAX_TOKENS,
+      // 下界是"读一次、提一次"，上界是轮数上限。
+      calls: { min: 2, max: Math.max(2, rounds) },
+      inputTokens: { min: base * 2 + toolResult, max: base * Math.max(2, rounds) + toolResult * (Math.max(2, rounds) - 1) },
+    };
+    return estimateModes([materials, this.inference.estimateFacts(resolveModelName("creative"))], readCreditEntries(this.root), loadPricing());
   }
 
   /** 全流程唯一的客户端出口：在这里包上计量，任何调用点都不会绕过记账。 */

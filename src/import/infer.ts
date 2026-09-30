@@ -28,7 +28,7 @@ import type { ChapterNo } from "../types/primitives.js";
  * 输出规模与档位照抄 C5（steps.ts 的 `C5_MAX_TOKENS` / `effort: medium`）——
  * 反推的输出形状与 C5 完全相同，没有理由另定一套。是管线常量，不是派生阈值。
  */
-const INFER_MAX_TOKENS = 4_000;
+export const INFER_MAX_TOKENS = 4_000;
 
 /** 带进提示词的前情梗概章数。上下文预算，不是规则阈值 —— 整本书装不下。 */
 export const SYNOPSIS_WINDOW = 10;
@@ -46,6 +46,14 @@ export interface InferenceInput {
   readonly parseContextBase: Omit<ParseContext, "chapterText">;
   /** 已埋设未兑现的伏笔：模型只能从这张表里挑要兑现的编号。 */
   readonly openForeshadows: readonly PendingForeshadow[];
+  /**
+   * 已确认、但还没埋进正文的规划（作者的 P4 计划、从资料反推出来的安排）。
+   *
+   * 必须告诉模型，否则它按自己的说法另起一条 label，`parseC5` 认不出这是同一个
+   * 安排（它靠 `planned_foreshadow_id` 或 label 相等来认领），于是时间线上同一件事
+   * 出现两次：一条虚线规划永远等不到兑现，一条实线埋设凭空冒出来。
+   */
+  readonly plannedForeshadows: readonly PendingForeshadow[];
   /** 前情梗概，按章。让模型知道这一章之前发生过什么，不必读全书。 */
   readonly synopses: readonly { readonly chapter: ChapterNo; readonly text: string }[];
   /** 作品名与题材，给判断定个调。 */
@@ -72,6 +80,8 @@ const INFER_TASK = [
   "伏笔分两种，都要如实记：",
   "- 这一章**埋下**的（写出来了、但这一章没有交代结果）→ foreshadow_planted。",
   "  intent 写清它将来要兑现什么，expected_by 按你的判断填一个未来章号。",
+  "  如果它正是下面「已规划、尚未埋设」清单里的某一条，填上 planned_foreshadow_id，",
+  "  label 沿用清单里的说法 —— 不填就会另建一条编号，同一个安排在时间线上出现两次。",
   "- 这一章**兑现**的旧伏笔 → foreshadow_resolved，只能引用下面列出的编号。",
   "  没有列在下面的就不是待兑现伏笔，不要自己造编号。",
   "",
@@ -91,6 +101,13 @@ export function buildInferenceTask(input: InferenceInput): string {
       : ["已埋设、尚未兑现的伏笔（foreshadow_resolved 只能引用这些编号）：",
         ...input.openForeshadows.map((f) => `- ${f.id} 「${f.label}」：${f.intent}（原计划第 ${f.expectedBy} 章前兑现）`)].join("\n"),
     "",
+    ...(input.plannedForeshadows.length === 0 ? [] : [[
+      "已规划、尚未埋设的伏笔（作者的大纲里写了，正文还没写到）：",
+      ...input.plannedForeshadows.map((f) => `- ${f.id} 「${f.label}」：${f.intent}（计划第 ${f.expectedBy} 章前兑现）`),
+      "这一章如果正是埋下其中某一条的地方，就在那条 foreshadow_planted 里填 planned_foreshadow_id。",
+      "**不确定是不是同一条就不要填** —— 认错比漏认坏：漏认只是多一条编号，认错会把作者的安排改成别的意思。",
+      "这些编号不能填进 foreshadow_resolved：还没埋下的东西谈不上兑现。",
+    ].join("\n"), ""]),
     input.synopses.length === 0
       ? "这是有记录的第一章，没有前情。"
       : ["前情（已整理出的前面章节）：", ...input.synopses.map((s) => `- 第 ${s.chapter} 章：${s.text}`)].join("\n"),

@@ -656,6 +656,24 @@ export interface InferenceView {
   pending: number[];
   blocked: string | null;
 }
+/**
+ * 一档反推的费用预估。服务端算，前端只负责显示。
+ *
+ * 不在前端按一个常数折算：两档走的 role 不同（judge / creative），而实际模型由
+ * 服务端配置决定 —— Claude 直连是 haiku 与 opus，chat 接入是同一个模型。同一次
+ * 反推在两种配置下能差三十倍，前端猜不出来。
+ */
+export interface InferenceEstimate {
+  key: "materials" | "chapters";
+  calls: { min: number; max: number };
+  model: string;
+  /** null = 价格表里没有这个模型，调用照记用量但折不出积分。不是 0。 */
+  credits: { min: number; max: number } | null;
+  /** measured 按实测均价；ceiling 按 token 上限推算，必然偏高。 */
+  basis: "measured" | "ceiling";
+  samples: number;
+}
+
 export interface ImportResult {
   imported: number[]; replaced: number[]; unchanged: number[];
   totalWords: number; nextChapter: number;
@@ -735,6 +753,7 @@ export const api = {
   importApply: (input: ImportSource & { overwrite?: boolean }) => post<ImportResult>("/api/import/apply", input),
   /** 逐章反推结构：一次一章，落盘即生效，所以中断只是停下来。 */
   inferenceView: () => request<InferenceView>("/api/import/inference"),
+  inferenceEstimate: () => request<{ modes: InferenceEstimate[] }>("/api/import/inference/estimate"),
   inferChapter: (chapter: number) => post<InferenceChapter>("/api/import/infer", { chapter }),
   confirmInference: (chapter: number) => post<{ chapter: number; committed: number }>("/api/import/inference/confirm", { chapter }),
   rejectInference: (chapter: number) => post<{ chapter: number; rejected: number }>("/api/import/inference/reject", { chapter }),

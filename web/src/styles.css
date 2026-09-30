@@ -293,6 +293,21 @@ a.book-card:hover .book-cta { color: var(--main); }
 .search-entity { padding: 10px 0; border-top: 1px solid var(--line); }
 .search-entity p { margin: 4px 0; color: var(--ink-dim); font-size: 13px; overflow-wrap: anywhere; }
 .search-entity .muted { font: 11px var(--mono); }
+/* ── 反推路线选择器 ──────────────────────────────────────────────────── */
+
+/* 两张卡并排是这个组件的全部意义：费用要能直接对比，竖排就只能靠记。
+   窄屏下退成竖排 —— 那时候上下滚一下还能对，挤成两列就都读不清了。 */
+.infer-choices { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 16px 0 6px; }
+@media (max-width: 700px) { .infer-choices { grid-template-columns: 1fr; } }
+.infer-choice { display: flex; flex-direction: column; gap: 8px; padding: 16px; border: 1px solid var(--line); border-radius: 8px; }
+.infer-choice h3 { margin: 0; font: 500 15px/1.3 var(--serif); letter-spacing: 0.5px; }
+.infer-choice > .muted { font-size: 12px; margin: 0; flex: 1; }
+.infer-choice > .ant-btn { align-self: flex-start; margin-top: 4px; }
+.infer-cost { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 0; }
+.infer-cost strong { font-size: 16px; }
+.infer-cost .muted { font-size: 12px; }
+.infer-basis { font-size: 12px; margin: 0; }
+
 .prep-editor-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .prep-editor-body { max-height: min(62vh, 620px); overflow-y: auto; padding-right: 4px; }
 .prep-editor-head { margin: 26px 0 8px; padding-top: 18px; border-top: 1px solid var(--line); font: 500 15px/1.3 var(--serif); letter-spacing: 0.5px; }
