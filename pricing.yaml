@@ -4,15 +4,28 @@
 ## （上游价格、积分率）。两者变更的理由和频率都不一样，混在一起会让 rules.yaml
 ## 从「故事约束」稀释成「什么都放」。
 ##
-## ⚠ **models 里的价格是占位值，上线前必须按各家官网核对。** 它们决定作者被扣
-## 多少积分，记错就是记错账。价格表里没有的模型仍会照常记用量，只是不折积分
-## （账目里标 priced: false），所以漏配一个模型不会让调用失败，但会让那部分消耗
-## 不计入余额 —— 定期看一眼「未计价调用」那一栏。
+## models 里的价格决定作者被扣多少积分，记错就是记错账。价格表里没有的模型仍会
+## 照常记用量，只是不折积分（账目里标 priced: false），所以漏配一个模型不会让调用
+## 失败，但会让那部分消耗不计入余额 —— 定期看一眼「未计价调用」那一栏。
 ##
 ## 单价单位：美元 / 每百万 token。cacheWrite 与 cacheRead 是缓存写入与命中的价格，
 ## 它们与 input 差一个量级，合并计价会把账算错。
+##
+## 改价只影响之后的调用：账本 credits.jsonl 是 append-only，每条记的是当时折好的积分。
+##
+## 核对记录（p2，2026-09-30）：
+##   - Claude：Anthropic 官方价格页 https://platform.claude.com/docs/en/about-claude/pricing
+##     cacheWrite 取 5 分钟档（代码里 cache_control 是 ephemeral 默认 TTL，见 context/assemble.ts）。
+##     p1 把 Opus 5 按 Opus 4/4.1 的 15/75 记，高了三倍。
+##   - Gemini 3 Flash：Google 当前的 Gemini API 价格页已不列此型号；输入 0.50 与缓存命中 0.05
+##     取自 Google Cloud 官方价格页（Gemini 3 Flash Preview，Global），
+##     https://cloud.google.com/gemini-enterprise-agent-platform/generative-ai/pricing
+##     输出 3.00 该页未显示，取发布时公布的价格（多个来源一致），**未在官方页面复核**。
+##     Gemini 的上下文缓存按存储时长另计、没有写入溢价，cacheWrite 按 input 记；
+##     chat 接入本来也不报缓存档。
+##   - 走代理/聚合平台时，平台真实成本是代理的报价而不是官方价，需要按合同另行核对。
 
-version: p1
+version: p2
 
 ## 多少积分折 1 美元。这是你的经营参数，不是上游事实。
 creditsPerUsd: 100
@@ -22,17 +35,17 @@ signupGrant: 500
 
 models:
   claude-opus-5:
-    input: 15
-    output: 75
-    cacheWrite: 18.75
-    cacheRead: 1.5
+    input: 5
+    output: 25
+    cacheWrite: 6.25
+    cacheRead: 0.5
   claude-haiku-4-5:
     input: 1
     output: 5
     cacheWrite: 1.25
     cacheRead: 0.1
   gemini-3-flash:
-    input: 0.3
-    output: 2.5
-    cacheWrite: 0.3
-    cacheRead: 0.075
+    input: 0.5
+    output: 3
+    cacheWrite: 0.5
+    cacheRead: 0.05
