@@ -24,7 +24,10 @@ import { declarationOf } from "../store/event-stream.js";
 import { isPlanOrigin } from "../types/events.js";
 import type { C5Declaration, StructuralEvent } from "../types/events.js";
 import type { ChapterNo, ForeshadowId } from "../types/primitives.js";
-import { inferChapterStructure, SYNOPSIS_WINDOW, type PendingForeshadow } from "./infer.js";
+import { buildInferenceTask, inferChapterStructure, INFER_MAX_TOKENS, SYNOPSIS_WINDOW, type PendingForeshadow } from "./infer.js";
+import { C5_OUTPUT_SCHEMA } from "../chapter/c5-schema.js";
+import { estimateTokens } from "../context/select-l3.js";
+import type { ModeFacts } from "../credits/estimate.js";
 import { InferenceStore, type InferenceRun } from "./inference-store.js";
 
 export type InferenceState = "written" | "confirmed" | "pending" | "problem" | "failed" | "skipped" | "none";
@@ -77,6 +80,31 @@ export class InferenceService {
       nextChapter: first === undefined || (blocking !== undefined && blocking.chapter < first.chapter) ? null : first.chapter,
       pending: chapters.filter((c) => c.state === "pending").map((c) => c.chapter),
       blocked: this.blocked(),
+    };
+  }
+
+  /**
+   * 逐章反推这条路要发生多少次调用、合计发出多少输入 token。
+   *
+   * 次数是**确定的**：`infer()` 一章一次调用，没处理过的章有几个就是几次，所以
+   * 区间两端相同。输入分两部分 —— 章正文逐章精确算，其余开销（任务说明、ID 清单、
+   * 伏笔清单、前情梗概、输出 schema）取"下一章此刻的真实提示词"再乘次数。
+   *
+   * 后者是个**偏低**的近似：反推往后走，伏笔清单与前情梗概都会变长。方向记在这里，
+   * 不在界面上装作精确 —— 而只要攒够三次实测，这套推算就整体让位给账本里的均价。
+   */
+  estimateFacts(model: string): ModeFacts {
+    const remaining = this.view().chapters.filter((c) => c.state === "none").map((c) => c.chapter);
+    const first = remaining[0];
+    const overhead = first === undefined ? 0 : estimateTokens(buildInferenceTask({
+      chapter: first, chapterText: "", title: this.deps.source.meta.setting.title, ...this.accumulated(first),
+    })) + estimateTokens(JSON.stringify(C5_OUTPUT_SCHEMA));
+    const prose = remaining.reduce((sum, n) => sum + estimateTokens(this.deps.source.chapterText(n) ?? ""), 0);
+    const tokens = overhead * remaining.length + prose;
+    return {
+      key: "chapters", model, purpose: "inference", maxOutputTokens: INFER_MAX_TOKENS,
+      calls: { min: remaining.length, max: remaining.length },
+      inputTokens: { min: tokens, max: tokens },
     };
   }
 
@@ -193,10 +221,14 @@ export class InferenceService {
    *
    * 伏笔来自两处 —— 已确认的走投影，本轮还没确认的从 proposed 事件现扫。
    * 两处都要，否则连着反推十章时，第 2 章之后就再也认不出前面埋的伏笔。
+   *
+   * 待兑现与待埋设分两张表给模型：前者能填进 foreshadow_resolved，后者只能用来
+   * 认领 planned_foreshadow_id。混成一张，模型会去「兑现」一条还没埋下的安排。
    */
-  private accumulated(chapter: ChapterNo): {
+  accumulated(chapter: ChapterNo): {
     readonly parseContextBase: Parameters<typeof inferChapterStructure>[1]["parseContextBase"];
     readonly openForeshadows: readonly PendingForeshadow[];
+    readonly plannedForeshadows: readonly PendingForeshadow[];
     readonly synopses: readonly { readonly chapter: ChapterNo; readonly text: string }[];
   } {
     const meta = this.deps.source.meta;
@@ -230,6 +262,9 @@ export class InferenceService {
         allocateForeshadowId: foreshadowAllocator(this.deps.source),
       },
       openForeshadows: open,
+      // 规划只取已确认的：本轮 proposed 出来的埋设已经是埋设，不在"待埋设"里。
+      plannedForeshadows: confirmed.filter((f) => f.status === "planned")
+        .map((f) => ({ id: f.id, label: f.label, intent: f.intent, expectedBy: f.expectedBy })),
       synopses: this.synopses(chapter),
     };
   }

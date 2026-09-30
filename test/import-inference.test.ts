@@ -20,6 +20,7 @@ import { handleAsync } from "../src/server/api.js";
 import { EventStream } from "../src/store/event-stream.js";
 import { NO_MODEL_REVIEW, fakeClient, modelText, writingSnapshot } from "./writing-fixtures.js";
 import type { CallResult } from "../src/client/claude.js";
+import { estimateTokens } from "../src/context/select-l3.js";
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
@@ -72,6 +73,9 @@ const post = (project: ProjectSession, path: string, body: unknown): ReturnType<
 
 const view = (project: ProjectSession): ReturnType<typeof handleAsync> =>
   handleAsync(project, { method: "GET", path: "/api/import/inference", query: new URLSearchParams(), body: undefined });
+
+const estimate = (project: ProjectSession): ReturnType<typeof handleAsync> =>
+  handleAsync(project, { method: "GET", path: "/api/import/inference/estimate", query: new URLSearchParams(), body: undefined });
 
 describe("逐章反推结构·产出待确认声明", () => {
   it("反推只落 proposed 事件，投影不变", async () => {
@@ -162,6 +166,83 @@ describe("逐章反推结构·跨章累积", () => {
     await s.inference.infer({ chapter: 2 });
 
     expect(() => s.inference.confirm({ chapter: 2 })).toThrow(/第 1 章/u);
+  });
+});
+
+describe("逐章反推结构·认领资料里的伏笔规划", () => {
+  /** 先用资料反推的路子落一条 planned 伏笔，再逐章反推正文 —— 两条路的交汇点。 */
+  const planned = (s: ProjectSession, label: string, expectedBy = 9) =>
+    s.preparation.recordAuthor({
+      summary: "资料里写明的伏笔", baseFingerprint: s.preparation.view().fingerprint,
+      changes: { foreshadows: [{ label, intent: `${label}将来要有个交代。`, weight: "main", expectedBy }] },
+    });
+
+  it("待埋设的规划要写进提示词，并说清怎么认领", async () => {
+    const { root } = project([OLD1]);
+    const { session: s, calls } = session(root, [INFER1]);
+    planned(s, "守夜人的来历");
+    await s.inference.infer({ chapter: 1 });
+
+    const prompt = JSON.stringify(calls[0]?.messages);
+    // 不告诉模型，它就按自己的说法另起一条 label，同一个安排在时间线上出现两次。
+    expect(prompt).toContain("守夜人的来历");
+    expect(prompt).toContain("planned_foreshadow_id");
+    // 两张表必须分开：还没埋下的东西不能被"兑现"。
+    expect(prompt).toContain("还没埋下的东西谈不上兑现");
+  });
+
+  it("模型填了 planned_foreshadow_id 就沿用原编号，不另建一条", async () => {
+    const { root } = project([OLD1]);
+    const claim = modelText(JSON.stringify({
+      events: [], foreshadow_resolved: [], relations_changed: [], character_states: [],
+      character_presence: [{ character_id: "C01", role: "pov" }],
+      foreshadow_planted: [{ planned_foreshadow_id: "F01", label: "守夜人的来历", intent: "守夜人的来历将来要有个交代。", weight: "main", visibility: "covert", expected_by: 9, quote: "记住了那张脸" }],
+    }));
+    const { session: s } = session(root, [claim]);
+    planned(s, "守夜人的来历");
+    const result = await s.inference.infer({ chapter: 1 });
+
+    expect(result.state).toBe("pending");
+    const declared = result.declaration?.foreshadowPlanted[0];
+    expect(declared?.foreshadowId).toBe("F01");
+    expect(declared?.plannedForeshadowId).toBe("F01");
+  });
+
+  it("认领之后这条不再是规划：虚线变实线，有了正文出处", async () => {
+    const { root } = project([OLD1]);
+    const claim = modelText(JSON.stringify({
+      events: [], foreshadow_resolved: [], relations_changed: [], character_states: [],
+      character_presence: [{ character_id: "C01", role: "pov" }],
+      foreshadow_planted: [{ planned_foreshadow_id: "F01", label: "守夜人的来历", intent: "守夜人的来历将来要有个交代。", weight: "main", visibility: "covert", expected_by: 9, quote: "记住了那张脸" }],
+    }));
+    const { session: s } = session(root, [claim]);
+    planned(s, "守夜人的来历");
+    expect(s.derived.views.foreshadows.find(f => f.id === "F01")).toMatchObject({ status: "planned", planted: null });
+
+    await s.inference.infer({ chapter: 1 });
+    s.inference.confirm({ chapter: 1 });
+
+    const lane = s.derived.views.foreshadows.find(f => f.id === "F01");
+    expect(lane?.status).toBe("open");
+    expect(lane?.planted?.chapter).toBe(1);
+    // 同一个安排只留一条 —— 认领的意义就在这里。
+    expect(s.derived.views.foreshadows.filter(f => f.label === "守夜人的来历")).toHaveLength(1);
+  });
+
+  it("规划的编号不能被当成可兑现的伏笔", async () => {
+    const { root } = project([OLD1]);
+    const wrong = modelText(JSON.stringify({
+      events: [], foreshadow_planted: [], relations_changed: [], character_states: [],
+      character_presence: [{ character_id: "C01", role: "pov" }],
+      foreshadow_resolved: [{ foreshadow_id: "F01", completeness: "full", quote: "记住了那张脸" }],
+    }));
+    const { session: s } = session(root, [wrong]);
+    planned(s, "守夜人的来历");
+    const result = await s.inference.infer({ chapter: 1 });
+
+    // 还没埋下就"兑现"，`knownForeshadows` 里没有它，整章不落。
+    expect(result.state).toBe("problem");
+    expect(s.derived.views.foreshadows.find(f => f.id === "F01")?.status).toBe("planned");
   });
 });
 
@@ -296,6 +377,46 @@ describe("逐章反推结构·边界与接口", () => {
     const response = await infer(new ProjectSession(root, NO_MODEL_REVIEW), 1);
     expect(response.status).toBe(503);
     vi.unstubAllEnvs();
+  });
+});
+
+describe("逐章反推结构·费用预估", () => {
+  it("两档都给出来，逐章那档的次数等于还没反推的章数", async () => {
+    const { root } = project([OLD1, OLD2, OLD3]);
+    const { session: s } = session(root);
+    const body = (await estimate(s)).body as { modes: readonly { key: string; calls: { min: number; max: number } }[] };
+
+    expect(body.modes.map((m) => m.key)).toEqual(["materials", "chapters"]);
+    expect(body.modes[1]?.calls).toEqual({ min: 3, max: 3 });
+  });
+
+  it("反推并确认过的章不再计费 —— 次数随进度减少", async () => {
+    const { root } = project([OLD1, OLD2, OLD3]);
+    const { session: s } = session(root, [INFER1]);
+    await s.inference.infer({ chapter: 1 });
+    s.inference.confirm({ chapter: 1 });
+    const body = (await estimate(s)).body as { modes: readonly { key: string; calls: { min: number; max: number } }[] };
+
+    expect(body.modes[1]?.calls).toEqual({ min: 2, max: 2 });
+  });
+
+  it("正文逐章精确计入，固定开销按次数摊 —— 长短章不是一个价", async () => {
+    const longText = OLD1.repeat(60);
+    const short = session(project([OLD1]).root).session;
+    const long = session(project([longText]).root).session;
+    const tokensOf = (s: ProjectSession) => s.inference.estimateFacts("cheap").inputTokens.min;
+
+    // 两者的固定开销相同（同一份任务说明、ID 清单、输出 schema），差额应当正好是正文之差。
+    expect(tokensOf(long) - tokensOf(short)).toBe(estimateTokens(longText) - estimateTokens(OLD1));
+    // 而开销本身不小：短章下它就是大头，所以不能只按章数乘一个单价。
+    expect(tokensOf(short) - estimateTokens(OLD1)).toBeGreaterThan(500);
+  });
+
+  it("没有正文时逐章那档是 0 次，不报一个凭空的数", async () => {
+    const { session: s } = session(project().root);
+    const body = (await estimate(s)).body as { modes: readonly { key: string; calls: { min: number; max: number }; credits: unknown }[] };
+
+    expect(body.modes[1]?.calls).toEqual({ min: 0, max: 0 });
   });
 });
 

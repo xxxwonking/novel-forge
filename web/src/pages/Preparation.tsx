@@ -4,6 +4,7 @@ import { readTextFile } from "../files.js";
 import { Chip } from "../components/Chip.js";
 import { BeatEditor, CharacterEditor, DraftDialog, PlotLineEditor, SettingEditor, VolumeEditor, type Editing } from "../components/PreparationEditors.js";
 import { ImportChapters } from "../components/ImportChapters.js";
+import { InferenceChooser } from "../components/InferenceChooser.js";
 import { ReviewSettings } from "../components/ReviewSettings.js";
 import { api, type CharacterRecord, type DraftFocus, type ForeshadowClaim, type PreparationContent, type PreparationPayload, type PreparationProposal, type SettingInput, type PlotLineInput, type VolumeCard } from "../api.js";
 import type { RelationClaim, Removals } from "../preparation-changes.js";
@@ -20,6 +21,8 @@ export function Preparation({ refresh, proposalId }: { refresh: () => void; prop
   const [editing, setEditing] = useState(false);
   const [entity, setEntity] = useState<Editing | null>(null);
   const [drafting, setDrafting] = useState<DraftFocus | null>(null);
+  // 两条反推路线的选择器。分开一个状态而不是塞进 drafting —— 选完才知道走哪条。
+  const [choosing, setChoosing] = useState(false);
   const [importingProfile, setImportingProfile] = useState(false);
   const profilePicker = useRef<HTMLInputElement>(null);
   const [importing, setImporting] = useState(false);
@@ -116,7 +119,7 @@ export function Preparation({ refresh, proposalId }: { refresh: () => void; prop
     <div className="prep-layout">
       <div className="prep-main">
         {candidate === undefined ? <>
-          <div className="section-head"><h2>当前创作依据</h2><div className="row"><Button type="primary" onClick={() => setDrafting("full")}>让 AI 起草资料</Button><Button onClick={() => setDrafting("chapters")}>让 AI 排后面几章</Button><Button onClick={() => setImporting(true)}>导入已有正文</Button><Button onClick={() => { window.location.hash = "/inference"; }}>从正文反推结构</Button><Button onClick={() => setEditing(!editing)}>{editing ? "返回资料" : "编辑基本设定与偏好"}</Button></div></div>
+          <div className="section-head"><h2>当前创作依据</h2><div className="row"><Button type="primary" onClick={() => setDrafting("full")}>让 AI 起草资料</Button><Button onClick={() => setDrafting("chapters")}>让 AI 排后面几章</Button><Button onClick={() => setImporting(true)}>导入已有正文</Button><Button onClick={() => setChoosing(true)}>反推故事结构</Button><Button onClick={() => setEditing(!editing)}>{editing ? "返回资料" : "编辑基本设定与偏好"}</Button></div></div>
           <input type="file" accept=".txt,.md,text/plain" multiple ref={profilePicker} style={{ display: "none" }}
             onChange={(e) => { void importProfile(e.target.files); e.target.value = ""; }} />
           {editing ? <AuthorForm view={view} onSaved={saved} /> : <Content content={view.confirmed} onEdit={setEntity} onDraft={setDrafting} onImport={() => profilePicker.current?.click()} importing={importingProfile} />}
@@ -152,6 +155,9 @@ export function Preparation({ refresh, proposalId }: { refresh: () => void; prop
         fingerprint={view.fingerprint} onSaved={saved} onClose={() => setEntity(null)} />;
     })()}
     {drafting !== null && <DraftDialog focus={drafting} onClose={() => setDrafting(null)} onProposed={(proposalId) => { setDrafting(null); setEntity(null); setEditing(false); setSelected(proposalId); setNotice("AI 起草了一份方案，请核对后决定是否确认。"); data.reload(); }} />}
+    {choosing && <InferenceChooser onClose={() => setChoosing(false)}
+      onMaterials={() => setDrafting("foreshadows")}
+      onChapters={() => { window.location.hash = "/inference"; }} />}
     {importing && <ImportChapters onClose={() => setImporting(false)} onImported={(result) => {
       setImporting(false); setEntity(null); setEditing(false); setSelected(null);
       const done = [result.imported.length > 0 ? `新增 ${result.imported.length} 章` : "", result.replaced.length > 0 ? `覆盖 ${result.replaced.length} 章` : "", result.unchanged.length > 0 ? `${result.unchanged.length} 章内容未变` : ""].filter(Boolean).join("、");
