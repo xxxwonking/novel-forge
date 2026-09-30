@@ -5,6 +5,8 @@
  *   - 自动采用只发生在 **检查通过 + 没有关键变化** 时。关键变化由代码判定（见 `keyChanges`），
  *     命中任一项就停在这一章，把它留给作者用结果页确认 —— 与「关键变化打包确认、
  *     普通事件不逐条点」的既定决策同构。
+ *   - 「检查通过」要求开着的 model 审查确实跑成了。审查降级成 info（余额耗尽、调用失败）时
+ *     草稿仍是 ready，但连写停下不采用（用户拍板，§54）。作者按作品关掉的审查不算。
  *   - 每章仍是一次完整的章节任务（复用 `ChapterWriter.write`），不另起图、不并行。
  *     第 N 章的上下文里必须有第 N-1 章的正文，串行是正确性要求，不是省事。
  *   - 停下只在章与章之间生效：当前章跑完、结果保留，作者点了停就不开下一章。
@@ -16,6 +18,7 @@
 import { readProjectFile, writeProjectFile } from "../store/transaction.js";
 import { ChapterWriteError } from "../server/chapter-input.js";
 import { draftRevisionToken } from "../task/revision.js";
+import { REVIEW_UNAVAILABLE_RULES } from "../task/steps.js";
 import type { ChapterDraft } from "../task/types.js";
 import type { ChapterNo } from "../types/primitives.js";
 
@@ -24,6 +27,8 @@ const FILE = "continuous-run.json";
 export type RunStopReason =
   /** 关键变化：人物生死、关系、主线伏笔、新人物/设定建议。 */
   | "key_change"
+  /** model 审查本该跑却没跑成（余额耗尽、调用失败、输出不合格式）。「没查」不等于「查过没问题」。 */
+  | "review_unavailable"
   | "needs_revision"
   /** 任务没交出可用结果：模型报错、被拒、输出不完整。草稿上区分不了被拒与报错，detail 里说。 */
   | "failed"
@@ -162,6 +167,12 @@ export class ContinuousRunService {
     if (draft.status === "adopted") return null;
     if (draft.status === "ready" && draft.acceptable) {
       const changes = keyChanges(draft);
+      // 先判审查：它决定「检查通过」这句话本身成不成立。有关键变化的一并说出来，作者只需看一次。
+      const skipped = draft.findings.filter((f) => REVIEW_UNAVAILABLE_RULES.includes(f.rule));
+      if (skipped.length > 0) {
+        const extra = changes.length === 0 ? "" : `另外还有需要你确认的变化：${changes.join("；")}`;
+        return { chapter, reason: "review_unavailable", detail: `模型审查没跑成，不替你自动采用，请看过后再决定：${skipped.map((f) => f.message).join("")}${extra}`, draftId };
+      }
       return changes.length === 0 ? null : { chapter, reason: "key_change", detail: `这一章有需要你亲自确认的变化：${changes.join("；")}`, draftId };
     }
     const detail = draft.error?.detail ?? draft.findings.filter((f) => f.level === "block").map((f) => f.message).join("；");

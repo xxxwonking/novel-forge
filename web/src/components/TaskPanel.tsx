@@ -45,7 +45,7 @@ export function TaskCard({ task, reload, detailed = false }: { task: ChapterTask
 }
 
 const STOP_REASONS: Record<RunStopReason, string> = {
-  key_change: "这一章有需要你亲自确认的变化", needs_revision: "检查没有通过", failed: "任务没交出可用结果",
+  key_change: "这一章有需要你亲自确认的变化", review_unavailable: "模型审查没跑成，等你看过", needs_revision: "检查没有通过", failed: "任务没交出可用结果",
   blocked: "前置条件不满足", author: "你停下了连写", interrupted: "上次连写被中断",
 };
 

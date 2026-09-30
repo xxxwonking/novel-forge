@@ -493,7 +493,7 @@ export interface DraftView {
   updatedAt: string;
 }
 
-export type RunStopReason = "key_change" | "needs_revision" | "failed" | "blocked" | "author" | "interrupted";
+export type RunStopReason = "key_change" | "review_unavailable" | "needs_revision" | "failed" | "blocked" | "author" | "interrupted";
 export interface RunView {
   status: "idle" | "running" | "stopped";
   through: number | null;

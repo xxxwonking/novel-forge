@@ -224,9 +224,17 @@ export async function checkVoiceWithModel(
 
 const VOICE_JUDGE_SYSTEM = "你是小说编辑，负责核对人物说话方式是否与设定一致。只报确实不像的地方，并逐字引用原文作为依据。";
 
+/**
+ * 「本轮 model 审查没跑成」的两条规则名。连写靠它们判断这一章能不能自动采用（run/service.ts），
+ * 所以集中在这里导出，不在两处各写一遍字符串。作者按作品关掉审查时不产生它们 —— 那是「不查」，不是「没查成」。
+ */
+const VOICE_UNAVAILABLE = "voice_verdict_unavailable";
+const SEMANTIC_UNAVAILABLE = "semantic_verdict_unavailable";
+export const REVIEW_UNAVAILABLE_RULES: readonly string[] = [VOICE_UNAVAILABLE, SEMANTIC_UNAVAILABLE];
+
 function voiceUnavailable(detail: string): GateFinding {
   return {
-    rule: "voice_verdict_unavailable",
+    rule: VOICE_UNAVAILABLE,
     level: "info",
     message: `语域、情绪表达与称呼表这三项本轮未查：${detail}。正文与其余检查结论不受影响。`,
   };
@@ -306,7 +314,7 @@ const SEMANTIC_JUDGE_SYSTEM = "你是小说编辑，负责核对本章正文是�
 
 function semanticsUnavailable(detail: string): GateFinding {
   return {
-    rule: "semantic_verdict_unavailable",
+    rule: SEMANTIC_UNAVAILABLE,
     level: "info",
     message: `视角越界与伏笔兑现这两项本轮未查：${detail}。正文与其余检查结论不受影响。`,
   };
