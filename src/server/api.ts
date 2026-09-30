@@ -84,6 +84,15 @@ export function handle(session: ProjectSession, req: ApiRequest): ApiResponse {
     catch (error) { if (error instanceof ChapterWriteError) return { status: error.status, body: { error: error.message } }; throw error; }
   }
 
+  // 作品是否已完结（§57）。按作品存，不进来源指纹 —— 拨它不作废任何方案或草稿。
+  if (path === "/api/work-status") {
+    if (method === "GET") return ok({ completed: session.workCompleted });
+    if (method === "POST") {
+      if (!isRecord(req.body) || typeof req.body["completed"] !== "boolean") return bad("completed 必须是布尔值");
+      return ok({ completed: session.setWorkCompleted(req.body["completed"]) });
+    }
+  }
+
   // 两个 model 审查通道的开关。按作品存，不进来源指纹 —— 改它不作废任何草稿。
   if (path === "/api/review-settings") {
     if (method === "GET") return ok(session.reviewSettings);
@@ -290,6 +299,8 @@ function overview(session: ProjectSession): unknown {
     chapterCount,
     // 首页据此决定给不给「从正文识别人物」的入口：导完一百章却一个人物都没有，是常见的一步之遥。
     characterCount: session.meta.characters.length,
+    // 改期对话框据此决定章号下限：已完结的书可以把期限改到已写的章（§57）。
+    completed: session.workCompleted,
     nextBeat: session.nextBeat ?? null,
     homepage: selection.homepage,
     counts: {

@@ -21,6 +21,7 @@
  *   <root>/beats.json            节拍表（含派生预算）
  *   <root>/alert-states.json     告警的用户侧状态
  *   <root>/review.json           两个 model 审查通道的开关（缺省用 rules.review）
+ *   <root>/work-status.json      作品是否已完结（缺省未完结）
  *   <root>/events.jsonl          结构事件流，append-only
  *   <root>/chapters/ch{n}.txt    正文
  */
@@ -83,6 +84,7 @@ const FILES = {
   beats: "beats.json",
   alertStates: "alert-states.json",
   review: "review.json",
+  status: "work-status.json",
   events: "events.jsonl",
 } as const;
 
@@ -242,6 +244,21 @@ export class ProjectStore {
 
   writeReview(review: ReviewRules): void {
     this.writeJson(FILES.review, review);
+  }
+
+  /**
+   * 作品是否已经完结。与审查开关同理**不进 `ProjectSnapshot`**：它只改变伏笔期限的校验口径，
+   * 不改写章依据，拨一下不该作废任何方案或草稿。文件不存在即未完结；只读浏览不写文件。
+   */
+  loadCompleted(): boolean {
+    if (!existsSync(join(this.root, FILES.status))) return false;
+    const value = this.readJson<{ completed?: unknown }>(FILES.status);
+    if (typeof value?.completed !== "boolean") throw new Error(`${FILES.status} 不是合法的作品状态：completed 必须是布尔值`);
+    return value.completed;
+  }
+
+  writeCompleted(completed: boolean): void {
+    this.writeJson(FILES.status, { completed });
   }
 
   writeDiscipline(discipline: WritingDiscipline): void {

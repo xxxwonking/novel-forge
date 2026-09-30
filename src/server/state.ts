@@ -178,6 +178,7 @@ export class ProjectSession {
       commitRelations: (relations) => this.appendRelations(relations),
       commitForeshadows: (claims) => this.appendForeshadows(claims),
       commitPresence: (scans) => this.appendPresence(scans),
+      completed: () => this.workCompleted,
     });
     this.planning = new PlanningService(this, operation => this.transact(operation));
     this.exports = new TextExportService(root, this);
@@ -706,7 +707,10 @@ export class ProjectSession {
               "伏笔 = 作者先埋下、打算在后面章节兑现的承诺：一件没交代来历的东西、一句意味不明的话、一个没露面的名字、一笔对不上的账。",
               "从作者的大纲、简介与正文抽样里认，每条填：label（短标签，几个字，正文写到时要靠它认领这条规划，**必须彼此不同、也不要与已有伏笔重名**）、",
               "intent（这条将来要兑现什么 —— 这是最重要的字段，它决定了什么才算「收了」，写具体，不要写「会有反转」这类空话）、",
-              `weight（main 主线 / sub 支线 / detail 细节）、expectedBy（打算在第几章前兑现，必须大于第 ${this.chapterNumbers().length === 0 ? 0 : Math.max(...this.chapterNumbers())} 章）。`,
+              this.workCompleted
+                // 已完结（§57）：伏笔本来就兑现在书里。逼着期限落在「未来」只会让模型编出全书之外的章号。
+                ? `weight（main 主线 / sub 支线 / detail 细节）、expectedBy（这本书已经完结：填资料里写明它兑现的那一章；资料没写明就填你判断它兑现的章，可以是已经写好的任何一章，不要填全书之外的章号）。`
+                : `weight（main 主线 / sub 支线 / detail 细节）、expectedBy（打算在第几章前兑现，必须大于第 ${this.chapterNumbers().length === 0 ? 0 : Math.max(...this.chapterNumbers())} 章）。`,
               "**不要给编号** —— F 序号由系统分配，你填了也不会被采用。",
               "只认资料里写明或抽样正文里明显悬着没交代的，宁可少认几条也不要凑数：多报一条假伏笔，作者后面每一章都会被提醒去兑现一件根本不存在的事。",
             ].join("\n")
@@ -806,6 +810,21 @@ export class ProjectSession {
     const value = { voice: review.voice, semantics: review.semantics };
     this.store.writeReview(value);
     return value;
+  }
+
+  /**
+   * 作品已完结：伏笔期限（资料里的规划与改期）可以落在已写的章节里（用户拍板，§57）。
+   * 连载中的书仍要求落在未来 —— 那时给一个过去的章号，就是一条生下来就逾期的规划。
+   * 每次现读文件，与审查开关同理：拨了之后下一次校验就按新值走。
+   */
+  get workCompleted(): boolean {
+    return this.store.loadCompleted();
+  }
+
+  setWorkCompleted(completed: boolean): boolean {
+    if (typeof completed !== "boolean") throw new ChapterWriteError(400, "completed 必须是布尔值");
+    this.store.writeCompleted(completed);
+    return completed;
   }
 
   conversationTurns(): readonly ConversationTurn[] {
