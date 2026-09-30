@@ -5,7 +5,7 @@
  */
 import { existsSync, lstatSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
-import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 
 const JOURNAL = ".pending-write.json";
 interface FileChange { readonly path: string; readonly before: string | null; readonly after: string }
@@ -38,15 +38,38 @@ function readText(path: string): string | null {
   return existsSync(path) ? readFileSync(path, "utf8") : null;
 }
 
-/** 同目录临时文件 + rename，避免截断已有文件；flush 保证先落下日志内容。 */
+/**
+ * 同目录临时文件 + rename，避免截断已有文件；flush 保证先落下日志内容。
+ *
+ * ⚠ **临时文件名刻意只用 ASCII，且 rename 成功后不再删它。**
+ *
+ * Node v24.9.0 / win32 上 `rmSync` 对**不存在且含非 ASCII 字符**的路径会触发
+ * `0xC0000409`（STATUS_STACK_BUFFER_OVERRUN）——**整个进程当场死掉，没有异常、
+ * 没有 stderr、catch 不住**。是否触发与路径总长有关，所以历史上表现为"偶发"。
+ *
+ * 原先的临时名是 `.<原文件名>.<uuid>.tmp`，而 rename 成功后这个路径就不存在了，
+ * `finally` 仍去 `rmSync` 它 —— 于是作者一导入中文名的资料（`人物档案.txt` 这类，
+ * §45 收下资料文件那条路）就把服务打死。实测 `MaterialStore.save("目录及简介.txt")`
+ * 必崩，`test/import-chapters.test.ts` 的 worker 也是这么挂的。
+ *
+ * 两处改动各自独立生效：
+ *   ① 临时名换成 `.nf-<uuid>.tmp`，非 ASCII 的原名不再进入任何 `rmSync` 的参数；
+ *   ② rename 成功后不再删 —— 那次调用本来就是多余的。
+ *
+ * **已核实不受影响的**：目标路径本身可以是中文（`writeFileSync` / `renameSync`
+ * 都没这个毛病）；删**已存在**的中文名文件也没问题（按名字长度扫过 30 档都正常），
+ * 所以 `restoreFiles` 里那处 `rmSync` 不在此列 —— 它删的一定是存在的文件。
+ */
 function replaceFile(path: string, text: string): void {
   mkdirSync(dirname(path), { recursive: true });
-  const temporary = join(dirname(path), `.${basename(path)}.${randomUUID()}.tmp`);
+  const temporary = join(dirname(path), `.nf-${randomUUID()}.tmp`);
+  let renamed = false;
   try {
     writeFileSync(temporary, text, { encoding: "utf8", flag: "wx", flush: true });
     renameSync(temporary, path);
+    renamed = true;
   } finally {
-    rmSync(temporary, { force: true });
+    if (!renamed && existsSync(temporary)) rmSync(temporary, { force: true });
   }
 }
 

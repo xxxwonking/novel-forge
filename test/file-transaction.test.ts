@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
@@ -126,5 +126,47 @@ describe("文件事务与采用中断恢复", () => {
     writeFileSync(join(project, ".pending-write.json"), JSON.stringify({ version: 1, state: "prepared", files: [{ path, before: "replace", after: "keep" }] }), "utf8");
     expect(() => recoverFileTransaction(project)).toThrow(/非法项目文件路径/u);
     expect(readFileSync(join(root, "outside.txt"), "utf8")).toBe("keep");
+  });
+
+  /**
+   * 中文文件名不能把进程整个打死。
+   *
+   * Node v24.9.0 / win32 上 `rmSync` 对**不存在且含非 ASCII 字符**的路径会触发
+   * `0xC0000409`（STATUS_STACK_BUFFER_OVERRUN）—— **进程当场死掉，没有异常、
+   * 没有 stderr、catch 不住**，所以这一条只能开子进程按退出码判，
+   * 不能在本进程里 `expect(...).toThrow`。
+   *
+   * 触发点原先在 `replaceFile` 的 `finally`：临时名是 `.<原文件名>.<uuid>.tmp`，
+   * 而 rename 成功后这个路径已经不存在，却仍要 `rmSync` 一次。于是作者一导入
+   * 中文名的资料（`人物档案.txt` 这类，§45 那条路）就把服务打死 —— 实测
+   * `MaterialStore.save` 必崩，`test/import-chapters.test.ts` 的 worker 也是这么挂的。
+   *
+   * 是否触发与路径总长有关（所以历史上看起来像偶发）。这里用**三个不同长度**的
+   * 中文名一起写，比单个名字更容易压到那条边界上。
+   */
+  it("中文文件名不会让进程崩掉（Node 24 / win32 的 rmSync 陷阱）", () => {
+    const { root } = seed();
+    const script = `
+      const [root, moduleUrl] = process.argv.slice(1);
+      const { writeProjectFile, readProjectFile } = await import(moduleUrl);
+      const names = ["人物档案.txt", "目录及简介.txt", "第一卷·雾港封签的设定集与人物小传.txt"];
+      for (const name of names) {
+        writeProjectFile(root, "materials/" + name, "内容：" + name);
+        if (readProjectFile(root, "materials/" + name) !== "内容：" + name) process.exit(70);
+      }
+      // 覆盖写一次：rename 的目标此时已存在，走的是另一条分支。
+      writeProjectFile(root, "materials/人物档案.txt", "改过了");
+      if (readProjectFile(root, "materials/人物档案.txt") !== "改过了") process.exit(71);
+      process.exit(0);
+    `;
+    const child = spawnSync(process.execPath,
+      ["--import", "tsx", "--input-type=module", "-e", script, root, new URL("../src/store/transaction.ts", import.meta.url).href],
+      { encoding: "utf8", timeout: 30000 });
+    expect(child.error).toBeUndefined();
+    // 0xC0000409 = 3221226505。留在信息里，下次撞见能一眼认出来。
+    expect(child.status, `exit=${child.status} (0xC0000409=3221226505 即栈缓冲区溢出) stderr=${child.stderr}`).toBe(0);
+    expect(readFileSync(join(root, "materials", "人物档案.txt"), "utf8")).toBe("改过了");
+    // 临时文件不能留下来。
+    expect(readdirSync(join(root, "materials")).filter((f) => f.endsWith(".tmp"))).toEqual([]);
   });
 });
