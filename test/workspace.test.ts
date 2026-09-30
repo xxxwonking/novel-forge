@@ -50,7 +50,7 @@ describe("作品工作区", () => {
   it("空目录可启动；查看列表不创建演示、不调用模型", async () => {
     const root = join(directory(), "empty-library");
     const { request, model } = await start(root);
-    expect(await request("/api/workspace")).toEqual({ status: 200, body: { projects: [], defaultProjectId: null, removed: [], credits: { granted: grant, spent: 0, balance: grant, unpricedCalls: 0 } } });
+    expect(await request("/api/workspace")).toEqual({ status: 200, body: { projects: [], defaultProjectId: null, removed: [], credits: { granted: grant, spent: 0, balance: grant, exhausted: false, unpricedCalls: 0 } } });
     expect(existsSync(root)).toBe(false);
     expect(model.calls).toHaveLength(0);
     expect((await request("/api/overview")).status).toBe(409);

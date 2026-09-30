@@ -37,7 +37,8 @@ export interface CreditSummary {
   byPurpose: Record<string, { calls: number; credits: number }>;
 }
 
-export interface WorkspaceCredits { granted: number; spent: number; balance: number; unpricedCalls: number }
+/** `exhausted` 由服务端按闸门同一判据给出：为 true 时新的模型调用会被拦下。 */
+export interface WorkspaceCredits { granted: number; spent: number; balance: number; exhausted: boolean; unpricedCalls: number }
 
 export interface RemovedWork extends WorkSummary {
   /** 回收站里的目录名（`data/.trash/` 下），作者在磁盘上按它就能找到这本书。 */

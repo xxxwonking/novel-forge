@@ -9,6 +9,7 @@ import { ProjectSession } from "../server/state.js";
 import { ChapterWriteError } from "../server/chapter-input.js";
 import { readCreditEntries, summarize as summarizeCredits } from "../credits/ledger.js";
 import { loadPricing } from "../credits/pricing.js";
+import { hasCredit } from "../credits/gate.js";
 import type { ChapterWriterOptions } from "../server/chapter-writer.js";
 import type { Genre, Platform } from "../types/beat.js";
 import type { WorkSetting } from "../types/work.js";
@@ -25,6 +26,8 @@ export interface WorkspaceCredits {
   readonly granted: number;
   readonly spent: number;
   readonly balance: number;
+  /** 余额已用完：新的模型调用会被拦下。判据与调用前的闸门同一处（`hasCredit`），界面不再自己写一遍。 */
+  readonly exhausted: boolean;
   /** 价格表里没有的模型：消耗照记，但没有折进余额。配漏了看这个数。 */
   readonly unpricedCalls: number;
 }
@@ -87,14 +90,7 @@ export class Workspace {
   }
 
   list(): readonly WorkSummary[] {
-    const ids = new Set<string>();
-    if (this.defaultProjectId !== null) ids.add(this.defaultProjectId);
-    if (existsSync(this.root)) {
-      for (const entry of readdirSync(this.root, { withFileTypes: true })) {
-        if (entry.isDirectory() && !entry.isSymbolicLink() && validId(entry.name) && existsSync(join(this.root, entry.name, "setting.json"))) ids.add(entry.name);
-      }
-    }
-    return [...ids].map((id) => {
+    return this.workIds().map((id) => {
       try { return summarize(this.projectPath(id), id); }
       catch (error) { return failedSummary(id, error); }
     }).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.id.localeCompare(b.id));
@@ -108,7 +104,8 @@ export class Workspace {
     const canonicalRoot = realpathSync.native(root);
     let session = this.sessions.get(canonicalRoot);
     if (session === undefined) {
-      session = new ProjectSession(canonicalRoot, undefined, this.options);
+      // 余额是全局的：每本书的闸门都要看整个工作区的账，不能只看自己。
+      session = new ProjectSession(canonicalRoot, undefined, { ...this.options, creditBalance: () => this.credits().balance });
       this.sessions.set(canonicalRoot, session);
     }
     return session;
@@ -187,16 +184,46 @@ export class Workspace {
     return { ...summary, archive, deletedAt: deletedAt.toISOString() };
   }
 
-  /** 全局余额。本批只有赠送额度，没有充值入口。 */
+  /**
+   * 全局余额。本批只有赠送额度，没有充值入口。
+   *
+   * 只读各作品的账本，不走 `list()`：余额在每次模型调用前都要现算一次，不该为此把
+   * 每本书的几十万字正文载进内存；而且作品资料读坏时它的摘要记 0 积分，但花掉的
+   * 积分仍然花掉了 —— 摘要读不出来不能让余额变多。
+   */
   credits(): WorkspaceCredits {
     const pricing = loadPricing();
-    const works = [...this.list(), ...this.listRemoved()];
+    const totals = this.ledgerRoots().map((root) => summarizeCredits(readCreditEntries(root)));
+    const spent = totals.reduce((sum, total) => sum + total.credits, 0);
+    const balance = pricing.signupGrant - spent;
     return {
-      granted: pricing.signupGrant,
-      spent: works.reduce((sum, work) => sum + work.credits, 0),
-      balance: pricing.signupGrant - works.reduce((sum, work) => sum + work.credits, 0),
-      unpricedCalls: works.reduce((sum, work) => sum + unpricedOf(this.root, work), 0),
+      granted: pricing.signupGrant, spent, balance, exhausted: !hasCredit(balance),
+      unpricedCalls: totals.reduce((sum, total) => sum + total.unpricedCalls, 0),
     };
+  }
+
+  /** 与 `list()` 同一份作品枚举规则。 */
+  private workIds(): readonly string[] {
+    const ids = new Set<string>();
+    if (this.defaultProjectId !== null) ids.add(this.defaultProjectId);
+    if (existsSync(this.root)) {
+      for (const entry of readdirSync(this.root, { withFileTypes: true })) {
+        if (entry.isDirectory() && !entry.isSymbolicLink() && validId(entry.name) && existsSync(join(this.root, entry.name, "setting.json"))) ids.add(entry.name);
+      }
+    }
+    return [...ids];
+  }
+
+  /** 每本作品（含回收站里的归档）的账本所在目录。只认目录，不打开作品。 */
+  private ledgerRoots(): readonly string[] {
+    const roots = this.workIds().map((id) => id === this.defaultProjectId && this.openedRoot !== undefined ? this.openedRoot : join(this.root, id));
+    const trash = join(this.root, TRASH_DIR);
+    if (existsSync(trash)) {
+      for (const entry of readdirSync(trash, { withFileTypes: true })) {
+        if (entry.isDirectory() && !entry.isSymbolicLink() && ARCHIVE_NAME.test(entry.name)) roots.push(join(trash, entry.name));
+      }
+    }
+    return roots;
   }
 
   /** 回收站，按删除时间倒序。 */
@@ -321,12 +348,6 @@ function describeWork(root: string, id: string): WorkSummary {
     pendingDrafts: allDrafts.filter((d) => d.status !== "adopted" && d.status !== "discarded").length,
     updatedAt: dates.sort().at(-1) ?? "", credits: credits.credits, calls: credits.calls, error: null,
   };
-}
-
-/** 未计价调用数要按目录实读 —— 摘要读不出来时也不该把它算成 0。 */
-function unpricedOf(workspaceRoot: string, work: WorkSummary & { readonly archive?: string }): number {
-  const root = work.archive === undefined ? join(workspaceRoot, work.id) : join(workspaceRoot, TRASH_DIR, work.archive);
-  return summarizeCredits(readCreditEntries(root)).unpricedCalls;
 }
 
 /** 读不出来的作品仍要列出来并说明原因，否则作者看不到它、也就无从修复。 */
