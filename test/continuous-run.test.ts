@@ -20,7 +20,9 @@ import { deriveBudget } from "../src/beat/derive.js";
 import { countWords } from "../src/text/measure.js";
 import type { CallResult } from "../src/client/claude.js";
 import type { ChapterBeat } from "../src/types/beat.js";
-import { C5_JSON, NO_MODEL_REVIEW, PROSE, WRITE_BEAT, fakeClient, modelMessage, modelText, writingSnapshot } from "./writing-fixtures.js";
+import { C5_JSON, NO_MODEL_REVIEW, PROSE, SEMANTIC_OK, WRITE_BEAT, fakeClient, modelMessage, modelText, savedDraft, writingSnapshot } from "./writing-fixtures.js";
+import { ContinuousRunService } from "../src/run/service.js";
+import type { ChapterDraft } from "../src/task/types.js";
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
@@ -125,6 +127,55 @@ describe("连写·自动采用与推进", () => {
     expect(view.adopted).toEqual([3]);
     expect(view.stopped).toMatchObject({ chapter: 4, reason: "blocked" });
     expect(view.stopped?.detail).toContain("节拍");
+  });
+
+  it("模型审查没跑成：检查虽然通过也不自动采用，停下说明哪项没查、为什么", async () => {
+    // 用户拍板（§54）：余额耗尽、网络出错等让审查降级成 info 时，「没查」不等于「查过没问题」。
+    const reviewed = { ...rules, review: { voice: false, semantics: true } };
+    const { root } = project();
+    const failure: CallResult = { kind: "error", error: { type: "status", status: 402, message: "积分余额不足（剩余 0 积分）", retryable: false } };
+    const { client, calls } = fakeClient([modelText(BODY3), modelText(C5_JSON), failure]);
+    const session = new ProjectSession(root, reviewed, { client });
+    session.run.start({ through: 4 });
+
+    const view = await settled(session);
+    expect(view.stopped).toMatchObject({ chapter: 3, reason: "review_unavailable", draftId: "ch3d1" });
+    expect(view.stopped?.detail).toContain("视角越界与伏笔兑现");
+    expect(view.stopped?.detail).toContain("积分余额不足");
+    expect(view.adopted).toEqual([]);
+    expect(session.currentChapter).toBe(2);
+    // 草稿本身照旧可采用 —— 挡的只是「替作者自动采用」，作者看过后仍可手动采用。
+    expect(session.listDrafts(3)[0]).toMatchObject({ status: "ready", acceptable: true });
+    expect(calls).toHaveLength(3);
+  });
+
+  it("审查跑成了且没问题：照常自动采用（挡的是「没查」，不是「查了」）", async () => {
+    const reviewed = { ...rules, review: { voice: false, semantics: true } };
+    const { root } = project([WRITE_BEAT]);
+    const { client } = fakeClient([modelText(BODY3), modelText(C5_JSON), SEMANTIC_OK]);
+    const session = new ProjectSession(root, reviewed, { client });
+    session.run.start({ through: 3 });
+    expect(await settled(session)).toMatchObject({ status: "idle", adopted: [3], stopped: null });
+  });
+
+  it("声音判定没跑成同样挡住；作品关掉的审查不产生「未查」，不挡", async () => {
+    const run = (findings: ChapterDraft["findings"]) => {
+      const { root } = project();
+      let adopted = 0;
+      const service = new ContinuousRunService(root, {
+        nextChapter: () => 3 + adopted, maxBatchChapters: 5, assertCanStart: () => undefined,
+        writeChapter: async (chapter) => savedDraft({ chapter, draftId: `ch${chapter}d1`, findings }),
+        adopt: () => { adopted += 1; },
+      });
+      service.start({ through: 3 });
+      return expect.poll(() => service.view().status, { timeout: 2000 }).not.toBe("running").then(() => ({ view: service.view(), adopted }));
+    };
+    const voice = await run([{ rule: "voice_verdict_unavailable", level: "info", message: "语域、情绪表达与称呼表这三项本轮未查：模型未配置。" }]);
+    expect(voice.view.stopped).toMatchObject({ chapter: 3, reason: "review_unavailable" });
+    expect(voice.adopted).toBe(0);
+
+    const off = await run([]);
+    expect(off).toMatchObject({ adopted: 1, view: { status: "idle", stopped: null } });
   });
 
   it("模型调用失败：草稿记失败、连写停下、原因如实", async () => {
