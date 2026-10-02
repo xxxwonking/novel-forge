@@ -424,12 +424,31 @@ describe("逐章反推结构·费用预估", () => {
     const longText = OLD1.repeat(60);
     const short = session(project([OLD1]).root).session;
     const long = session(project([longText]).root).session;
-    const tokensOf = (s: ProjectSession) => s.inference.estimateFacts("cheap").inputTokens.min;
+    const tokensOf = (s: ProjectSession) => s.inference.estimateFacts("cheap", 0).inputTokens.min;
 
     // 两者的固定开销相同（同一份任务说明、ID 清单、输出 schema），差额应当正好是正文之差。
     expect(tokensOf(long) - tokensOf(short)).toBe(estimateTokens(longText) - estimateTokens(OLD1));
     // 而开销本身不小：短章下它就是大头，所以不能只按章数乘一个单价。
     expect(tokensOf(short) - estimateTokens(OLD1)).toBeGreaterThan(500);
+  });
+
+  it("次数含重试：账本里的调用比留过记录的章多，就按这个比例放大", async () => {
+    const { root } = project([OLD1, OLD2, OLD3]);
+    const { session: s } = session(root, [INFER1]);
+    await s.inference.infer({ chapter: 1 });   // 1 章留下记录
+    // 真机上引文闸门挡掉约三分之一的章，每挡一次要重跑一次 —— §58 实测 1.4 次/章。
+    // 按一章一次报数会让整条路线低报四成，而那正是作者据以决定跑不跑的数字。
+    const plain = s.inference.estimateFacts("cheap", 1).calls.max;
+    const withRetries = s.inference.estimateFacts("cheap", 2).calls.max;
+    expect(withRetries).toBe(plain * 2);
+  });
+
+  it("没有历史时不替作者拍一个重试率 —— 承认不知道比编一个经验值好", async () => {
+    const { session: s } = session(project([OLD1, OLD2]).root);
+    // 一次都没跑过：分母是 0，比例只能是 1。
+    expect(s.inference.estimateFacts("cheap", 0).calls).toEqual({ min: 2, max: 2 });
+    // 账本比章数少（上一轮崩在半路）也不能算出小于 1 的比例，那会反向低报。
+    expect(s.inference.estimateFacts("cheap", 1).calls).toEqual({ min: 2, max: 2 });
   });
 
   it("没有正文时逐章那档是 0 次，不报一个凭空的数", async () => {

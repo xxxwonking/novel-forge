@@ -93,19 +93,39 @@ export class InferenceService {
    * 后者是个**偏低**的近似：反推往后走，伏笔清单与前情梗概都会变长。方向记在这里，
    * 不在界面上装作精确 —— 而只要攒够三次实测，这套推算就整体让位给账本里的均价。
    */
-  estimateFacts(model: string): ModeFacts {
-    const remaining = this.view().chapters.filter((c) => c.state === "none").map((c) => c.chapter);
+  estimateFacts(model: string, inferenceCalls: number): ModeFacts {
+    const chapters = this.view().chapters;
+    const remaining = chapters.filter((c) => c.state === "none").map((c) => c.chapter);
     const first = remaining[0];
     const overhead = first === undefined ? 0 : estimateTokens(buildInferenceTask({
       chapter: first, chapterText: "", title: this.deps.source.meta.setting.title, ...this.accumulated(first),
     })) + estimateTokens(JSON.stringify(C5_OUTPUT_SCHEMA));
     const prose = remaining.reduce((sum, n) => sum + estimateTokens(this.deps.source.chapterText(n) ?? ""), 0);
-    const tokens = overhead * remaining.length + prose;
+    const factor = this.callsPerChapter(inferenceCalls);
+    const calls = Math.round(remaining.length * factor);
+    const tokens = overhead * calls + prose;
     return {
       key: "chapters", model, purpose: "inference", maxOutputTokens: INFER_MAX_TOKENS,
-      calls: { min: remaining.length, max: remaining.length },
+      calls: { min: calls, max: calls },
       inputTokens: { min: tokens, max: tokens },
     };
+  }
+
+  /**
+   * 一章实际要调用几次模型。
+   *
+   * **不是 1。** 引文闸门（引文必须逐字在正文里）在真机上挡掉约三分之一的章，
+   * 每挡一次作者就要重跑一次；§58 实测 20 章用了 28 次调用 = 1.4 次/章。
+   * 按 1 报数会让整条路线的预估低报四成 —— 而那是作者据以决定跑不跑的数字。
+   *
+   * 比例从**本作品自己的历史**算：`inferenceCalls` 是账本里 purpose=inference 的条数
+   * （真实发生过的调用），分母是留下过记录的章数（一章无论重跑几次只留一条记录）。
+   * 没有历史时退回 1 并不加修正 —— 拍一个"行业经验值"比承认不知道更坏。
+   */
+  private callsPerChapter(inferenceCalls: number): number {
+    const attempted = this.runs.load().size;
+    if (attempted === 0 || inferenceCalls <= attempted) return 1;
+    return inferenceCalls / attempted;
   }
 
   /** 反推一章。重跑先作废上一轮的待确认声明，所以同一章永远只有一份记录。 */

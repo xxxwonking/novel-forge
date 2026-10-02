@@ -34,7 +34,7 @@ const entry = (purpose: string, credits: number, over: Partial<CreditEntry> = {}
   credits, priced: true, ...over,
 });
 
-describe("上限推算", () => {
+describe("按声明推算", () => {
   it("次数确定的那档区间两端相同，不确定的那档给出区间", () => {
     const [m, c] = estimateModes([materials(), chapters()], [], pricing);
     expect(m?.calls).toEqual({ min: 2, max: 8 });
@@ -55,7 +55,7 @@ describe("上限推算", () => {
     const [m] = estimateModes([chapters("没配过的模型")], [], pricing);
     // 0 是"不花钱"，null 是"不知道"。显示成 0 会让作者以为这条路免费。
     expect(m?.credits).toBeNull();
-    expect(m?.basis).toBe("ceiling");
+    expect(m?.basis).toBe("estimated");
   });
 
   it("没有正文可反推时次数为 0，积分也是 0", () => {
@@ -78,19 +78,19 @@ describe("实测基准", () => {
     expect(c?.credits).toEqual({ min: 50, max: 50 });
   });
 
-  it("只有一档有样本时**两档都**退回上限 —— 混用基准比两边都偏高有害", () => {
-    // 上限推算里输出占九成以上，实际输出通常只有上限的四分之一。一档按实测、
-    // 一档按上限，前者会凭空显得便宜好几倍，而这个功能唯一的用途就是让两个数可比。
+  it("只有一档有样本时**两档都**退回按声明推算 —— 混用基准比两边同向偏差有害", () => {
+    // 两种基准的偏差方向与量级都不同（声明上限甚至不保证是上限，见 §58）。
+    // 一档实测、一档推算，差出来的倍数是基准差异而不是真实差异。
     const onlyOne = Array.from({ length: 5 }, () => entry("preparation", 2));
     const [m, c] = estimateModes([materials(), chapters()], onlyOne, pricing);
-    expect(m?.basis).toBe("ceiling");
-    expect(c?.basis).toBe("ceiling");
+    expect(m?.basis).toBe("estimated");
+    expect(c?.basis).toBe("estimated");
     expect(m?.samples).toBe(0);
   });
 
   it("样本不足三条不改基准 —— 一次异常调用就能把均值带跑", () => {
     const two = [entry("preparation", 2), entry("preparation", 900), entry("inference", 0.5), entry("inference", 0.5), entry("inference", 0.5)];
-    expect(estimateModes([materials(), chapters()], two, pricing).every((m) => m.basis === "ceiling")).toBe(true);
+    expect(estimateModes([materials(), chapters()], two, pricing).every((m) => m.basis === "estimated")).toBe(true);
   });
 
   it("未计价的记录不参与均价 —— 它们的 credits 记 0，会把均价拉低", () => {

@@ -7,8 +7,9 @@
  *
  * 显示纪律与服务端的估算纪律对齐：
  *   - `credits: null` 显示"折不出积分"，不显示 0 —— 那是"不知道"，不是"免费"。
- *   - `basis: "ceiling"` 显示"最多"，不显示"约"。上限推算里输出占九成以上，
- *     实际通常只有四分之一；把它说成"约"，作者第二次就不会再信这个数。
+ *   - `basis: "estimated"` 显示"估"，**不能显示"最多"**。真机实测（§58）：声明的输出
+ *     上限不是上限 —— 供应商把思考 token 计进 output 计费，22/28 次调用超过它、最高
+ *     2.1 倍，整条路线低报 1.8 倍。写"最多"是一个守不住的承诺，比没有数字更坏。
  *   - 次数区间照原样显示，不取一端。取哪端都是在替作者猜。
  */
 
@@ -78,8 +79,8 @@ export function InferenceChooser({ onMaterials, onChapters, onClose }: Inference
     </div>
     <p className="muted infer-basis">
       {data?.modes[0]?.basis === "measured"
-        ? `预估按这个作品已有调用的实测均价算（样本 ${data.modes.map((m) => m.samples).join(" / ")} 次）。`
-        : <>预估按声明的输出上限推算，<strong>必然偏高</strong> —— 实际输出通常只有上限的四分之一。攒够三次同类调用后会改按实测均价算。</>}
+        ? `预估按这个作品已有调用的实测均价算，并按历史重试比例折算了调用次数（样本 ${data.modes.map((m) => m.samples).join(" / ")} 次）。`
+        : <>预估按声明的输出上限推算，<strong>可能偏低</strong> —— 有的供应商把思考 token 计进输出计费，实测见过超上限两倍。攒够三次同类调用后会改按实测均价算，那时才准。</>}
       {data?.modes.some((m) => m.credits === null) === true && " 价格表里没有当前配置的模型，那一档折不出积分：调用照样记用量，但不会扣。"}
     </p>
   </Modal>;
@@ -88,10 +89,10 @@ export function InferenceChooser({ onMaterials, onChapters, onClose }: Inference
 /** 次数确定时不画区间；积分同理。区间两端相同还写成 a~b，作者会以为哪里不确定。 */
 function Cost({ mode }: { mode: InferenceEstimate }): React.ReactElement {
   const calls = mode.calls.min === mode.calls.max ? `${mode.calls.min} 次调用` : `${mode.calls.min}–${mode.calls.max} 次调用`;
+  const range = mode.credits === null ? ""
+    : `${round(mode.credits.min)}${mode.credits.min === mode.credits.max ? "" : `–${round(mode.credits.max)}`}`;
   const credits = mode.credits === null ? "折不出积分"
-    : mode.basis === "measured"
-      ? `约 ${round(mode.credits.min)}${mode.credits.min === mode.credits.max ? "" : `–${round(mode.credits.max)}`} 积分`
-      : `最多 ${round(mode.credits.max)} 积分`;
+    : mode.basis === "measured" ? `约 ${range} 积分` : `估 ${range} 积分`;
   return <>
     <strong>{credits}</strong>
     <Chip>{calls}</Chip>

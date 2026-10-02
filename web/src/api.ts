@@ -673,8 +673,13 @@ export interface InferenceEstimate {
   model: string;
   /** null = 价格表里没有这个模型，调用照记用量但折不出积分。不是 0。 */
   credits: { min: number; max: number } | null;
-  /** measured 按实测均价；ceiling 按 token 上限推算，必然偏高。 */
-  basis: "measured" | "ceiling";
+  /**
+   * measured 按实测均价（含重试）；estimated 按声明的 token 上限推算。
+   *
+   * estimated **不是上限**：真机实测供应商会把思考 token 计进 output 计费，
+   * 超过声明上限 2.1 倍，整条路线低报 1.8 倍。所以界面对这一档只能说"估"。
+   */
+  basis: "measured" | "estimated";
   samples: number;
 }
 

@@ -907,7 +907,10 @@ export class ProjectSession {
       calls: { min: 2, max: Math.max(2, rounds) },
       inputTokens: { min: base * 2 + toolResult, max: base * Math.max(2, rounds) + toolResult * (Math.max(2, rounds) - 1) },
     };
-    return estimateModes([materials, this.inference.estimateFacts(resolveModelName("creative"))], readCreditEntries(this.root), loadPricing());
+    const ledger = readCreditEntries(this.root);
+    // 逐章那档的次数要含重试，而重试次数只有账本数得出来（投影里一章只留一条记录）。
+    const chapters = this.inference.estimateFacts(resolveModelName("creative"), ledger.filter((e) => e.purpose === "inference").length);
+    return estimateModes([materials, chapters], ledger, loadPricing());
   }
 
   /** 全流程唯一的客户端出口：在这里包上计量与余额闸门，任何调用点都不会绕过记账或拦截。 */
