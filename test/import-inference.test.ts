@@ -451,6 +451,16 @@ describe("逐章反推结构·费用预估", () => {
     expect(s.inference.estimateFacts("cheap", 1).calls).toEqual({ min: 2, max: 2 });
   });
 
+  it("跳过的章仍算待办 —— 它们可以重跑，结构还没落下来", async () => {
+    const { root } = project([OLD1, OLD2, OLD3]);
+    const { session: s } = session(root, [INFER1]);
+    await s.inference.infer({ chapter: 1 });
+    s.inference.reject({ chapter: 1 });               // 作者跳过第 1 章
+    // 只数 state==="none" 会报 2 章。§58 真机上中转故障把 42 章打进 skipped，
+    // 估价当场从 49 章缩成 7 章 —— 与"低报"是同一类错误。
+    expect(s.inference.estimateFacts("cheap", 0).calls).toEqual({ min: 3, max: 3 });
+  });
+
   it("没有正文时逐章那档是 0 次，不报一个凭空的数", async () => {
     const { session: s } = session(project().root);
     const body = (await estimate(s)).body as { modes: readonly { key: string; calls: { min: number; max: number }; credits: unknown }[] };

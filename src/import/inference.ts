@@ -95,7 +95,11 @@ export class InferenceService {
    */
   estimateFacts(model: string, inferenceCalls: number): ModeFacts {
     const chapters = this.view().chapters;
-    const remaining = chapters.filter((c) => c.state === "none").map((c) => c.chapter);
+    // 跳过/失败的章同样算待办：它们都**可以重跑**（`infer()` 只拦 written/confirmed），
+    // 结构还没落下来。只数 `none` 会把"补全这本书还要多少钱"算少 —— §58 真机上
+    // 中转故障一次就让 42 章进了 skipped，估价当场从 49 章缩成 7 章。
+    // 代价是作者真心不想要的那几章也会被计入，但高报"补全成本"远比低报无害。
+    const remaining = chapters.filter((c) => c.state !== "confirmed" && c.state !== "written" && c.state !== "pending").map((c) => c.chapter);
     const first = remaining[0];
     const overhead = first === undefined ? 0 : estimateTokens(buildInferenceTask({
       chapter: first, chapterText: "", title: this.deps.source.meta.setting.title, ...this.accumulated(first),
