@@ -824,6 +824,11 @@ export class ProjectSession {
   setWorkCompleted(completed: boolean): boolean {
     if (typeof completed !== "boolean") throw new ChapterWriteError(400, "completed 必须是布尔值");
     this.store.writeCompleted(completed);
+    // 告警以它为输入（见 `alerts/compute.ts` 的 `completed`），所以必须作废派生缓存，
+    // 否则拨完开关首页那 76 条还在，要等重开会话才消失 —— 一个不报错的失效。
+    // `invalidate()` 只清派生缓存与进度，不碰方案与草稿，§57「拨一下不作废任何方案
+    // 或草稿」仍然成立（那条有测试）。
+    this.invalidate();
     return completed;
   }
 
@@ -1178,6 +1183,7 @@ export class ProjectSession {
         arcs: projections.arcs,
         states: alertStateMap([...this.alertStates.values()]),
         now: new Date().toISOString(),
+        completed: this.workCompleted,
       },
       this.rules,
     );

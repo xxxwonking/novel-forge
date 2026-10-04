@@ -1400,11 +1400,19 @@ Windows 侧有 18 人（§50）、资料反推跑过（§54）；Mac 侧在 §58
    工装备份到 `AppData/Local/Temp/nf-*/`，临时脚本不入库。
    没有新 UI／新链路的批次可以不做（第 27 节就没做，并在记忆里写明了理由）。
 3. **全量四件套**：`npm run typecheck`（根+web）、`npm test`、`npm run web:build`、
-   `git diff --check`。**现在全量是干净的**（§53，2026-09-30）：76 文件 / 1342 项，
-   连跑三次稳定，**红了就是真红**，不要再按「已知必败」放过去。
-   两条历史坑已修：`test/search.test.ts` 的绝对墙钟阈值改成了相对基准
-   （并修掉「它从来没扫过 2000 章」—— `MAX_CHAPTERS=50` 让常见词第 51 章就 break）；
-   `test/import-chapters.test.ts` 的 worker 崩溃是 Node 24 `rmSync` 的中文路径坑（§53）。
+   `git diff --check`。§53 修掉了两条历史坑：`test/search.test.ts` 的绝对墙钟阈值改成了
+   相对基准（并修掉「它从来没扫过 2000 章」—— `MAX_CHAPTERS=50` 让常见词第 51 章就 break）；
+   `test/import-chapters.test.ts` 的 worker 崩溃是 Node 24 `rmSync` 的中文路径坑。
+
+   **⚠ 但 §53 那句「连跑三次稳定、红了就是真红」已经不成立了（2026-10-04 实测）。**
+   `test/search.test.ts` 的「章数翻 10 倍耗时不该翻几十倍」仍然**随并行负载翻面**：
+   **全量连跑 7 次红了 3 次，而单跑 `npx vitest run test/search.test.ts` 9/9 全过。**
+   相对基准把频率压下来了，没有消除。
+   **原因在量程**：`smallMs` 是 200 章 × 5 次，只有一两毫秒；一次 GC 停顿或一次被调度器
+   抢走就足以把 `largeMs/smallMs` 推过 25。相对基准解决了"机器快慢"，没解决"噪声相对量程太大"。
+   **候选修法**（未做）：改用 **N 次重复取最小值** —— 调度与 GC 噪声只会让耗时变大、
+   不会变小，所以 min-of-N 会收敛到真实开销；这是修量程，不是放阈值。
+   在这条修掉之前：**全量红先单跑 `test/search.test.ts`**，只有它红就不是你这批的问题。
 4. **不碰**：`data/demo`（第 22 节误 reseed 过一次，教训见该节）、
    `data/flow-acceptance-2026-09-15-WVJ88z`（《雾港封签》验收目录）、`.env.local`。
    **任何 `seed-demo.ts` 调用都必须显式带输出目录。**

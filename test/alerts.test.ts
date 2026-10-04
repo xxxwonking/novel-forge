@@ -87,6 +87,7 @@ function input(over: Partial<AlertComputeInput> = {}): AlertComputeInput {
   return {
     currentChapter: 52,
     nextChapter: 53,
+    completed: false,
     foreshadows: [],
     plotLines: [],
     arcs: [],

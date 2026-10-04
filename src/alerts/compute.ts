@@ -47,6 +47,19 @@ export interface AlertComputeInput {
   /** 用户侧状态，按 AlertId 索引。缺省视为从未忽略、未确认。 */
   readonly states: ReadonlyMap<AlertId, AlertState>;
   readonly now: IsoTimestamp;
+  /**
+   * 作者把这本书标记成已完结了吗（§57 的作品级开关）。
+   *
+   * 本模块产出的四类告警**全是相对「写作前沿」的**：伏笔逾期、埋了很久没动静、
+   * 情节线断了、人物缺席 —— 四条都在拿 `currentChapter` 当「还会往前走的前沿」来量。
+   * 一本写完的书没有前沿，于是每条没收的承诺都「逾期」、每条中途收尾的线都「断了」、
+   * 每个早早退场的人都「缺席」。§60 真机上 113 条伏笔报出 **76 条逾期**。
+   *
+   * 所以已完结时这一层整体不产出。**事实没有丢**：没兑现的伏笔在伏笔时间线上仍是
+   * `open`、情节线的节点与断档仍画在图上、故事进度页仍逐条列着。丢掉的只有
+   * 「逾期 14 章」这种对一本写完的书毫无意义的措辞，以及它带来的首页噪音。
+   */
+  readonly completed: boolean;
 }
 
 /** 一条候选告警：Alert 本体 + 计算过程里得出的状态更新。 */
@@ -57,6 +70,11 @@ export interface AlertCandidate {
 }
 
 export function computeAlerts(input: AlertComputeInput, rules: Rules): readonly AlertCandidate[] {
+  // 已完结的书没有「写作前沿」，而这四类告警全以它为基准（理由见 `completed`）。
+  // 整体不产出，而不是逐类改措辞 —— 「逾期」「断线」「缺席」说的都是"你还没写到"，
+  // 对一本写完的书，换个说法也还是在问一个不存在的问题。
+  if (input.completed) return [];
+
   const a = rules.alerts;
   const raw = [
     ...foreshadowAlerts(input, rules),

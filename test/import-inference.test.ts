@@ -365,6 +365,37 @@ describe("逐章反推结构·边界与接口", () => {
     expect(calls).toHaveLength(0);
   });
 
+  it("还没有情节线时同样先拦住 —— 它不报错，但后果一样是永久的", async () => {
+    const { root, store } = project([OLD1]);
+    store.save({ ...store.load(), plotLines: [] });
+    const { session: s, calls } = session(root);
+    const response = await infer(s, 1);
+
+    // §59 真机撞出来的：没有情节线时反推照常跑完、不报错，但产出的 `plot_event`
+    // 全部 `plotLine = null`，情节线永远没节点 —— 而确认之后 `infer()` 就拦住了，
+    // 补不回来。所以这一条比人物那条更该拦：它是安静的。
+    expect(response.status).toBe(409);
+    expect(String((response.body as { error: string }).error)).toContain("情节线");
+    expect(calls).toHaveLength(0);
+  });
+
+  it("人物与情节线都齐备才放行 —— 两条拦截是分别判的", async () => {
+    const { root, store } = project([OLD1]);
+    store.save({ ...store.load(), characters: [], plotLines: [] });
+    const { session: s } = session(root, [INFER1]);
+    // 两样都缺时先报人物（它是第一条），不该把两条并成一句含糊的话。
+    expect(String(((await infer(s, 1)).body as { error: string }).error)).toContain("人物");
+
+    const restored = new ProjectStore(root);
+    restored.save({ ...restored.load(), characters: writingSnapshot().characters });
+    const second = session(root, [INFER1]);
+    expect(String(((await infer(second.session, 1)).body as { error: string }).error)).toContain("情节线");
+
+    restored.save({ ...restored.load(), plotLines: writingSnapshot().plotLines });
+    const third = session(root, [INFER1]);
+    expect((await infer(third.session, 1)).status).toBe(200);
+  });
+
   it("端点校验章号，并按章给出进度视图", async () => {
     const { root } = project([OLD1, OLD2]);
     const { session: s } = session(root, [INFER1]);

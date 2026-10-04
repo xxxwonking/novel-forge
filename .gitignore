@@ -4,6 +4,7 @@ dist/
 *.log
 .npm-cache/
 .vscode/
+.ace-tool/
 .env
 .env.*
 !.env.example

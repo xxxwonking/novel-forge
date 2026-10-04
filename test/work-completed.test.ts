@@ -9,6 +9,10 @@
  *   ① 「已完结」按作品存，默认关；关着时原规则一字不改。
  *   ② 开着时资料里的伏笔规划与改期都可以指向已写的章，模型拿到的起草要求也跟着变。
  *   ③ 它不进来源指纹：拨一下开关不作废任何方案或草稿。
+ *   ④ 已完结时**不再报「写作前沿」类告警**（§60）：那四类（伏笔逾期 / 埋了很久没动静 /
+ *      情节线断了 / 人物缺席）都在拿当前章当"还会往前走的前沿"来量，而这本书没有前沿。
+ *      真机上 113 条伏笔报出 76 条逾期。拨开关必须**当场**生效 —— 告警是派生缓存，
+ *      忘了作废就是一个不报错的失效。
  */
 
 import { afterEach, describe, expect, it } from "vitest";
@@ -19,6 +23,8 @@ import { ProjectStore } from "../src/store/persist.js";
 import { ProjectSession } from "../src/server/state.js";
 import { handle, type ApiRequest } from "../src/server/api.js";
 import { fakeClient, modelText, writingSnapshot } from "./writing-fixtures.js";
+import { computeAlerts } from "../src/alerts/compute.js";
+import { loadRules } from "../src/rules/load.js";
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
@@ -97,5 +103,59 @@ describe("已完结作品的伏笔期限", () => {
     for (const bad of [null, { completed: "yes" }, {}]) expect(handle(session, request("POST", "/api/work-status", bad)).status).toBe(400);
     expect(session.workCompleted).toBe(true);
     expect(handle(session, request("GET", "/api/overview")).body).toMatchObject({ completed: true });
+  });
+});
+
+describe("已完结作品不再报「写作前沿」类告警", () => {
+  /** 一条逾期的伏笔：第 1 章埋、第 2 章前该收，而 fixture 写到第 2 章。 */
+  const overdue = () => ({
+    foreshadows: [{
+      id: "F01" as never, label: "青铜钥匙", intent: "证明钥匙能打开宗门密库。",
+      weight: "main" as const, visibility: "covert" as const, status: "open" as const,
+      plantedAt: 1 as never, plantedAnchor: { chapter: 1 as never, quote: "一枚青铜钥匙放在桌上", offsetHint: 0, occurrence: 0 },
+      expectedBy: 2 as never, resolutions: [], overdueBy: 40 as never,
+    }],
+  });
+
+  it("未完结时照报，已完结时一条不报 —— 同一份输入", () => {
+    const base = {
+      currentChapter: 42 as never, nextChapter: 43 as never, plotLines: [], arcs: [],
+      states: new Map(), now: "2026-10-04T00:00:00.000Z" as never, ...overdue(),
+    };
+    const rules = loadRules();
+    expect(computeAlerts({ ...base, completed: false }, rules).length).toBeGreaterThan(0);
+    // 不是改措辞 ——「逾期」「断线」「缺席」说的都是"你还没写到"，
+    // 对一本写完的书，换个说法也还是在问一个不存在的问题。
+    expect(computeAlerts({ ...base, completed: true }, rules)).toEqual([]);
+  });
+
+  it("拨开关当场生效，不用重开会话 —— 告警是派生缓存，忘了作废就是个不报错的失效", () => {
+    const { session } = seeded();
+    // fixture 的 F01 期限是第 3 章、写到第 2 章，所以先把当前章推到逾期区间之外不好造；
+    // 直接用投影里的真实伏笔：把期限改到已写的章，它就逾期了。
+    session.setWorkCompleted(true);
+    author(session, { foreshadows: [claim("旧稿里的安排", 1)] });
+    session.setWorkCompleted(false);
+    const before = session.derived.candidates.length;
+    expect(before).toBeGreaterThan(0);
+
+    // 关键：**同一个 session 实例**上拨开关。
+    session.setWorkCompleted(true);
+    expect(session.derived.candidates).toEqual([]);
+
+    // 拨回去要能恢复 —— 不是单向的。
+    session.setWorkCompleted(false);
+    expect(session.derived.candidates.length).toBe(before);
+  });
+
+  it("压掉的只是告警，事实仍在视图里 —— 没兑现的伏笔照样是 open", () => {
+    const { session } = seeded();
+    session.setWorkCompleted(true);
+    author(session, { foreshadows: [claim("旧稿里的安排", 1)] });
+    expect(session.derived.candidates).toEqual([]);
+    // 伏笔时间线、情节线图、故事进度页读的都不是告警，所以一条都没少。
+    const lane = session.derived.views.foreshadows.find((f) => f.label === "旧稿里的安排");
+    expect(lane?.status).toBe("planned");
+    expect(session.derived.views.foreshadows.length).toBeGreaterThan(0);
   });
 });
