@@ -150,14 +150,29 @@ describe("全文检索", () => {
    * **这条守不住的东西**（写明白，别误以为它管）：每次查询多出来的**固定**开销
    * （比如每次现建一份索引）会让比值变小而不是变大，这里看不出来。它守的是
    * 「不许超线性退化」这一件事。
+   *
+   * ⚠ **取 N 次重复里的最小值，不是一次的耗时。** 相对基准解决了"机器快慢"，
+   * 没解决"噪声"：全量并行下连跑 7 次红 3 次，单跑 9/9 全过。实测分布（全量负载下，
+   * 单位毫秒，`small`/`large` 各 7 个样本）：
+   *
+   *     small: 0.27 0.56 0.21 0.21 0.24 0.20 0.21   ← 稳，极差 2.8 倍
+   *     large: 3.63 5.11 12.92 2.93 1.89 14.09 8.19 ← 噪，极差 **7.5 倍**
+   *     单次比值: 13.4 9.1 61.5 14.0 7.9 70.5 39.0  ← 过半超 25
+   *     取各自最小: 0.20 / 1.89 → 比值 **9.4**，正好贴着章数比 10
+   *
+   * 所以噪声在大档那边，不在小档的计时精度上（这一点与直觉相反，是量出来的）。
+   * **min-of-N 的根据**：GC 停顿与被调度器抢走只会让耗时**变大**，不会变小 ——
+   * 所以最小值收敛到真实开销，而单次/均值会被最差的那次带跑。
+   * 样本要**短而多**（不是长而少）：长样本更可能整段都压上一次 GC，就没有干净的那次了。
+   * 这是修量程，不是放阈值 —— 阈值仍是 25 倍，而真实比值 9.4。
    */
   it("长篇下是线性扫描：章数翻 10 倍，耗时不该翻几十倍", () => {
     const session = seeded();
     const small = scanOf(session, 200);
     const large = scanOf(session, 2000);
     const MISS = "整本书都不会出现的检索词";
-    const run = (source: ReturnType<typeof scanOf>): number => {
-      searchWork(source, MISS); // 预热：第一次要付 JIT 与首次分配的账，不该记在任何一档头上。
+    /** 一个样本：短（5 次查询），好让噪声有机会落在样本之外。 */
+    const sample = (source: ReturnType<typeof scanOf>): number => {
       const started = performance.now();
       for (let i = 0; i < 5; i++) searchWork(source, MISS);
       return performance.now() - started;
@@ -167,8 +182,18 @@ describe("全文检索", () => {
     expect(searchWork(large, "钥匙").truncated).toBe(true);
     expect(searchWork(large, "钥匙").chapters.length).toBe(50);
 
-    const smallMs = run(small);
-    const largeMs = run(large);
+    // 预热两档：第一次要付 JIT 与首次分配的账，不该记在任何一档头上。
+    searchWork(small, MISS);
+    searchWork(large, MISS);
+
+    // 交替量：一次负载尖峰不会只砸在其中一档上。各自取最小。
+    let smallMs = Infinity;
+    let largeMs = Infinity;
+    for (let round = 0; round < 9; round++) {
+      smallMs = Math.min(smallMs, sample(small));
+      largeMs = Math.min(largeMs, sample(large));
+    }
+
     expect(smallMs).toBeGreaterThan(0); // 计时器分辨率兜底：为 0 时比值无意义。
     expect(largeMs / smallMs).toBeLessThan(25);
   });
