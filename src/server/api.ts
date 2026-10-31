@@ -27,6 +27,7 @@ import type { StructureCorrection } from "../chapter/c5-correction.js";
 import type { DraftRewriteOptions } from "./draft-rewrite.js";
 import type { DraftAdoptOptions } from "../task/types.js";
 import type { ConversationStreamEvent } from "../agent/types.js";
+import { buildPlotBoard } from "../view/plot-board.js";
 
 export interface ApiRequest {
   readonly method: string;
@@ -176,6 +177,8 @@ export function handle(session: ProjectSession, req: ApiRequest): ApiResponse {
         return ok({ turns: session.conversationTurns(), ideas: session.listIdeas(), mode: session.conversationMode() });
       case "/api/views":
         return ok(session.derived.views);
+      case "/api/plot-board":
+        return ok(buildPlotBoard({ ...session.meta, events: session.events(), text: n => session.chapterText(n) }, session.rules.anchor));
       case "/api/alerts":
         return ok(alerts(session));
       case "/api/issues":

@@ -81,3 +81,5 @@ npm run web:build
 | `src/harness/`、`test/` | 演示与验收脚本、自动化测试 |
 
 后续方向见[首版用户流程草案](docs/superpowers/specs/2026-09-09-novel-forge-user-flow-design.md)、[用户流程与现有能力映射](docs/superpowers/specs/2026-09-09-novel-forge-user-flow-capability-map.md)和[工作记忆](MEMORY.md)。设计建议、源码实现和实际验收结果在记录中分别标注。
+
+下一项产品工作是[剧情白板首版](docs/superpowers/specs/2026-10-31-plot-whiteboard.md)：用可缩放、平移的无限画布展示剧情节点和主支线，首批接现有事件与原文跳转。当前是已排入队列的设计范围，界面尚未实现。

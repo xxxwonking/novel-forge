@@ -81,6 +81,24 @@ export interface TextAnchor {
   occurrence: number;
 }
 
+export interface PlotBoardNode {
+  id: string;
+  groupId: string;
+  chapter: number;
+  volume: number | null;
+  summary: string;
+  kind: "action" | "info" | "relation" | "resource" | "decision";
+  status: "written" | "planned";
+  source: string;
+  characters: { id: string; name: string }[];
+  point: AnchorPoint | null;
+}
+export interface PlotBoard {
+  groups: { id: string; label: string; weight: ForeshadowWeight | null }[];
+  nodes: PlotBoardNode[];
+  edges: { id: string; source: string; target: string; kind: "sequence" }[];
+}
+
 export type AnchorResolution =
   | { status: "exact"; offset: number; length: number }
   | { status: "shifted"; offset: number; length: number; shiftedBy: number }
@@ -804,6 +822,7 @@ export const api = {
   importWorkBackup,
   overview: () => request<Overview>("/api/overview"),
   views: () => request<Views>("/api/views"),
+  plotBoard: () => request<PlotBoard>("/api/plot-board"),
   alerts: () => request<AlertsPayload>("/api/alerts"),
   chapters: () => request<ChapterListItem[]>("/api/chapters"),
   chapter: (n: number) => request<ChapterPayload>(`/api/chapter?n=${n}`),

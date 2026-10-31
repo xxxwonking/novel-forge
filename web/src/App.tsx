@@ -6,7 +6,7 @@
  * 少一处需要两边同时正确的东西。
  */
 
-import { useCallback, useState } from "react";
+import { lazy, Suspense, useCallback, useState } from "react";
 import { Button } from "antd";
 import { MenuOutlined } from "@ant-design/icons";
 import { api, selectedProjectId, type Alert, type AlertAction, type PlanningAction } from "./api.js";
@@ -37,6 +37,8 @@ const VIEWS = [
   { path: "/relations", label: "关系图" },
 ] as const;
 
+const PlotBoard = lazy(() => import("./pages/PlotBoard.js").then(module => ({ default: module.PlotBoard })));
+
 export function App(): React.ReactElement {
   const [route] = useRoute();
   const workspace = useFetch(() => api.workspace(), []);
@@ -46,10 +48,10 @@ export function App(): React.ReactElement {
   if (route === "/works" || (selectedProjectId() === null && workspace.data.defaultProjectId === null)) {
     return <Works />;
   }
-  return <ProjectApp key={selectedProjectId() ?? workspace.data.defaultProjectId} />;
+  return <ProjectApp key={selectedProjectId() ?? workspace.data.defaultProjectId} projectId={selectedProjectId() ?? workspace.data.defaultProjectId ?? "default"} />;
 }
 
-function ProjectApp(): React.ReactElement {
+function ProjectApp({ projectId }: { projectId: string }): React.ReactElement {
   const [route, go] = useRoute();
   const [toast, showToast] = useToast();
   const [nonce, setNonce] = useState(0);
@@ -155,6 +157,7 @@ function ProjectApp(): React.ReactElement {
         <Link route={route} to="/credits" go={go}>用量与积分</Link>
 
         <div className="rail-group">结构视图</div>
+        <Link route={route} to="/plotboard" go={go}>剧情白板</Link>
         {VIEWS.map((v) => (
           <Link key={v.path} route={route} to={v.path} go={go}>
             {v.label}
@@ -192,6 +195,7 @@ function ProjectApp(): React.ReactElement {
               reloadTasks={tasks.reload}
               refreshKey={nonce}
               onPlanningAction={onPlanningAction}
+              projectId={projectId}
             />
           </ErrorBoundary>
         )}
@@ -209,6 +213,7 @@ function ProjectApp(): React.ReactElement {
 }
 
 interface RoutedProps {
+  projectId: string;
   route: string;
   overview: NonNullable<ReturnType<typeof useFetch<Awaited<ReturnType<typeof api.overview>>>>["data"]>;
   onAction: (alert: Alert, action: AlertAction) => void;
@@ -221,9 +226,10 @@ interface RoutedProps {
   onPlanningAction: (title: string, action: PlanningAction) => void;
 }
 
-function Routed({ route, overview, onAction, onIgnore, onJump, refresh, tasks, reloadTasks, refreshKey, onPlanningAction }: RoutedProps): React.ReactElement {
+function Routed({ route, overview, onAction, onIgnore, onJump, refresh, tasks, reloadTasks, refreshKey, onPlanningAction, projectId }: RoutedProps): React.ReactElement {
   const [path, search] = route.split("?");
   const query = new URLSearchParams(search ?? "");
+  if (path === "/plotboard") return <Suspense fallback={<div className="empty" role="status">正在打开剧情白板…</div>}><PlotBoard projectId={projectId} onJump={onJump} /></Suspense>;
 
   if (path === "/chat") {
     const mode = query.get("mode");

@@ -52,14 +52,23 @@ export function routeChapter(input: RouteInput, rules: Rules): RouteResult {
   if (words < budget.words.min) {
     const [lo, hi] = rules.resolutionPatchWords;
     const gap = budget.words.min - words;
+    // 通用的反制/交易示例不适合所有场景；补写必须受本章已确认目标约束。
+    const targets = [
+      `展开本章核心行动：${plan.coreEvent}`,
+      ...plan.events.map(event => `写出已计划事件的过程、具体判断和反馈：${event.summary}`),
+      ...(plan.secondaryThread === null ? [] : [`本章已计划的次级推进：${plan.secondaryThread}`]),
+      `完成本章结果：${plan.stageFeedback}`,
+      `保持章末落点：${plan.hook}`,
+      "只展开本章计划允许的行动和人物的具体判断，不引入计划外的新事件。",
+    ];
     return {
-      action: { action: "patch", targets: pp.patch },
+      action: { action: "patch", targets },
       findings: [
         {
           rule: "route_patch",
           level: "block",
           message: [
-            `还差 ${gap} 字（下限 ${budget.words.min}）。按优先级补写：${pp.patch.join("、")}。`,
+            `还差 ${gap} 字（下限 ${budget.words.min}）。按本章计划补写：\n${targets.map(target => `- ${target}`).join("\n")}`,
             `禁止用来补字数的东西：${pp.forbidPatch.join("、")}。`,
             input.unresolvedPromises.length > 0
               ? `其中未完成的收束优先补，每条 ${lo}-${hi} 字：${input.unresolvedPromises.join("、")}。`

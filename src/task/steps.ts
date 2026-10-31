@@ -15,7 +15,8 @@ import type { CallOptions } from "../client/claude.js";
 import type { ModelClient } from "../client/model.js";
 import { assemble, type AssembledRequest } from "../context/assemble.js";
 import { buildC5Task, textOf, type ChapterRunInput } from "../chapter/pipeline.js";
-import { C5_OUTPUT_SCHEMA, parseC5, type ParseResult } from "../chapter/c5-schema.js";
+import { quoteCatalog } from "../chapter/quote-catalog.js";
+import { parseC5, type ParseResult } from "../chapter/c5-schema.js";
 import { c5OutputIssue } from "../chapter/c5-validation.js";
 import { checkPromisedResolutions, crossCheckC5 } from "../chapter/c5-crosscheck.js";
 import { gateChapter, type ChapterGateResult } from "../gate/code-channel.js";
@@ -116,7 +117,8 @@ export async function declareStructure(
   write: Extract<WriteResult, { kind: "ok" }>,
 ): Promise<DeclareResult> {
   // 真实响应完整保留；局部生成还须声明代码合成后的全文，不能只分析替换片段。
-  const instruction = buildC5Task(input.parseContextBase);
+  const catalog = quoteCatalog(write.body);
+  const instruction = `${buildC5Task(input.parseContextBase)}\n\n${catalog.instruction}`;
   const task = write.c4Response === null || write.declarationBody === true
     ? `以下是本次版本的完整正文，是本次结构核对的唯一正文依据。此前的源稿或替换片段不代表本次完整结果。\n\n${write.body}\n\n${instruction}` : instruction;
   const c5Messages: Anthropic.MessageParam[] = write.c4Response === null ? [
@@ -137,7 +139,7 @@ export async function declareStructure(
     tools: write.req.tools,
     system: write.req.system,
     messages: c5Messages,
-    outputSchema: C5_OUTPUT_SCHEMA,
+    outputSchema: catalog.schema,
   });
 
   if (c5.kind === "error") return { kind: "failed", detail: c5.error.message };
@@ -145,8 +147,10 @@ export async function declareStructure(
   if (c5.kind === "max_tokens") return { kind: "failed", detail: "C5 达到模型输出上限，声明未完成，正文已保留" };
   if (c5.message.stop_reason !== "end_turn" && c5.message.stop_reason !== "stop_sequence") return { kind: "failed", detail: "C5 响应尚未完整结束，正文已保留，请重新检查" };
 
-  const json = parseJson(textOf(c5.message));
+  let json = parseJson(textOf(c5.message));
   if (json === null) return { kind: "failed", detail: "C5 输出不是合法 JSON" };
+  try { json = catalog.resolve(json); }
+  catch (error) { return { kind: "failed", detail: `C5 ${error instanceof Error ? error.message : String(error)}` }; }
   const issue = c5OutputIssue(json);
   if (issue !== null) return { kind: "failed", detail: `C5 输出结构不完整或字段无效：${issue}` };
 

@@ -183,7 +183,7 @@ export class ChapterTaskService {
         const nextState: ChapterGraphState = {
           ...state, write: null, declaration: null, c5Findings: [], findings: [], acceptable: false,
           outcome: null, error: null, refusalMessage: null,
-          generation: automaticGeneration(state.body, state.findings),
+          generation: automaticGeneration(state.body, state.findings, state.runInput.assembleInput.volatile.beat.budget?.words),
           autoRevisionsUsed: state.autoRevisionsUsed + 1,
           revision: { kind: "automatic", sourceDraftId: last.draftId, sourceToken: draftRevisionToken(last),
             summary: "根据本次检查自动修订一次", rebased: false, scope: null },

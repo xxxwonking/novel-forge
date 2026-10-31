@@ -225,12 +225,14 @@ describe("§10.7 复读式结构", () => {
 describe("§10.9 C7 分流", () => {
   const promised = (id: string) => ({ foreshadowId: id as ForeshadowId, weight: "main" as const, completeness: "full" as const });
 
-  it("字数不足 → patch，带补写优先级与禁止项", () => {
+  it("字数不足 → patch，带本章补写目标与禁止项", () => {
     const p = plan();
     const r = routeChapter({ words: 1200, plan: p, budget: budgetFor(p), unresolvedPromises: [] }, rules);
     expect(r.action.action).toBe("patch");
     expect(r.findings[0]?.level).toBe("block");
-    expect(r.findings[0]?.message).toContain("对手的反制动作");
+    expect(r.findings[0]?.message).toContain(p.coreEvent);
+    expect(r.findings[0]?.message).toContain(p.stageFeedback);
+    expect(r.findings[0]?.message).toContain(p.hook);
     expect(r.findings[0]?.message).toContain("空泛抒情");
   });
 

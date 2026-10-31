@@ -62,6 +62,7 @@ const WEIGHT_LABEL = { main: "主线", sub: "支线", detail: "细节" } as cons
 function renderBudget(b: ChapterBudget): string {
   const lines = [
     `字数区间：${b.words.min}-${b.words.max}（目标 ${b.words.sweet}）`,
+    "内容字数口径：汉字逐字计，西文按词计，标点与空白不计；不是 token 数。",
     `加权事件密度：${b.density.min}-${b.density.max}`,
   ];
   // 阈值按 key 排序输出 —— Object.entries 的顺序虽然对字符串键是插入序，

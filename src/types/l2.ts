@@ -22,7 +22,7 @@ import type { CharacterTier } from "./character.js";
 // ── 人物名录 ────────────────────────────────────────────────────────────
 
 /**
- * 名录一行，四字段定长（§13.4，每人 ≈25 tok）。
+ * 名录一行，ID、姓名、定位、状态与最近出场（§13.4）。
  * 全部预格式化为字符串 —— 数字到字符串的转换在建快照时做完，
  * 渲染函数不做任何格式化决策。
  */
@@ -90,7 +90,7 @@ export type L2TrimStage = "none" | "far_30" | "far_60" | "far_120" | "minor_wind
 
 export interface L2Snapshot {
   /** 快照契约版本。格式变更必须递增，否则旧缓存与新渲染混用无法察觉。 */
-  readonly formatVersion: 1;
+  readonly formatVersion: 2;
   /** 实际用到哪一档。不参与渲染，供测试与度量读取。 */
   readonly trimStage: L2TrimStage;
   /** 裁到最后一档仍超预算时的说明。 */

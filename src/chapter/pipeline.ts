@@ -13,7 +13,7 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { ClaudeClient, type CallResult } from "../client/claude.js";
 import { assemble, type AssembleInput } from "../context/assemble.js";
-import { C5_OUTPUT_SCHEMA, parseC5, type ParseContext, type ParseResult } from "./c5-schema.js";
+import { parseC5, type ParseContext, type ParseResult } from "./c5-schema.js";
 import { c5OutputIssue } from "./c5-validation.js";
 import { checkPromisedResolutions, crossCheckC5 } from "./c5-crosscheck.js";
 import { recordCacheMetrics, type CacheRecord } from "../metrics/cache.js";
@@ -25,12 +25,15 @@ import type { ReviewRules, Rules } from "../rules/schema.js";
 import type { GateFinding, WorkProfile } from "../types/beat.js";
 import type { StructuralEvent } from "../types/events.js";
 import type { ChapterNo } from "../types/primitives.js";
+import { QUOTE_INSTRUCTIONS } from "./quote-instructions.js";
+import { quoteCatalog } from "./quote-catalog.js";
 
 /** C4 的任务指令。分场展开时每场一次调用；这里给整章版本。 */
 export const C4_TASK = [
   "写出本章正文。要求：",
   "1. 严格遵守上面的写作纪律与本章节拍。",
   "2. 字数落在预算区间内，向甜点值靠。不要为了凑字数加环境描写或心理活动。",
+  "先在内部将本章目标拆成有因果承接的推进单元，按目标字数分配篇幅，再写完整正文；不要交付几百字的场景梗概。把行动、分歧、证据与反馈写成实际发生的场面，不用一句概述跳过，也不新增计划外事件或改变结局。不要输出内部篇幅计划。",
   "3. 要收的伏笔必须在本章兑现其埋设意图，并与埋设处的写法呼应。",
   "4. 暗线伏笔不要点明。",
   "5. 只输出正文，不要任何说明、标题或分析。",
@@ -48,7 +51,7 @@ export const C5_TASK = [
   "伏笔声明要求：intent 必须写清这条伏笔将来要兑现什么，这决定了什么算「收」。",
   "expected_by 必须是未来的章号。宁可少报不要多报。",
   "",
-  "每条声明的 quote 必须从本章正文逐字复制一个连续片段，8-40 字，用于定位。保留原标点，不改写、不拼接不同位置的句子。",
+  QUOTE_INSTRUCTIONS,
 ].join("\n");
 
 /**
@@ -181,10 +184,11 @@ export async function runChapter(
 
   // ── C5：同会话第二轮 ──
   // 追加**整个 response.content**，不能只取 text（§附录：压缩块必须保留）。
+  const catalog = quoteCatalog(chapterText);
   const c5Messages: Anthropic.MessageParam[] = [
     ...req.messages,
     { role: "assistant", content: c4.message.content },
-    { role: "user", content: [{ type: "text", text: buildC5Task(input.parseContextBase) }] },
+    { role: "user", content: [{ type: "text", text: `${buildC5Task(input.parseContextBase)}\n\n${catalog.instruction}` }] },
   ];
 
   const c5 = await client.call({
@@ -196,7 +200,7 @@ export async function runChapter(
     tools: req.tools,
     system: req.system,
     messages: c5Messages,
-    outputSchema: C5_OUTPUT_SCHEMA,
+    outputSchema: catalog.schema,
   });
   recordOf("C5", c5);
 
@@ -211,10 +215,12 @@ export async function runChapter(
     return { kind: "failed", step: "C5", detail: "C5 声明未完整结束，正文已保留", chapterText, metrics };
   }
 
-  const parse = parseJson(textOf(c5.message));
+  let parse = parseJson(textOf(c5.message));
   if (parse === null) {
     return { kind: "failed", step: "C5", detail: "C5 输出不是合法 JSON", chapterText, metrics };
   }
+  try { parse = catalog.resolve(parse); }
+  catch (error) { return { kind: "failed", step: "C5", detail: `C5 ${error instanceof Error ? error.message : String(error)}`, chapterText, metrics }; }
   const issue = c5OutputIssue(parse);
   if (issue !== null) return { kind: "failed", step: "C5", detail: `C5 输出结构不完整或字段无效：${issue}`, chapterText, metrics };
 
