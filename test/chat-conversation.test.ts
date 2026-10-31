@@ -102,7 +102,9 @@ describe("Chat 主 Agent 跨回合", () => {
     expect(JSON.stringify([written.body, adopted.body])).not.toMatch(/reason-write|signature-write/u);
     await send(state.session(), "读取第三章正文");
     expect(state.requests).toHaveLength(7);
-    expect(state.requests[6]?.messages).toContainEqual({ role: "tool", tool_call_id: "read", content: prose });
+    const readResult = state.requests[6]?.messages.find((m: Body) => m.role === "tool" && m.tool_call_id === "read");
+    expect(readResult.content.split("\n\n【对话原文引用目录】\n")[0]).toBe(prose);
+    expect(readResult.content).toContain("[[quote:3:full:");
     expect(state.requests.every((r) => r.thinking.type === "enabled")).toBe(true);
   });
 

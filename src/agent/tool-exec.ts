@@ -24,6 +24,7 @@ import { PLANNING_ALLOWED_TOOLS } from "./tools.js";
 import type { StructureCorrection } from "../chapter/c5-correction.js";
 import type { DraftRewriteOptions } from "../server/draft-rewrite.js";
 import type { DraftAdoptOptions } from "../task/types.js";
+import { ConversationQuotes, ConversationQuoteStream } from "./conversation-quotes.js";
 
 /** 计划类工具的入参（三种 what 对应三类 AlertAction，具体构造在 ctx 里）。 */
 export interface PlanAddInput {
@@ -88,6 +89,7 @@ export async function executeMainTool(
   block: Anthropic.ToolUseBlock,
   ctx: MainAgentToolContext,
   mode: ConversationMode = "normal",
+  quotes: ConversationQuotes = new ConversationQuotes(ctx.getChapterText, [], ctx.getChapterDraft),
 ): Promise<{ readonly result: Anthropic.ToolResultBlockParam; readonly effect?: AgentEffect }> {
   const input = asRecord(block.input);
   const readStr = (k: string): string => (typeof input[k] === "string" ? (input[k] as string) : "");
@@ -123,7 +125,7 @@ export async function executeMainTool(
       return action(await ctx.reviseDraft({ draftId: readStr("draftId"), revisionToken: readStr("revisionToken"), instruction: readStr("instruction"), requestId: readStr("requestId"), mode: input["mode"] as DraftRewriteOptions["mode"], scope: input["scope"] as DraftRewriteOptions["scope"] }));
     }
     case "get_chapter_draft":
-      try { return { result: ok(ctx.getChapterDraft(readStr("draftId"))) }; }
+      try { return { result: ok(quotes.draft(readStr("draftId"), ctx.getChapterDraft(readStr("draftId")))) }; }
       catch (error) { return { result: err(error instanceof Error ? error.message : String(error)) }; }
     case "correct_draft_structure": {
       if (!readStr("draftId") || !readStr("revisionToken") || !readStr("summary") || !Array.isArray(input["changes"])) return { result: err("先读取确切稿件，提供 draftId、revisionToken、changes 和纠错说明 summary") };
@@ -166,7 +168,7 @@ export async function executeMainTool(
       const chapter = readNum("chapter");
       if (!Number.isInteger(chapter)) return { result: err("chapter 必须是章号") };
       const text = ctx.getChapterText(chapter, asExcerpt(readStr("excerpt")));
-      return { result: text === null ? err(`第 ${chapter} 章还没有已采用的正文`) : ok(text) };
+      return { result: text === null ? err(`第 ${chapter} 章还没有已采用的正文`) : ok(quotes.source(chapter, asExcerpt(readStr("excerpt")), text)) };
     }
     case "get_character": {
       const name = readStr("name");
@@ -278,6 +280,7 @@ export async function runAgentLoop(
   mode: ConversationMode = "normal",
 ): Promise<AgentLoopResult> {
   let messages: readonly Anthropic.MessageParam[] = callOpts.messages;
+  const quotes = new ConversationQuotes(ctx.getChapterText, messages, ctx.getChapterDraft);
   let toolRounds = 0;
   const effects: AgentEffect[] = [];
   const stopped = (text: string, hitCap = false): AgentLoopResult => ({
@@ -288,34 +291,43 @@ export async function runAgentLoop(
 
   for (;;) {
     observe?.({ type: "round", round: toolRounds + 1 });
+    const emit = observe === undefined ? callOpts.onTextDelta : (text: string) => observe({ type: "delta", text });
+    const stream = emit === undefined ? undefined : new ConversationQuoteStream(quotes, emit,
+      observe === undefined ? undefined : () => observe({ type: "round", round: toolRounds + 1 }));
     const result = await client.call({
       purpose: "conversation",
       ...callOpts,
       messages,
-      ...(observe === undefined ? {} : { onTextDelta: (text: string) => observe({ type: "delta", text }) }),
+      ...(stream === undefined ? {} : { onTextDelta: (text: string) => stream.push(text) }),
     });
 
     if (result.kind === "error") {
       return stopped(`（模型调用失败：${result.error.message}）`);
     }
     if (result.kind === "refusal") {
-      return stopped(result.userMessage);
+      return stopped(quotes.render(result.userMessage));
     }
     if (result.kind === "max_tokens") {
-      return stopped(extractText(result.message) || "（回复超出长度上限，未完成）");
+      const raw = extractText(result.message);
+      return stopped((stream?.finish(raw) ?? quotes.render(raw)) || "（回复超出长度上限，未完成）");
     }
+    const raw = extractText(result.message);
+    const rendered = stream?.finish(raw) ?? quotes.render(raw);
     if (result.message.stop_reason !== "tool_use") {
-      return { text: extractText(result.message), effects, toolRounds, hitCap: false, modelMessages: appendTurn(messages, result.message, []) };
+      const history = appendTurn(messages, result.message, []);
+      // 原始模型消息与签名不改写；用程序记录明确展示结果，避免把错误引用当作已核验事实重放。
+      const modelMessages = rendered === raw ? history : [...history, { role: "user" as const, content: `系统记录：上一条回复的引用已由程序核验。请以实际展示的内容为准，不采用隐藏引文作为事实：\n${rendered}` }];
+      return { text: rendered, effects, toolRounds, hitCap: false, modelMessages };
     }
     if (toolRounds >= maxRounds) {
-      return stopped(extractText(result.message) || "（这一步涉及的操作较多，我先停下。请把要做的事说得更具体一点。）", true);
+      return stopped(rendered || "（这一步涉及的操作较多，我先停下。请把要做的事说得更具体一点。）", true);
     }
     toolRounds += 1;
     const toolResults: Anthropic.ToolResultBlockParam[] = [];
     for (const b of result.message.content) {
       if (b.type !== "tool_use") continue;
       observe?.({ type: "tool", name: b.name, status: "started", ok: true });
-      const { result: tr, effect } = await executeMainTool(b, ctx, mode);
+      const { result: tr, effect } = await executeMainTool(b, ctx, mode, quotes);
       observe?.({ type: "tool", name: b.name, status: "finished", ok: tr.is_error !== true });
       toolResults.push(tr);
       if (effect !== undefined) effects.push(effect);

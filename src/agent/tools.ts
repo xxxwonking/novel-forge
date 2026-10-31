@@ -107,7 +107,7 @@ export const MAIN_AGENT_TOOLS: readonly Anthropic.Tool[] = [
   },
   {
     name: "get_chapter_text",
-    description: "读取某一章已采用的正文，用于核对已发生的事实。excerpt：full 全文 / head 前三分之一 / tail 后三分之一，默认 full。",
+    description: "读取某一章已采用的正文及原文引用目录，用于核对已发生的事实。引用只选结果中的完整 [[quote:...]] 编号，由程序回填原句；不要抄写或改写引句。excerpt：full 全文 / head 前三分之一 / tail 后三分之一，默认 full。",
     input_schema: {
       type: "object",
       properties: {
