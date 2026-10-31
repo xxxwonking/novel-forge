@@ -456,6 +456,24 @@ a.book-card:hover .book-cta { color: var(--main); }
   padding: 28px 34px 60px;
 }
 
+/* 阅读与对话只滚动内部内容，任务栏和页面共享实际可用高度。 */
+.main:has(> .reader-page, > .chat-page) {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 0;
+  overflow: hidden;
+}
+.main:has(> .reader-page, > .chat-page) > .task-panel {
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: 40%;
+  overflow-y: auto;
+  margin: 0;
+  padding: 16px 34px 0;
+}
+.main:has(> .reader-page, > .chat-page) > .task-panel:empty { display: none; }
+
 .page-head {
   margin-bottom: 22px;
 }
@@ -803,8 +821,7 @@ th.num {
  * 正文用衬线、放宽行距 —— 这一页是读小说，不是读报表。 */
 
 .reader-page {
-  display: flex; flex-direction: column; min-height: 0;
-  height: calc(100% + 28px + 60px); margin: -28px -34px -60px;
+  display: flex; flex: 1; flex-direction: column; min-height: 0;
 }
 .reader-bar {
   position: relative; flex-shrink: 0;
@@ -823,7 +840,8 @@ th.num {
 .reader-notice[data-tone="warn"] { color: #e0b277; background: rgba(208, 139, 60, 0.08); }
 
 .reader-body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 330px; }
-.reader-scroll { min-width: 0; overflow-y: auto; overscroll-behavior: contain; display: flex; justify-content: center; padding: 34px 28px 70px; }
+.reader-scroll { min-width: 0; overflow-y: auto; overscroll-behavior: contain; padding: 34px 28px 70px; }
+.reader-scroll > .prose { margin-inline: auto; }
 
 .prose {
   width: min(46rem, 100%); min-width: 0;
@@ -979,16 +997,14 @@ th.num {
 }
 
 /* ── 对话页 ────────────────────────────────────────────────────────────
- * 整页是一列：标题 → 可滚动的消息流 → 固定在底部的输入卡。消息不做气泡，
+ * 整页是一列：标题 → 可滚动的消息流 → 底部输入框与提示。消息不做气泡，
  * 用头像 + 细分隔的编辑体，Agent 回复逐字出现，尾部有光标。 */
 
-.chat-page { display: flex; flex-direction: column; height: calc(100% + 28px + 60px); margin: -28px -34px -60px; min-height: 0; }
+.chat-page { display: flex; flex: 1; flex-direction: column; min-height: 0; }
 .chat-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 22px 34px 14px; border-bottom: 1px solid var(--line); background: linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent); }
 .chat-mode { flex-shrink: 0; margin-top: 4px; }
-/* 谋篇＝未定：栏头与输入框换青灰边，把整段对话夹在两根线之间，不用一句话反复说 */
+/* 谋篇保留栏头青灰线与提示文字；聚焦只突出输入框。 */
 .chat-page[data-mode="planning"] .chat-head { border-bottom-color: var(--calm); }
-.chat-page[data-mode="planning"] .composer { border-color: rgba(77, 127, 140, 0.6); }
-.chat-page[data-mode="planning"] .composer:focus-within { border-color: var(--calm); box-shadow: 0 0 0 3px rgba(77, 127, 140, 0.16), 0 8px 30px rgba(0, 0, 0, 0.35); }
 .chat-page[data-mode="planning"] .composer-status { color: var(--calm); }
 .chat-head h1 { margin: 0 0 4px; font: 500 22px/1.3 var(--serif); letter-spacing: 0.5px; }
 .chat-head p { margin: 0; color: var(--ink-dim); font-size: 12.5px; max-width: 70ch; }
@@ -1032,11 +1048,13 @@ th.num {
 .effect a { color: #9abbd1; text-underline-offset: 3px; }
 .chat-error { margin: 0 34px 10px; }
 
-.composer { flex-shrink: 0; margin: 6px 34px 22px; padding: 6px 8px 8px 14px; border: 1px solid var(--line-bright); border-radius: 14px; background: var(--bg-raised); box-shadow: 0 -10px 40px rgba(13, 14, 19, 0.6), 0 8px 30px rgba(0, 0, 0, 0.35); transition: border-color 0.2s, box-shadow 0.2s; }
-.composer:focus-within { border-color: rgba(201, 162, 39, 0.55); box-shadow: 0 0 0 3px rgba(201, 162, 39, 0.12), 0 8px 30px rgba(0, 0, 0, 0.35); }
-.composer-input.ant-input { font-size: 14.5px; line-height: 1.7; padding: 8px 4px; background: transparent !important; border: 0 !important; box-shadow: none !important; }
-.composer-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 4px; }
-.composer-status { font: 11px var(--mono); color: var(--ink-faint); display: inline-flex; align-items: center; gap: 6px; padding-left: 4px; }
+.composer { flex-shrink: 0; margin: 6px 34px 22px; }
+.composer-input.ant-input { font-size: 14px; line-height: 1.7; padding: 12px 14px; background: var(--bg-raised); border: 1px solid var(--input); border-radius: 8px; box-shadow: none; }
+.composer-input.ant-input:hover { border-color: var(--muted-foreground); }
+.composer-input.ant-input:focus { border-color: var(--ring); box-shadow: 0 0 0 2px color-mix(in srgb, var(--ring) 25%, transparent); outline: none; }
+.composer-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 8px; }
+.composer-bar .ant-btn { flex-shrink: 0; }
+.composer-status { min-width: 0; font: 12px/1.5 var(--sans); color: var(--ink-faint); display: inline-flex; align-items: center; gap: 6px; }
 .drawer-title { display: inline-flex; align-items: center; gap: 10px; font-weight: 400; font-size: 13px; }
 .drawer-footer { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .drawer-link { color: #9abbd1; font-size: 13px; }
@@ -1052,7 +1070,7 @@ th.num {
   .rail-title, .rail-sub, .rail-group, .rail .all-works { display: none; }
   .rail a { width: 50%; padding: 10px 12px; }
   .main { flex: 1; min-height: 0; min-width: 0; width: 100%; padding: 22px 16px 40px; }
-  .reader-page { height: calc(100% + 22px + 40px); margin: -22px -16px -40px; }
+  .main:has(> .reader-page, > .chat-page) > .task-panel { padding: 12px 16px 0; }
   .reader-bar { padding: 12px 16px 10px; gap: 10px; }
   .reader-bar h1 { font-size: 18px; }
   .reader-picker { min-width: 0; flex: 1; }
@@ -1065,7 +1083,6 @@ th.num {
   .reader-scroll { overflow: visible; flex: none; }
   .reader-side { overflow: visible; border-left: 0; border-top: 1px solid var(--line); padding: 20px 16px 40px; }
   .prep-tabs { flex-wrap: wrap; gap: 10px; }
-  .chat-page { height: calc(100% + 22px + 40px); margin: -22px -16px -40px; }
   .chat-head { padding: 16px 16px 12px; }
   .chat-head p { display: none; }
   .chat-stream { padding: 14px 16px 6px; }
@@ -1073,6 +1090,7 @@ th.num {
   .msg[data-role="user"] { grid-template-columns: minmax(0, 1fr) 26px; }
   .avatar { width: 26px; height: 26px; }
   .composer { margin: 6px 12px 12px; }
+  .composer-bar .ant-btn { min-width: 44px; min-height: 44px; }
   .chat-error { margin: 0 12px 8px; }
 }
 .task-panel { margin-bottom: 24px; }

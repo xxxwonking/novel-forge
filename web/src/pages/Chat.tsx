@@ -204,10 +204,11 @@ export function Chat({ onJump, refresh, initialPrompt = "", initialMode }: ChatP
       <div className="composer">
         <Input.TextArea
           className="composer-input"
+          aria-label="对话内容"
+          aria-describedby="composer-status"
           value={input}
           placeholder={planning ? "谋篇中，只讨论不改动。想到什么就说… Enter 发送，Shift+Enter 换行" : "说点什么… Enter 发送，Shift+Enter 换行"}
-          autoSize={{ minRows: 1, maxRows: 8 }}
-          variant="borderless"
+          autoSize={{ minRows: 4, maxRows: 8 }}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
@@ -217,7 +218,7 @@ export function Chat({ onJump, refresh, initialPrompt = "", initialMode }: ChatP
           }}
         />
         <div className="composer-bar">
-          <span className="composer-status">{sending ? <><LoadingOutlined /> {pending?.tools.length ? "正在处理" : "正在回复"}</> : planning ? "谋篇模式：Agent 改不动作品，方案在资料页拍板" : "Agent 会自行选择工具；正式采用始终由你决定"}</span>
+          <span className="composer-status" id="composer-status">{sending ? <><LoadingOutlined /> {pending?.tools.length ? "正在处理" : "正在回复"}</> : planning ? "谋篇模式：Agent 改不动作品，方案在资料页拍板" : "Agent 会自行选择工具；正式采用始终由你决定"}</span>
           <Tooltip title={sending ? "上一条还在回复" : "发送（Enter）"}>
             <Button type="primary" shape="circle" icon={<ArrowUpOutlined />} disabled={sending || input.trim() === ""} onClick={() => void send()} aria-label="发送" />
           </Tooltip>
