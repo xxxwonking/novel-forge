@@ -1,0 +1,94 @@
+@layer theme, antd, legacy, base, components, utilities;
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities);
+@import "tw-animate-css";
+@import "./tokens.css" layer(base);
+@source "../";
+
+@custom-variant dark (&:is(.dark *));
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-warning: var(--warning);
+  --color-info: var(--info);
+  --color-danger-foreground: var(--danger-foreground);
+  --radius-sm: calc(var(--ui-radius) - 2px);
+  --radius-md: var(--ui-radius);
+  --radius-lg: calc(var(--ui-radius) + 2px);
+  --font-sans: var(--ui-font);
+}
+
+/* 不启用全局 Preflight，避免迁移期间重置正文和旧页面。只重置已迁移控件。 */
+@layer base {
+  :root {
+    color-scheme: dark;
+    --bg: var(--background);
+    --bg-raised: var(--card);
+    --bg-elevated: var(--popover);
+    --bg-sunken: var(--background);
+    --ink: var(--foreground);
+    --ink-dim: var(--muted-foreground);
+    --ink-faint: var(--muted-foreground);
+    --line: var(--border);
+    --line-bright: var(--input);
+    --sans: var(--ui-font);
+  }
+  [data-slot] { box-sizing: border-box; border-color: var(--border); border-style: solid; border-width: 0; }
+  button[data-slot] { margin: 0; padding: 0; background-color: transparent; color: inherit; font-family: var(--ui-font); cursor: pointer; }
+  button[data-slot]:disabled { cursor: default; }
+  [data-slot="sheet-content"] { color: var(--foreground); font-family: var(--ui-font); }
+  [data-slot="sheet-title"], [data-slot="sheet-description"] { margin: 0; }
+  ::selection { background: var(--ring); color: var(--background); }
+}
+
+@layer components {
+  .shell { grid-template-columns: 236px minmax(0, 1fr); }
+  .app-rail { background: var(--card); border-right: 1px solid var(--border); overflow: auto; }
+  .project-navigation { display: flex; min-height: 100%; flex-direction: column; padding: 16px 12px 20px; font-family: var(--ui-font); }
+  .project-navigation .all-works { margin-bottom: 24px; }
+  .navigation-title { margin: 0; padding: 0 10px; overflow-wrap: anywhere; font-size: 15px; line-height: 1.6; font-weight: 600; }
+  .navigation-progress { padding: 5px 10px 20px; font-size: 12px; color: var(--muted-foreground); font-variant-numeric: tabular-nums; }
+  .navigation-section { display: grid; gap: 4px; }
+  .navigation-label { margin: 18px 0 8px; padding: 0 10px; font-size: 12px; font-weight: 500; color: var(--muted-foreground); }
+  .navigation-link { display: flex; min-height: 38px; gap: 10px; align-items: center; padding: 8px 10px; border-radius: 6px; color: var(--muted-foreground); font-size: 13px; text-decoration: none; }
+  .navigation-link:hover { background: var(--accent); color: var(--foreground); }
+  .navigation-link[data-active="true"] { background: var(--accent); color: var(--foreground); font-weight: 500; }
+  .navigation-link:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+  .navigation-link svg { width: 16px; height: 16px; flex: none; }
+  .navigation-link .navigation-count { margin-left: auto; font-size: 11px; color: var(--muted-foreground); font-variant-numeric: tabular-nums; }
+  .status-chip { vertical-align: middle; }
+  .task-card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 18px 20px; }
+  .task-card[data-running="true"] { border-color: var(--input); }
+  .task-heading strong { font-weight: 600; }
+  .task-heading span, .task-card .task-usage { color: var(--muted-foreground); }
+  .task-actions > a { display: inline-flex; align-items: center; gap: 6px; color: var(--link); text-underline-offset: 3px; }
+  .mobile-work-header { background: var(--card); }
+  .mobile-work-header strong { font-weight: 600; }
+  .mobile-work-header > a { display: inline-flex; gap: 6px; align-items: center; }
+  .skip-navigation { position: fixed; top: 8px; left: 8px; z-index: 60; transform: translateY(-200%); border-radius: 6px; padding: 8px 12px; color: var(--primary-foreground); background: var(--primary); }
+  .skip-navigation:focus { transform: translateY(0); }
+  @media (max-width: 720px) {
+    .app-rail { display: none; }
+    .navigation-link { min-height: 44px; }
+    .project-navigation { padding: 8px 12px 24px; min-height: auto; }
+    .project-navigation .all-works { margin-bottom: 16px; }
+  }
+  @media (min-width: 721px) { .mobile-navigation-dialog, .mobile-navigation-overlay { display: none; } }
+  @media (prefers-reduced-motion: reduce) { [data-slot="sheet-overlay"], [data-slot="sheet-content"] { animation: none !important; transition: none !important; } }
+}

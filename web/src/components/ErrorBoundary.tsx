@@ -10,7 +10,7 @@
  */
 
 import { Component, type ErrorInfo, type ReactNode } from "react";
-import { Button } from "antd";
+import { Button } from "./ui/button.js";
 
 interface Props {
   readonly children: ReactNode;
@@ -39,8 +39,8 @@ export class ErrorBoundary extends Component<Props, State> {
         {/* 先说稿子没事。白屏最吓人的地方不是功能不能用，是不知道自己写的东西还在不在。 */}
         <p className="muted">你的稿子没有受影响 —— 这是显示出的问题，不是数据出的问题。换一页继续，或者重新载入。</p>
         <div className="row">
-          <Button onClick={() => { this.setState({ error: null }); this.props.onReset?.(); }}>重试</Button>
-          <Button type="primary" onClick={() => location.reload()}>重新载入</Button>
+          <Button variant="outline" onClick={() => { this.setState({ error: null }); this.props.onReset?.(); }}>重试</Button>
+          <Button onClick={() => location.reload()}>重新载入</Button>
         </div>
       </div>
     );

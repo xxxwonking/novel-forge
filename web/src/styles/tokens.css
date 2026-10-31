@@ -1,0 +1,28 @@
+/* 本批开始，界面颜色以本文件为源；结构图的主支线色继续使用专用语义。 */
+:root {
+  --background: #09090b;
+  --foreground: #fafafa;
+  --card: #18181b;
+  --card-foreground: #fafafa;
+  --popover: #18181b;
+  --popover-foreground: #fafafa;
+  --primary: #fafafa;
+  --primary-hover: #e4e4e7;
+  --primary-foreground: #18181b;
+  --secondary: #27272a;
+  --secondary-foreground: #fafafa;
+  --muted: #27272a;
+  --muted-foreground: #a1a1aa;
+  --accent: #27272a;
+  --accent-foreground: #fafafa;
+  --destructive: #be123c;
+  --danger-foreground: #fda4af;
+  --border: #27272a;
+  --input: #3f3f46;
+  --ring: #d4d4d8;
+  --warning: #e9b55e;
+  --info: #94c8dc;
+  --link: #a5c9e0;
+  --ui-radius: 0.5rem;
+  --ui-font: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", -apple-system, sans-serif;
+}

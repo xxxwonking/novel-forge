@@ -1,3 +1,5 @@
+@layer theme, antd, legacy, base, components, utilities;
+@layer legacy {
 /*
  * 视觉方向：结构视图是主界面，正文是附属（§12.3 的产品前提）。
  * 所以配色的重心给"线与点"，正文页反而收敛。
@@ -546,12 +548,12 @@ button:not([class*="ant-"]) {
   transition: background 0.15s, border-color 0.15s;
 }
 
-button:hover:not(:disabled) {
+button:not([class*="ant-"]):hover:not(:disabled) {
   background: #ffffff16;
   border-color: #4a4f61;
 }
 
-button:disabled {
+button:not([class*="ant-"]):disabled {
   opacity: 0.45;
   cursor: default;
 }
@@ -1089,3 +1091,4 @@ th.num {
 .draft-proposal label { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 14px; }
 .draft-proposal input { flex: 0 0 auto; width: 18px; height: 18px; margin: 0; accent-color: var(--ink); }
 .draft-proposal p, .draft-proposals > p { margin: 8px 0; font-size: 13px; line-height: 1.7; }
+}
