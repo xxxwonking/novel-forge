@@ -90,9 +90,11 @@ export async function rewriteChapterBody(client: ModelClient, input: ChapterRunI
       } catch (error) { return { kind: "failed", detail: error instanceof Error ? error.message : String(error) }; }
     }
     if (offset !== undefined) {
+      // 必须在剥除末段前识别整章重复，否则多段原稿会在去重后漏检。
+      const repeatsOriginal = replacement.includes(originalBody);
       // 插入点后的原段落由代码保留；只剥掉新增内容尾部带回的同一份，不做模糊去重。
       if (ending && replacement.trimEnd().endsWith(ending)) replacement = replacement.trimEnd().slice(0, -ending.length).trimEnd();
-      if (!replacement.trim() || replacement.includes(originalBody)) {
+      if (!replacement.trim() || repeatsOriginal) {
         return { kind: "failed", detail: "补写为空或重复了原稿，未应用；原文保持不变" };
       }
     }

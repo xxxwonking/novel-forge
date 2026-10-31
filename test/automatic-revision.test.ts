@@ -10,6 +10,7 @@ import { loadRules } from "../src/rules/load.js";
 import { deriveBudget } from "../src/beat/derive.js";
 import { countWords } from "../src/text/measure.js";
 import { automaticGeneration } from "../src/task/automatic-revision.js";
+import { insertionPoints } from "../src/task/expansion-scope.js";
 import type { ModelClient } from "../src/client/model.js";
 import type { CallResult } from "../src/client/claude.js";
 import { C5_JSON, NO_MODEL_REVIEW, PROSE, WRITE_BEAT, fakeClient, modelText, savedDraft, writingSnapshot } from "./writing-fixtures.js";
@@ -148,6 +149,21 @@ describe("一次写章的有界自动修订", () => {
     expect(draft).toMatchObject({ status: "failed", body: PROSE, error: { step: "C4" }, autoRevisionsUsed: 1 });
     expect(store.loadDraft(3, "ch3d1")?.body).toBe(PROSE);
     expect(model.calls).toHaveLength(3);
+  });
+
+  it.each(["段落编号", "冻结偏移"] as const)("多段原稿在章末补写时先拒绝整章重复（%s）", async location => {
+    const original = "他在石阶上停住脚步。\n\n他举起灯查看石门。\n\n" + PROSE;
+    const model = fakeClient([modelText(location === "段落编号" ? "@insert:3\n" + original : original), modelText(C5_JSON)]);
+    const { session, store } = fixture(model.client);
+    store.saveDraft(savedDraft({ status: "writing", body: original, declaration: null,
+      generation: { mode: "rewrite", originalBody: original, range: null, instruction: "在结尾前展开行动，保留原稿",
+        ...(location === "段落编号" ? { insertionPoints: insertionPoints(original) } : { insertionOffset: original.indexOf(PROSE) }) } }));
+
+    const result = await session.writeChapter({ chapter: 3, draftId: "ch3d1" });
+    expect(result).toMatchObject({ status: "failed", body: original, error: { step: "C4", detail: expect.stringContaining("重复") } });
+    expect(store.loadDraft(3, "ch3d1")?.body).toBe(original);
+    expect(session.chapterText(3)).toBeUndefined();
+    expect(model.calls).toHaveLength(1);
   });
 
   it("模型顺手带回固定章末时，只去掉新增内容尾部那份逐字重复", async () => {
