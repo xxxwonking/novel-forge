@@ -110,6 +110,14 @@ describe("段 1：L1 不含动态内容", () => {
 });
 
 describe("段 2：L2 渲染逐字节稳定", () => {
+  it("人物名录给出姓名与 ID 的对应关系，C5 无需猜测人物编号", () => {
+    const snapshot = buildL2Snapshot(l2Input);
+    const text = renderL2(snapshot);
+    for (const character of snapshot.characters.rows) {
+      expect(text.split("\n")).toContain(`${character.id} | ${character.name} | ${character.role} | ${character.condition} | 最近 ${character.lastSeen}`);
+    }
+  });
+
   it("深拷贝快照渲染结果相同", () => {
     const snap = buildL2Snapshot(l2Input);
     expect(renderL2(structuredClone(snap))).toBe(renderL2(snap));

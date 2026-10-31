@@ -282,7 +282,7 @@ function buildPlotLineRows(tracks: readonly PlotLineTrack[]): readonly L2PlotLin
  */
 function withTrim(input: L2BuildInput, stage: L2TrimStage, farBucket: number, farChars: number, window: number): L2Snapshot {
   return {
-    formatVersion: 1,
+    formatVersion: 2,
     trimStage: stage,
     characters: buildCharacterRows(input.characters, input.currentChapter, window),
     synopsis: buildSynopsisRows(input.chapterSynopses, input.volumeSummaries, input.currentChapter, farBucket, farChars),

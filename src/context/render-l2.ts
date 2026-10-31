@@ -31,7 +31,8 @@ const WEIGHT_LABEL: Readonly<Record<ForeshadowWeight, string>> = {
 const FLAG_LABEL = { overdue: " | ⚠逾期", due_soon: " | ⚠临近" } as const;
 
 function characterRow(c: L2CharacterRow): string {
-  return `${c.name} | ${c.role} | ${c.condition} | 最近 ${c.lastSeen}`;
+  // C5 与写章工具按 ID 引用人物；只有姓名和一份无对应关系的 ID 清单不能可靠配对。
+  return `${c.id} | ${c.name} | ${c.role} | ${c.condition} | 最近 ${c.lastSeen}`;
 }
 
 function synopsisRow(s: L2SynopsisRow): string {
