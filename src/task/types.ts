@@ -110,14 +110,22 @@ export interface DraftTextRange {
   readonly end: number;
 }
 
+export interface DraftInsertionPoint {
+  readonly ref: string;
+  readonly offset: number;
+  readonly before: string;
+}
+
 /** 冻结正文与范围，失败恢复不得重新猜测或扩大作者的选择。内部执行数据不放进 API。 */
 export interface DraftGeneration {
   readonly mode: "rewrite" | "continue";
   readonly instruction: string;
   readonly originalBody: string;
   readonly range: DraftTextRange | null;
-  /** 纯字数不足的自动补写：仅在冻结原稿的此位置插入，原稿其余字节不变。 */
+  /** 旧任务兼容：在冻结原稿的固定位置插入；新自动补写使用 insertionPoints。 */
   readonly insertionOffset?: number;
+  /** 新自动补写可选的位置目录，跟随原稿冻结，不能用模型自由给出的偏移。 */
+  readonly insertionPoints?: readonly DraftInsertionPoint[];
 }
 
 export interface DraftRevision {
