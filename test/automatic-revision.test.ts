@@ -9,6 +9,7 @@ import { draftRevisionToken } from "../src/task/revision.js";
 import { loadRules } from "../src/rules/load.js";
 import { deriveBudget } from "../src/beat/derive.js";
 import { countWords } from "../src/text/measure.js";
+import { automaticGeneration } from "../src/task/automatic-revision.js";
 import type { ModelClient } from "../src/client/model.js";
 import type { CallResult } from "../src/client/claude.js";
 import { C5_JSON, NO_MODEL_REVIEW, PROSE, WRITE_BEAT, fakeClient, modelText, savedDraft, writingSnapshot } from "./writing-fixtures.js";
@@ -18,8 +19,9 @@ afterEach(() => { vi.restoreAllMocks(); for (const root of roots.splice(0)) rmSy
 const rules = NO_MODEL_REVIEW;
 const withLimit = (limit: number) => ({ ...rules, task: { ...rules.task, maxAutoRevisions: limit } });
 const target = deriveBudget(WRITE_BEAT.plan, writingSnapshot().profile, rules).words.sweet;
-const completeBody = PROSE + "\n" + "风".repeat(target - countWords(PROSE));
-const rewrite = (body = completeBody): CallResult => modelText(JSON.stringify({ decision: "apply", replacement: body, summary: "补足取得账本前的交涉", scopeAdvice: "" }));
+const addition = "风".repeat(target - countWords(PROSE));
+const completeBody = addition + "\n\n" + PROSE;
+const rewrite = (body = addition): CallResult => modelText(JSON.stringify({ decision: "apply", replacement: body, summary: "补足取得账本前的交涉", scopeAdvice: "" }));
 const disconnected: CallResult = { kind: "error", error: { type: "connection", status: null, message: "测试连接中断", retryable: true } };
 function fixture(client: ModelClient, limit = 1) {
   const root = mkdtempSync(join(tmpdir(), "nf-auto-revision-")); roots.push(root);
@@ -33,6 +35,15 @@ function deferred<T>() {
 }
 
 describe("一次写章的有界自动修订", () => {
+  it("纯短稿冻结原稿末段前的插入点，不用整章重写丢掉已有篇幅", () => {
+    const body = "前面的行动。\n\n保留的章末。\n";
+    const generation = automaticGeneration(body, [{ rule: "route_patch", level: "block", message: "字数不足", threshold: 2100 }]);
+    expect(generation).toMatchObject({ originalBody: body, insertionOffset: body.indexOf("保留的章末") });
+    expect(generation.instruction).toContain("只交付新增正文");
+    const mixed = automaticGeneration(body, [{ rule: "route_patch", level: "block", message: "字数不足", threshold: 2100 },
+      { rule: "resolution_missing", level: "block", message: "伏笔未收" }]);
+    expect(mixed).not.toHaveProperty("insertionOffset");
+  });
   it("短稿只修订一次，保留初稿及检查，并用新全文重新核对后等待采用", async () => {
     const model = fakeClient([modelText(PROSE), modelText(C5_JSON), rewrite(), modelText(C5_JSON)]);
     const { session, store } = fixture(model.client);
@@ -42,6 +53,11 @@ describe("一次写章的有界自动修订", () => {
     expect(store.loadDraft(3, "ch3d1")).toMatchObject({ body: PROSE, status: "needs_revision", automaticResultDraftId: "ch3d2", autoRevisionsUsed: 1, findings: expect.arrayContaining([expect.objectContaining({ rule: "route_patch", level: "block" })]) });
     expect(model.calls).toHaveLength(4);
     expect(JSON.stringify(model.calls[2]!.messages)).toContain("route_patch");
+    const rewritePrompt = JSON.stringify(model.calls[2]!.messages);
+    const minimum = deriveBudget(WRITE_BEAT.plan, writingSnapshot().profile, rules).words.min;
+    expect(rewritePrompt).toContain(`原稿实测 ${countWords(PROSE)} 字`);
+    expect(rewritePrompt).toContain(`至少增加 ${minimum - countWords(PROSE)} 个内容字`);
+    expect(rewritePrompt).toContain(`新增篇幅目标 ${target - countWords(PROSE)} 字`);
     expect(JSON.stringify(model.calls[3]!.messages)).toContain(completeBody.replace(/\n/gu, "\\n"));
     expect(result.execution?.usage.calls).toBe(4);
     expect(store.loadDraft(3, "ch3d1")?.execution?.usage.calls).toBe(2);
@@ -50,8 +66,46 @@ describe("一次写章的有界自动修订", () => {
     expect(model.calls).toHaveLength(4);
   });
 
+  it("补写只插入新增段落，原稿前缀和章末逐字不变", async () => {
+    const prefix = "他在石阶上停住脚步。\n\n";
+    const original = prefix + PROSE;
+    const model = fakeClient([modelText(original), modelText(C5_JSON), rewrite(), modelText(C5_JSON)]);
+    const { session, store } = fixture(model.client);
+    const draft = await session.writeChapter({ chapter: 3 });
+    expect(draft.status).toBe("ready");
+    expect(draft.body).toBe(prefix + addition + "\n\n" + PROSE);
+    expect(store.loadDraft(3, "ch3d1")?.body).toBe(original);
+    expect(JSON.stringify(model.calls[3]!.messages)).toContain(draft.body.replace(/\n/gu, "\\n"));
+  });
+
+  it("纯补写直接接收正文，不要求把长正文装进 JSON 字段", async () => {
+    const model = fakeClient([modelText(PROSE), modelText(C5_JSON), modelText(addition), modelText(C5_JSON)]);
+    const { session } = fixture(model.client);
+    const result = await session.writeChapter({ chapter: 3 });
+    expect(result).toMatchObject({ status: "ready", body: completeBody });
+    expect(model.calls[2]).not.toHaveProperty("outputSchema");
+    expect(model.calls).toHaveLength(4);
+  });
+
+  it.each(["", PROSE])("空补写或整章重复不会覆盖原稿（%s）", async duplicate => {
+    const model = fakeClient([modelText(PROSE), modelText(C5_JSON), rewrite(duplicate)]);
+    const { session, store } = fixture(model.client);
+    const draft = await session.writeChapter({ chapter: 3 });
+    expect(draft).toMatchObject({ status: "failed", body: PROSE, error: { step: "C4" }, autoRevisionsUsed: 1 });
+    expect(store.loadDraft(3, "ch3d1")?.body).toBe(PROSE);
+    expect(model.calls).toHaveLength(3);
+  });
+
+  it("模型顺手带回固定章末时，只去掉新增内容尾部那份逐字重复", async () => {
+    const prefix = "他在石阶上停住脚步。\n\n";
+    const model = fakeClient([modelText(prefix + PROSE), modelText(C5_JSON), modelText(addition + "\n\n" + PROSE), modelText(C5_JSON)]);
+    const { session } = fixture(model.client);
+    const result = await session.writeChapter({ chapter: 3 });
+    expect(result).toMatchObject({ status: "ready", body: prefix + addition + "\n\n" + PROSE });
+  });
+
   it("修订后仍有必须处理项就停止，规则额度大于一也不创建第三版", async () => {
-    const model = fakeClient([modelText(PROSE), modelText(C5_JSON), rewrite(PROSE + "门关了。"), modelText(C5_JSON)]);
+    const model = fakeClient([modelText(PROSE), modelText(C5_JSON), rewrite("门关了。"), modelText(C5_JSON)]);
     const { session, root } = fixture(model.client, 5);
     const result = await session.writeChapter({ chapter: 3 });
     expect(result).toMatchObject({ draftId: "ch3d2", status: "needs_revision", acceptable: false, autoRevisionsUsed: 1, writeContext: { autoRevisionLimit: 1 } });

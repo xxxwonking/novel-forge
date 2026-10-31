@@ -15,7 +15,7 @@ import { loadRules } from "../src/rules/load.js";
 import { deriveBudget } from "../src/beat/derive.js";
 import { countWords } from "../src/text/measure.js";
 import { C5_JSON, PROSE, SINGLE_PASS_RULES, WRITE_BEAT, writingSnapshot } from "./writing-fixtures.js";
-import { C5_OUTPUT_SCHEMA } from "../src/chapter/c5-schema.js";
+import { quoteCatalog } from "../src/chapter/quote-catalog.js";
 
 type Body = Record<string, any>;
 const roots: string[] = [];
@@ -70,6 +70,28 @@ function write(session: ProjectSession, draftId?: string) {
 }
 
 describe("Chat 章节入口", () => {
+  it.each([false, true])("C5 引文编号在落草稿前还原；未知编号 fail closed（未知=%s）", async unknown => {
+    const raw = JSON.parse(C5_JSON);
+    const catalog = quoteCatalog(PROSE);
+    for (const key of ["events", "foreshadow_planted", "foreshadow_resolved", "relations_changed", "character_states"]) {
+      for (const item of raw[key]) {
+        item.quote = catalog.entries.find(entry => entry.text.includes(item.quote))!.ref;
+      }
+    }
+    if (unknown) raw.events[0].quote = "@quote:99999";
+    const state = await setup((_request, number) => ({ message: { role: "assistant", content: number === 1 ? PROSE : JSON.stringify(raw) } }));
+    const response = await write(state.session);
+    const draft = response.body as ChapterDraft;
+    expect(draft.body).toBe(PROSE);
+    expect(state.store.load().chapters.size).toBe(2);
+    if (unknown) expect(draft).toMatchObject({ status: "failed", error: { step: "C5", detail: expect.stringContaining("引文编号不存在") } });
+    else {
+      expect(draft.declaration?.events.length).toBeGreaterThan(0);
+      for (const event of draft.declaration!.events) expect(PROSE).toContain(event.anchor.quote);
+      expect(JSON.stringify(draft.declaration)).not.toContain("@quote:");
+    }
+  });
+
   it.each(["sse", "aborted", "insufficient_system_resource"])("%s 中断保留正文，重开作品可续写，未完成的正文不能采用", async (kind) => {
     const content = PROSE + "血刀客正要开口，";
     const state = await setup(() => kind === "sse"
@@ -132,7 +154,7 @@ describe("Chat 章节入口", () => {
     expect(state.requests[3]?.messages).toContainEqual(finalAssistant);
     expect(state.requests[3]?.response_format.type).toBe(preset === "deepseek" ? "json_object" : "json_schema");
     if (preset === "deepseek") {
-      expect(state.requests[3]?.messages[0].content).toContain(JSON.stringify(C5_OUTPUT_SCHEMA));
+      expect(state.requests[3]?.messages[0].content).toContain(JSON.stringify(quoteCatalog(PROSE).schema));
       expect(state.requests[3]?.thinking).toEqual({ type: "enabled" });
     }
     expect(state.claude).not.toHaveBeenCalled();
@@ -144,7 +166,7 @@ describe("Chat 章节入口", () => {
     const before = state.store.load();
     const response = await write(state.session);
     expect(response.body).toMatchObject({ status: "failed", body: PROSE, error: { step: "C5", detail: "C5 输出不是合法 JSON" } });
-    expect(state.requests[1]?.messages[0].content).toContain(JSON.stringify(C5_OUTPUT_SCHEMA));
+    expect(state.requests[1]?.messages[0].content).toContain(JSON.stringify(quoteCatalog(PROSE).schema));
     expect(state.requests[1]?.response_format).toEqual(mode === "json_object" ? { type: "json_object" } : undefined);
     expect(state.store.load().events).toEqual(before.events);
     expect(state.store.load().chapters).toEqual(before.chapters);

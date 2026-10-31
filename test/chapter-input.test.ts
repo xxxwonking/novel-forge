@@ -24,6 +24,14 @@ function seed(snapshot = writingSnapshot()): { root: string; session: ProjectSes
 }
 
 describe("buildChapterRunInput", () => {
+  it("写章上下文说明内容字数口径，并要求先分配篇幅而非交付场景梗概", () => {
+    const { session } = seed();
+    const text = JSON.stringify(assemble(buildChapterRunInput(session, 3).assembleInput));
+    expect(text).toContain("汉字逐字计，西文按词计，标点与空白不计");
+    expect(text).toContain("先在内部");
+    expect(text).toContain("篇幅");
+  });
+
   it("装配已落盘的 L1、正式剧情与人物状态，并按节拍顺序选择 L3", () => {
     const snapshot = writingSnapshot();
     const { session } = seed(snapshot);

@@ -116,6 +116,8 @@ export interface DraftGeneration {
   readonly instruction: string;
   readonly originalBody: string;
   readonly range: DraftTextRange | null;
+  /** 纯字数不足的自动补写：仅在冻结原稿的此位置插入，原稿其余字节不变。 */
+  readonly insertionOffset?: number;
 }
 
 export interface DraftRevision {
