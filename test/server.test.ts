@@ -185,6 +185,18 @@ function req(method: string, path: string, query = ""): ApiRequest {
 
 // ── 只读 ────────────────────────────────────────────────────────────────
 
+describe("剧情白板 API", () => {
+  it("提供已确认事实与未来计划，读取不改变正式事件或章计划", () => {
+    const s = session();
+    const before = JSON.stringify({ events: s.events(), beats: s.meta.beats });
+    const result = get(s, "/api/plot-board");
+    expect(result.status).toBe(200);
+    expect(result.body.nodes.some((n: { status: string }) => n.status === "written")).toBe(true);
+    expect(result.body.nodes.some((n: { status: string; chapter: number; point: unknown }) => n.status === "planned" && n.chapter === LAST + 1 && n.point === null)).toBe(true);
+    expect(JSON.stringify({ events: s.events(), beats: s.meta.beats })).toBe(before);
+  });
+});
+
 describe("GET /api/overview", () => {
   it("给出当前章、下一章与首页三条", () => {
     const { status, body } = get(session(), "/api/overview");
