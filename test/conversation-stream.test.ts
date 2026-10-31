@@ -71,6 +71,19 @@ function seed(client?: ClaudeClient) {
 }
 
 describe("对话流式事件", () => {
+  it("原文改写既不出现在任何 SSE delta，也不进入 done 与落盘记录", async () => {
+    const invented = "许临川停在巷子尽头，那里本该只有一堵墙。";
+    const model = streamingClient([toolUse("get_chapter_text", { chapter: 1 }), modelText(`事实说明。\n> “${invented}”`)]);
+    const { session } = seed(model.client);
+    const events: ConversationStreamEvent[] = [];
+    expect(await conversationStream(session, { text: "逐字引用第一章原文" }, event => events.push(event))).toBeNull();
+    for (const event of events) expect(JSON.stringify(event)).not.toContain(invented);
+    expect(events.at(-1)).toMatchObject({ type: "done", reply: { text: expect.stringContaining("隐藏") } });
+    const history = handle(session, { method: "GET", path: "/api/conversation", query: new URLSearchParams(), body: undefined }).body as { turns: { text: string }[] };
+    expect(history.turns[1]?.text).toContain("隐藏");
+    expect(history.turns[1]?.text).not.toContain(invented);
+    expect(model.calls).toHaveLength(2);
+  });
   it("每次模型调用先发 round，文本增量拼起来等于该轮文本，最终 done 带完整回复", async () => {
     const model = streamingClient([
       toolUse("get_next_plan", {}, "我先看看计划。"),

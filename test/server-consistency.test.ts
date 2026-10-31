@@ -69,7 +69,11 @@ describe("同一轮对话中的正式资料一致性", () => {
     }));
     await session.converse("采用 ch3d1，然后核对第三章正文、主角状态和剩余伏笔。");
     expect(session.currentChapter).toBe(3);
-    if (part === "正文") expect(toolResult(model.calls[2], "body")).toBe(body);
+    if (part === "正文") {
+      const result = toolResult(model.calls[2], "body");
+      expect(result.split("\n\n【对话原文引用目录】\n")[0]).toBe(body);
+      expect(result).toContain("[[quote:3:full:");
+    }
     if (part === "人物状态") expect(JSON.parse(toolResult(model.calls[2], "character")).state.condition).toBe("毒伤已经痊愈");
     if (part === "未收伏笔") {
       const ids = (JSON.parse(toolResult(model.calls[2], "foreshadows")) as { id: string }[]).map((f) => f.id);

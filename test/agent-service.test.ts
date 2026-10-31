@@ -12,6 +12,7 @@ import { MainAgentService } from "../src/agent/service.js";
 import { ConversationStore } from "../src/agent/conversation-store.js";
 import type { MainAgentToolContext } from "../src/agent/tool-exec.js";
 import type { MainAgentContextInfo } from "../src/agent/system-prompt.js";
+import type { CallOptions } from "../src/client/claude.js";
 import { fakeClient, modelMessage, modelText } from "./writing-fixtures.js";
 
 const INFO: MainAgentContextInfo = {
@@ -79,6 +80,39 @@ function service(results: Parameters<typeof fakeClient>[0], ctx: MainAgentToolCo
 }
 
 describe("MainAgentService.send", () => {
+  it("真实工具目录中的编号回填并落盘；跨回合可复用，原模型消息不被改写", async () => {
+    const body = "他停在巷子尽头，那里本该只有一堵墙。";
+    const calls: CallOptions[] = [];
+    let ref = "";
+    const client = { official: false, conversationKey: "quotes-target", call: async (opts: CallOptions) => {
+      calls.push(opts);
+      if (calls.length === 1) return toolUse("get_chapter_text", { chapter: 1 });
+      if (calls.length === 2) {
+        const results = opts.messages.flatMap(m => typeof m.content === "string" ? [] : m.content);
+        const result = results.find(b => b.type === "tool_result");
+        if (result?.type === "tool_result" && typeof result.content === "string") ref = result.content.match(/\[\[quote:[^\]]+\]\]/u)![0];
+      }
+      return modelText(ref);
+    } };
+    const svc = new MainAgentService({ client, store, ctx: ctxWith({ getChapterText: () => body }), contextInfo: () => INFO, maxRounds: 8, maxPlanningRounds: 12 });
+    expect((await svc.send("读第一章并引用原句")).text).toContain(body);
+    expect(store.load().turns[1]?.text).not.toContain("[[quote:");
+    const history = store.load().modelHistory!.messages;
+    expect(history).toContainEqual(expect.objectContaining({ role: "assistant", content: expect.arrayContaining([expect.objectContaining({ type: "text", text: ref })]) }));
+    expect(history.at(-1)).toMatchObject({ role: "user", content: expect.stringContaining("程序核验") });
+    expect((await svc.send("再引用一次")).text).toContain(body);
+    expect(calls).toHaveLength(3);
+  });
+  it("错误的原文引句不进入可见历史，不因校验再花一轮模型调用", async () => {
+    const source = "他停在巷子尽头，那里本该只有一堵墙。";
+    const invented = "许临川停在巷子尽头，那里本该只有一堵墙。";
+    const { client, calls } = fakeClient([toolUse("get_chapter_text", { chapter: 1 }), modelText(`> “${invented}”`)]);
+    const svc = new MainAgentService({ client, store, ctx: ctxWith({ getChapterText: () => source }), contextInfo: () => INFO, maxRounds: 8, maxPlanningRounds: 12 });
+    const reply = await svc.send("引用第一章的原文");
+    expect(reply.text).toContain("隐藏");
+    expect(store.load().turns[1]?.text).not.toContain(invented);
+    expect(calls).toHaveLength(2);
+  });
   it("纯查询：返回文本、无 effect，两条记录落盘", async () => {
     const reply = await service([modelText("现在写到第 2 章。")]).send("写到哪了？");
     expect(reply.text).toBe("现在写到第 2 章。");

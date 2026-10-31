@@ -123,6 +123,62 @@ function toolUse(name: string, input: unknown) {
 }
 
 describe("runAgentLoop", () => {
+  it("读取草稿后仍可逐字引用正文，并标为草稿而非已采用事实", async () => {
+    const body = "她把旧账册放回木箱。";
+    const { client } = fakeClient([toolUse("get_chapter_draft", { draftId: "ch3d1" }), modelText(`> ${body}`)]);
+    const reply = await runAgentLoop(client, CALL_OPTS, fakeCtx({ getChapterDraft: id => JSON.stringify({ draftId: id, body, status: "ready" }) }), 8);
+    expect(reply.text).toContain(body);
+    expect(reply.text).toContain("草稿 ch3d1");
+    expect(reply.text).not.toContain("隐藏");
+  });
+  it("引用失败不丢失本轮已完成的动作，也不重复执行动作", async () => {
+    const { client, calls } = fakeClient([
+      toolUse("record_alternative_idea", { text: "新支线" }), modelText("> “不存在的原文。”"),
+    ]);
+    const recordIdea = vi.fn(fakeCtx().recordIdea);
+    const reply = await runAgentLoop(client, CALL_OPTS, fakeCtx({ recordIdea }), 8);
+    expect(reply.text).toContain("隐藏");
+    expect(reply.effects).toEqual([{ kind: "idea_recorded", id: "idea1", text: "新支线" }]);
+    expect(recordIdea).toHaveBeenCalledOnce();
+    expect(calls).toHaveLength(2);
+  });
+
+  it("截断回复中的残缺引用编号不展示，也不会追发模型请求", async () => {
+    const partial = modelMessage([{ type: "text", text: "[[quote:1:full:unfinished", citations: [] }], "max_tokens");
+    const { client, calls } = fakeClient([{ kind: "max_tokens", message: partial }]);
+    const reply = await runAgentLoop(client, CALL_OPTS, fakeCtx(), 8);
+    expect(reply.text).toContain("隐藏");
+    expect(reply.text).not.toContain("[[quote");
+    expect(calls).toHaveLength(1);
+  });
+  it("直接传入 CallOptions 的流式回调也不能绕过引用核验", async () => {
+    const raw = "> “许临川停在巷子尽头。”";
+    const deltas: string[] = [];
+    const client = { official: false, call: async (opts: CallOptions) => {
+      for (const c of raw) opts.onTextDelta?.(c);
+      return modelText(raw);
+    } };
+    const reply = await runAgentLoop(client, { ...CALL_OPTS, onTextDelta: text => deltas.push(text) }, fakeCtx(), 8);
+    expect(reply.text).toContain("隐藏");
+    expect(deltas.join("")).not.toContain("许临川");
+  });
+  it("真实回归：改写不能作为原文引句返回或先泄漏到流式输出", async () => {
+    const source = "他停在巷子尽头，那里本该只有一堵墙。";
+    const invented = "许临川停在巷子尽头，那里本该只有一堵墙。";
+    const scripted = fakeClient([toolUse("get_chapter_text", { chapter: 1 }), modelText(`发现了当铺。\n> “${invented}”`)]);
+    const deltas: string[] = [];
+    const client = { ...scripted.client, call: async (opts: CallOptions) => {
+      const result = await scripted.client.call(opts);
+      if (result.kind === "ok") for (const block of result.message.content) if (block.type === "text") for (const c of block.text) opts.onTextDelta?.(c);
+      return result;
+    } };
+    const reply = await runAgentLoop(client, CALL_OPTS, fakeCtx({ getChapterText: () => source }), 8, event => { if (event.type === "delta") deltas.push(event.text); });
+    expect(reply.text).not.toContain(invented);
+    expect(reply.text).toContain("引文");
+    expect(reply.text).toContain("隐藏");
+    expect(deltas.join("")).not.toContain(invented);
+    expect(scripted.calls).toHaveLength(2);
+  });
   it.each([
     ["revise_chapter_draft", { draftId: "ch3d1", revisionToken: "source-token", instruction: "补足调查证据", requestId: "revision-1", mode: "rewrite", scope: null }],
     ["check_chapter_draft", { draftId: "ch3d2", revisionToken: "source-token", adoptOnSuccess: false }],

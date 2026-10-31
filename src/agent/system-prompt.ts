@@ -11,6 +11,7 @@
 
 import type Anthropic from "@anthropic-ai/sdk";
 import type { ConversationMode } from "./types.js";
+import { CONVERSATION_QUOTE_INSTRUCTIONS } from "./conversation-quotes.js";
 
 export interface MainAgentContextInfo {
   readonly title: string;
@@ -48,6 +49,7 @@ function normalPrompt(info: MainAgentContextInfo): string {
   return `你是小说创作平台里作者的写作助手。作者用自然语言下达任务，你理解意图并**自主选择工具**推进。你面向作者用中文交流。
 
 ${renderContext(info)}
+${CONVERSATION_QUOTE_INSTRUCTIONS}
 新写章的本次范围：一份初稿，以及检查需要时最多 ${info.autoRevisionLimit ?? 0} 次自动修订。用量随任务记录；服务运行时离开页面仍继续，遇到需要作者决定的问题停下。
 
 ## 如何对待不同意图（判断意图与对象是否清楚，清楚才直接执行）
@@ -86,6 +88,7 @@ function planningPrompt(info: MainAgentContextInfo): string {
 这个模式里你**改不动作品** —— 工具集里没有确认方案、写章、采用或改计划的工具，你能做的只有读、问、想。讨论谈拢后用 \`propose_preparation\` 保存一份候选方案，作者到资料页点「确认」系统才把它落成正式资料。所以：**不要说“我已经建好了/已经改成了”**，在确认之前什么都没发生。
 
 ${renderContext(info)}
+${CONVERSATION_QUOTE_INSTRUCTIONS}
 写下一章前还缺：${(info.readinessMissing ?? []).length === 0 ? "（已齐）" : (info.readinessMissing ?? []).join("、")}。
 
 ## 这次要办的事：${scope === "preparation" ? "从零把这本书筹备出来" : "把作者中途冒出的想法接进已有的书里"}
