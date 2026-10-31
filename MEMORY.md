@@ -2991,3 +2991,5 @@ typecheck（根+web）、web:build、`git diff --check` 干净。
 验证：3 个定向文件 **50 项通过**；全量 **85 文件 / 1409 passed、1 skipped**；根+web 类型检查与 `git diff --check` 通过。本修复不涉及 UI，也未调用真实模型。
 
 用户接着要求全站 UI 向 shadcn 看齐，并明确选择：**逐步迁移到真正的 shadcn/ui 组件，按页面验收并替换 Ant Design**。不是只给 Ant Design 换皮。初步盘点有 14 个页面容器、29 个直接引入 Ant Design 的 TSX 文件，另有全局主题/provider。按基础组件/应用外壳、日常页面、创作审查、资料与导入、结构视图分批迁移；保留已确认的无限章节、事件真源与作者确认规则。迁移单独规划和交付，不能因为方向已确定就宣称全站已迁移。
+
+执行计划：`docs/superpowers/plans/2026-10-31-shadcn-migration.md`，分 5 批/10 项，当前仅盘点与计划完成，尚未引入 UI 依赖或修改页面。下一批从样式隔离、真实组件源码和应用外壳开始，最终清除 Ant Design。特别注意现有 unlayered 全局 button/input 选择器会压过 Tailwind layer，不能只靠加载顺序解决共存。UI 迁移使用独立分支/工作树，不以新 PR 叠栈尚未合入的 #32，也不擅自合并 #32。
