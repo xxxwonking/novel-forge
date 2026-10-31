@@ -14,7 +14,7 @@
 - [x] 盘点 `web/src/pages/`：14 个页面容器（`ViewPage` 承载多张结构视图）。
 - [x] 盘点直接依赖：29 个 TSX 文件引入 Ant Design；另有 `web/src/theme.ts` 与入口 provider。
 - [x] 用户确认实际组件迁移；只给 Ant Design 调整颜色不算完成。
-- [ ] 实施各批次。本文是执行计划，不代表已安装组件或已迁移页面。
+- [x] 第一批公共基础与应用外壳已实现和验收；见 `docs/reports/2026-10-31-shadcn-foundation.md`。第二至第五批尚未实施。
 
 迁移在独立 `codex/` 分支与工作树中推进；首个独立 PR 对齐已合入的基线，避免把本轮写章修复和白板 PR 再栈成另一条 PR。可以先准备代码，不以此擅自合并 PR #32。
 
@@ -32,22 +32,22 @@
 
 **Files:** `package.json`、`package-lock.json`、`web/vite.config.ts`、`web/tsconfig.json`、新增 shadcn 配置、`web/src/lib/utils.ts`、`web/src/styles/tokens.css`；调整 `web/src/styles.css`。
 
-- [ ] 核实官方安装/主题文档、包维护状态、许可证、React 19 / Vite 6 兼容性；确定一套底层 primitives，不混用不同 base 的同名组件。
-- [ ] 配置前端 alias、Tailwind 构建与按需 shadcn 源码；不改后端 tsconfig 的模块解析语义。
-- [ ] 定义 background/foreground/card/popover/primary/secondary/muted/accent/destructive/border/input/ring tokens。旧页面通过过渡映射使用同一颜色源，避免两套独立配色继续增长。
-- [ ] 处理 `styles.css` 中 `button:not([class*="ant-"])`、全局 hover/focus、input、table 和弹层规则的 legacy 边界。不能依赖 CSS 加载顺序：现有 unlayered CSS 会压过 Tailwind layer。
-- [ ] 核对 Tailwind reset 对旧页面的影响，过渡期不让未迁移页面失去字号、表格、正文与按钮布局。
-- [ ] 执行 `npm run typecheck`、`npm run web:build`；旧作品列表、对话、阅读器与白板各打开一次，确保未被全局样式意外改变。
+- [x] 核实官方安装/主题文档、包维护状态、许可证、React 19 / Vite 6 兼容性；确定一套底层 primitives，不混用不同 base 的同名组件。
+- [x] 配置前端 alias、Tailwind 构建与按需 shadcn 源码；不改后端 tsconfig 的模块解析语义。
+- [x] 定义 background/foreground/card/popover/primary/secondary/muted/accent/destructive/border/input/ring tokens。旧页面通过过渡映射使用同一颜色源，避免两套独立配色继续增长。
+- [x] 处理 `styles.css` 中 `button:not([class*="ant-"])`、全局 hover/focus、input、table 和弹层规则的 legacy 边界。不能依赖 CSS 加载顺序：现有 unlayered CSS 会压过 Tailwind layer。
+- [x] 核对 Tailwind reset 对旧页面的影响，过渡期不让未迁移页面失去字号、表格、正文与按钮布局。本批未启用全局 Preflight。
+- [x] 执行 `npm run typecheck`、`npm run web:build`；旧作品列表、对话、阅读器与白板各打开一次，确保未被全局样式意外改变。
 
 ### Task 2: 基础组件与外壳
 
 **Files:** 新增 `web/src/components/ui/` 的 Button/Input/Textarea/Label/Badge/Separator/Tooltip/Sheet/Dialog/AlertDialog 等所需组件；`web/src/App.tsx`、`web/src/components/TaskPanel.tsx`、`web/src/components/ErrorBoundary.tsx`、`web/src/components/Chip.tsx`。
 
-- [ ] 使用官方组件源码与必要依赖，按实际页面需要引入；不建一个内部仍调用 Ant Design 的伪迁移层。
-- [ ] 替换应用导航、移动目录、任务状态与错误恢复按钮。Lucide 接管本批图标，保持相同操作语义。
-- [ ] 替换 Chip 的渲染基础，逐个映射业务状态；为真正存在风险的状态映射和交互新增失败用例，再实现。
-- [ ] 核验 Sheet/Dialog 的 Escape、初始焦点、关闭后焦点恢复、滚动锁与 portal 主题继承。阅读器与白板的键盘操作不能被隐藏弹层拦住。
-- [ ] 浏览器验证 1440×1000、1280×800、390×844；按迁移页面批量修正并保存截图。
+- [x] 使用官方组件源码与必要依赖，按实际页面需要引入；不建一个内部仍调用 Ant Design 的伪迁移层。首批只接入所需 Button、Badge、Separator、Sheet。
+- [x] 替换应用导航、移动目录、任务状态与错误恢复按钮。Lucide 接管本批图标，保持相同操作语义。
+- [x] 替换 Chip 的渲染基础，逐个映射业务状态；为真正存在风险的状态映射和交互新增失败用例，再实现。
+- [x] 核验 Sheet/Dialog 的 Escape、初始焦点、关闭后焦点恢复、滚动锁与 portal 主题继承。阅读器与白板的键盘操作不能被隐藏弹层拦住。
+- [x] 浏览器验证 1440×1000、1280×800、390×844；按迁移页面批量修正并保存截图。
 
 **本批交付条件：** 实际 shadcn 基础已接入，外壳与任务/错误反馈可用；旧页面可继续运行。明确列出仍依赖 Ant Design 的页面，不宣称全站完成。
 

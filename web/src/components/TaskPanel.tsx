@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Button } from "antd";
+import { ArrowUpRight } from "lucide-react";
+import { Button } from "./ui/button.js";
 import { api, type ChapterTaskView, type RunStopReason } from "../api.js";
 import { usePolling } from "../hooks.js";
 
@@ -32,11 +33,11 @@ export function TaskCard({ task, reload, detailed = false }: { task: ChapterTask
     {task.isHistory ? <p>这是较早版本，正文和当时的检查结果仍保留。可通过版本列表查看当前结果。</p> : task.status === "completed" && <p>{task.draftStatus === "ready" ? "结果等待你采用。" : task.draftStatus === "needs_revision" ? "检查发现必须处理项，请查看结果并修改。" : task.draftStatus === "adopted" ? "本版本已采用。" : "结果已保留。"}</p>}
     {task.detail && <p className="muted">{task.detail}</p>}
     <div className="task-actions">
-      {!detailed && <a href={`#/draft/${task.chapter}/${task.draftId}`}>查看任务与结果 →</a>}
-      {!detailed && task.automaticResultDraftId && <a href={`#/draft/${task.chapter}/${task.automaticResultDraftId}`}>查看自动修订稿 →</a>}
-      {task.status === "running" && <Button size="small" disabled={busy} onClick={() => void act("pause")}>暂停任务</Button>}
-      {resumable && <Button size="small" disabled={busy} onClick={() => void act("resume")}>{(task.stage === "writing" || task.stage === "revising") && task.words > 0 ? "重试当前任务" : "继续任务"}</Button>}
-      {(live || resumable || task.status === "awaiting_input") && <Button size="small" type="text" disabled={busy || task.status === "ending"} onClick={() => void act("end")}>结束本次任务</Button>}
+      {!detailed && <a href={`#/draft/${task.chapter}/${task.draftId}`}>查看任务与结果<ArrowUpRight className="size-3.5" aria-hidden="true" /></a>}
+      {!detailed && task.automaticResultDraftId && <a href={`#/draft/${task.chapter}/${task.automaticResultDraftId}`}>查看自动修订稿<ArrowUpRight className="size-3.5" aria-hidden="true" /></a>}
+      {task.status === "running" && <Button size="sm" variant="outline" disabled={busy} onClick={() => void act("pause")}>暂停任务</Button>}
+      {resumable && <Button size="sm" variant="outline" disabled={busy} onClick={() => void act("resume")}>{(task.stage === "writing" || task.stage === "revising") && task.words > 0 ? "重试当前任务" : "继续任务"}</Button>}
+      {(live || resumable || task.status === "awaiting_input") && <Button size="sm" variant="ghost" disabled={busy || task.status === "ending"} onClick={() => void act("end")}>结束本次任务</Button>}
     </div>
     {task.status === "running" && <small className="muted">暂停或结束在当前模型请求返回后生效，已完成内容会保留。</small>}
     {detailed && <p className="task-usage">{task.usageRecorded ? <>模型调用 {task.usage.calls} 次 · 已报告输入 {task.usage.inputTokens.toLocaleString()} / 输出 {task.usage.outputTokens.toLocaleString()} tokens{task.usage.unmeasuredCalls > 0 ? `；另有 ${task.usage.unmeasuredCalls} 次调用未返回用量` : ""}</> : "这份历史结果未记录模型用量。"}</p>}
@@ -74,9 +75,9 @@ export function RunCard({ reload }: { reload: () => void }): React.ReactElement 
     <p>{adopted}。{view.status === "running" ? "每章检查通过且没有关键变化才自动采用；否则停下等你。" : ""}</p>
     {view.stopped !== null && <p className="muted">第 {view.stopped.chapter} 章：{view.stopped.detail}</p>}
     <div className="task-actions">
-      {view.stopped?.draftId && <a href={`#/draft/${view.stopped.chapter}/${view.stopped.draftId}`}>查看第 {view.stopped.chapter} 章的结果 →</a>}
-      {view.status === "running" && <Button size="small" disabled={busy || view.stopRequested} onClick={() => void act("stop")}>{view.stopRequested ? "正在停下" : "写完这一章就停"}</Button>}
-      {view.status === "stopped" && <Button size="small" type="text" disabled={busy} onClick={() => void act("acknowledge")}>知道了</Button>}
+      {view.stopped?.draftId && <a href={`#/draft/${view.stopped.chapter}/${view.stopped.draftId}`}>查看第 {view.stopped.chapter} 章的结果<ArrowUpRight className="size-3.5" aria-hidden="true" /></a>}
+      {view.status === "running" && <Button size="sm" variant="outline" disabled={busy || view.stopRequested} onClick={() => void act("stop")}>{view.stopRequested ? "正在停下" : "写完这一章就停"}</Button>}
+      {view.status === "stopped" && <Button size="sm" variant="ghost" disabled={busy} onClick={() => void act("acknowledge")}>知道了</Button>}
     </div>
     {error && <p className="finding" data-level="block" role="alert">{error}</p>}
   </section>;

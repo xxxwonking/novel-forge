@@ -1,31 +1,23 @@
 /**
- * 全局主题。antd 只提供控件与反馈层；页面骨架、结构视图和正文排版仍由
- * styles.css 负责，两边共用同一组底色与金色主色，避免出现两套视觉。
+ * 过渡期 Ant Design 主题。页面逐批迁移，旧控件读取同一份 CSS tokens。
+ * 必须在入口样式载入后调用；完成迁移后与 provider 一并删除。
  */
 
 import { theme, type ThemeConfig } from "antd";
 
-export const INK = {
-  bg: "#12131a",
-  raised: "#191b24",
-  elevated: "#1f2230",
-  sunken: "#0d0e13",
-  line: "#262936",
-  lineBright: "#363a4a",
-  text: "#e6e5e0",
-  dim: "#9a9aa5",
-  faint: "#63636e",
-  gold: "#c9a227",
-  goldBright: "#e2bb3c",
-  calm: "#4d7f8c",
-  warn: "#d08b3c",
-  alarm: "#c05a44",
-} as const;
-
-export const SANS = '"PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", -apple-system, sans-serif';
-export const SERIF = '"Songti SC", "Noto Serif CJK SC", "Source Han Serif SC", "STSong", "SimSun", Georgia, serif';
-
-export const appTheme: ThemeConfig = {
+export function getLegacyTheme(): ThemeConfig {
+  const css = typeof document === "undefined" ? null : getComputedStyle(document.documentElement);
+  // 无样式/SSR 时保留可读回退；浏览器正常运行时以 tokens.css 为准。
+  const read = (name: string, fallback: string): string => css?.getPropertyValue(name).trim() || fallback;
+  const INK = {
+    bg: read("--background", "#09090b"), raised: read("--card", "#18181b"), elevated: read("--popover", "#18181b"),
+    sunken: read("--background", "#09090b"), line: read("--border", "#27272a"), lineBright: read("--input", "#3f3f46"),
+    text: read("--foreground", "#fafafa"), dim: read("--muted-foreground", "#a1a1aa"), faint: read("--muted-foreground", "#a1a1aa"),
+    gold: read("--primary", "#fafafa"), goldBright: read("--primary-hover", "#e4e4e7"),
+    calm: read("--info", "#94c8dc"), warn: read("--warning", "#e9b55e"), alarm: read("--destructive", "#be123c"),
+  };
+  const primaryText = read("--primary-foreground", "#18181b");
+  return {
   algorithm: theme.darkAlgorithm,
   cssVar: { key: "nf" },
   hashed: false,
@@ -35,7 +27,7 @@ export const appTheme: ThemeConfig = {
     colorWarning: INK.warn,
     colorError: INK.alarm,
     colorSuccess: INK.calm,
-    colorLink: "#9abbd1",
+    colorLink: read("--link", "#a5c9e0"),
     colorBgBase: INK.bg,
     colorBgLayout: INK.bg,
     colorBgContainer: INK.raised,
@@ -46,7 +38,7 @@ export const appTheme: ThemeConfig = {
     colorTextSecondary: INK.dim,
     colorTextTertiary: INK.faint,
     colorTextPlaceholder: INK.faint,
-    fontFamily: SANS,
+    fontFamily: read("--ui-font", '"PingFang SC", -apple-system, sans-serif'),
     fontSize: 14,
     borderRadius: 6,
     borderRadiusSM: 4,
@@ -60,20 +52,20 @@ export const appTheme: ThemeConfig = {
   },
   components: {
     Button: {
-      primaryColor: "#14150f",
+      primaryColor: primaryText,
       fontWeight: 600,
       defaultBg: "rgba(255, 255, 255, 0.04)",
       defaultBorderColor: INK.lineBright,
       defaultHoverBg: "rgba(255, 255, 255, 0.08)",
-      defaultHoverBorderColor: "#4a4f61",
+      defaultHoverBorderColor: INK.lineBright,
       textTextColor: INK.dim,
       textHoverBg: "rgba(255, 255, 255, 0.05)",
     },
-    Input: { activeBg: INK.sunken, hoverBg: INK.sunken, colorBgContainer: INK.sunken, activeShadow: `0 0 0 3px rgba(201, 162, 39, 0.16)` },
-    InputNumber: { activeBg: INK.sunken, hoverBg: INK.sunken, colorBgContainer: INK.sunken, activeShadow: `0 0 0 3px rgba(201, 162, 39, 0.16)` },
-    Select: { selectorBg: INK.sunken, optionSelectedBg: "rgba(201, 162, 39, 0.16)", optionSelectedColor: INK.text, activeOutlineColor: "rgba(201, 162, 39, 0.16)" },
-    Radio: { buttonSolidCheckedBg: INK.gold, buttonSolidCheckedColor: "#14150f", buttonSolidCheckedHoverBg: INK.goldBright, buttonBg: INK.sunken },
-    Segmented: { trackBg: INK.sunken, itemSelectedBg: "rgba(201, 162, 39, 0.9)", itemSelectedColor: "#14150f", itemColor: INK.dim, itemHoverColor: INK.text, itemHoverBg: "rgba(255, 255, 255, 0.05)" },
+    Input: { activeBg: INK.sunken, hoverBg: INK.sunken, colorBgContainer: INK.sunken, activeShadow: "0 0 0 3px rgba(212, 212, 216, 0.16)" },
+    InputNumber: { activeBg: INK.sunken, hoverBg: INK.sunken, colorBgContainer: INK.sunken, activeShadow: "0 0 0 3px rgba(212, 212, 216, 0.16)" },
+    Select: { selectorBg: INK.sunken, optionSelectedBg: INK.raised, optionSelectedColor: INK.text, activeOutlineColor: INK.lineBright },
+    Radio: { buttonSolidCheckedBg: INK.gold, buttonSolidCheckedColor: primaryText, buttonSolidCheckedHoverBg: INK.goldBright, buttonBg: INK.sunken },
+    Segmented: { trackBg: INK.sunken, itemSelectedBg: INK.gold, itemSelectedColor: primaryText, itemColor: INK.dim, itemHoverColor: INK.text, itemHoverBg: "rgba(255, 255, 255, 0.05)" },
     Checkbox: { colorPrimary: INK.gold },
     Form: { labelColor: INK.dim, labelFontSize: 12, verticalLabelPadding: "0 0 6px", itemMarginBottom: 18 },
     Modal: { contentBg: INK.elevated, headerBg: INK.elevated },
@@ -83,4 +75,5 @@ export const appTheme: ThemeConfig = {
     Tooltip: { colorBgSpotlight: INK.elevated },
     Message: { contentBg: INK.elevated },
   },
-};
+  };
+}

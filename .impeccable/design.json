@@ -1,0 +1,51 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-31T11:08:08.000Z",
+  "title": "Design System: novel-forge（首批迁移）",
+  "extensions": {
+    "motion": [
+      { "name": "sheet-open", "value": "500ms ease-in-out", "purpose": "官方 Sheet 进入过渡，减少动态效果偏好时关闭" },
+      { "name": "sheet-close", "value": "300ms", "purpose": "官方 Sheet 退出过渡，减少动态效果偏好时关闭" }
+    ],
+    "breakpoints": [{ "name": "mobile-navigation", "value": "720px" }]
+  },
+  "components": [
+    {
+      "name": "主要按钮", "kind": "button", "refersTo": "button-primary", "description": "明确的主要操作，默认不提交表单",
+      "html": "<button type=\"button\" class=\"ds-button\">重新载入</button>",
+      "css": ".ds-button{height:36px;padding:8px 16px;border:0;border-radius:8px;background:var(--foreground,#fafafa);color:var(--card,#18181b);font:500 14px/20px sans-serif;cursor:pointer}.ds-button:hover{background:color-mix(in srgb,var(--foreground,#fafafa) 90%,transparent)}.ds-button:focus-visible{outline:3px solid var(--ring,#d4d4d8);outline-offset:2px}@media(max-width:720px){.ds-button{min-height:44px}}"
+    },
+    {
+      "name": "次级按钮", "kind": "button", "description": "重试、目录与任务控制等次级操作",
+      "html": "<button type=\"button\" class=\"ds-outline\">暂停任务</button>",
+      "css": ".ds-outline{height:36px;padding:8px 16px;border:1px solid var(--input,#3f3f46);border-radius:8px;background:var(--background,#09090b);color:var(--foreground,#fafafa);font:500 14px/20px sans-serif;cursor:pointer}.ds-outline:hover{background:var(--muted,#27272a)}.ds-outline:focus-visible{outline:3px solid var(--ring,#d4d4d8);outline-offset:2px}@media(max-width:720px){.ds-outline{min-height:44px}}"
+    },
+    {
+      "name": "当前导航项", "kind": "nav", "refersTo": "navigation-active", "description": "当前入口同时有 aria-current 与中性填色",
+      "html": "<a class=\"ds-navigation\" aria-current=\"page\" href=\"#/plotboard\">剧情白板</a>",
+      "css": ".ds-navigation{display:block;padding:8px 10px;min-height:38px;border-radius:6px;background:var(--muted,#27272a);color:var(--foreground,#fafafa);font:500 13px/21px sans-serif;text-decoration:none}.ds-navigation:hover{background:var(--input,#3f3f46)}.ds-navigation:focus-visible{outline:2px solid var(--ring,#d4d4d8);outline-offset:2px}@media(max-width:720px){.ds-navigation{min-height:44px}}"
+    },
+    {
+      "name": "待确认状态", "kind": "chip", "description": "保留文字与 warning 语义，不只依赖颜色",
+      "html": "<span class=\"ds-chip\">待你确认</span>",
+      "css": ".ds-chip{display:inline-flex;align-items:center;padding:2px 8px;border:1px solid color-mix(in srgb,var(--warning,#e9b55e) 30%,transparent);border-radius:8px;background:color-mix(in srgb,var(--warning,#e9b55e) 10%,transparent);color:var(--warning,#e9b55e);font:500 12px/16px sans-serif}.ds-chip:hover{border-color:var(--warning,#e9b55e)}.ds-chip:focus-visible{outline:2px solid var(--ring,#d4d4d8);outline-offset:2px}"
+    },
+    {
+      "name": "任务反馈", "kind": "card", "description": "任务阶段、保留内容与下一步操作的中性容器",
+      "html": "<section class=\"ds-task\"><strong>第 1501 章</strong><span>已暂停</span><p>已保存内容仍保留。</p></section>",
+      "css": ".ds-task{padding:18px 20px;border:1px solid var(--border,#27272a);border-radius:10px;background:var(--card,#18181b);color:var(--foreground,#fafafa);font:13px/1.65 sans-serif}.ds-task strong{font-weight:600}.ds-task span{float:right;color:var(--muted-foreground,#a1a1aa)}.ds-task p{margin:10px 0}.ds-task:hover{border-color:var(--input,#3f3f46)}.ds-task:focus-visible{outline:2px solid var(--ring,#d4d4d8);outline-offset:2px}"
+    }
+  ],
+  "narrative": {
+    "northStar": "shadcn/ui 小说创作工作区",
+    "overview": "仅已迁移的应用外壳、任务反馈与公共基础组件。旧页面仍有衬线标题、渐变面板和 Ant Design 控件，不能宣称它们已迁移。",
+    "keyCharacteristics": ["深色中性色", "细边框", "清晰焦点", "真实组件源码"],
+    "rules": [
+      { "name": "移动目标", "body": "720px 以下操作目标至少 44px。", "section": "components" },
+      { "name": "焦点", "body": "键盘焦点可见，关闭弹层后恢复。", "section": "components" },
+      { "name": "样式边界", "body": "新组件引用 tokens.css，旧样式置于 legacy layer。", "section": "colors" }
+    ],
+    "dos": ["使用语义 tokens 和组件源码。", "分批替换旧控件。"],
+    "donts": ["不创建底层仍调用 Ant Design 的同名外观包装。", "不把未验收页面或模型流程列为已完成。"]
+  }
+}

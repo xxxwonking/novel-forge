@@ -2993,3 +2993,16 @@ typecheck（根+web）、web:build、`git diff --check` 干净。
 用户接着要求全站 UI 向 shadcn 看齐，并明确选择：**逐步迁移到真正的 shadcn/ui 组件，按页面验收并替换 Ant Design**。不是只给 Ant Design 换皮。初步盘点有 14 个页面容器、29 个直接引入 Ant Design 的 TSX 文件，另有全局主题/provider。按基础组件/应用外壳、日常页面、创作审查、资料与导入、结构视图分批迁移；保留已确认的无限章节、事件真源与作者确认规则。迁移单独规划和交付，不能因为方向已确定就宣称全站已迁移。
 
 执行计划：`docs/superpowers/plans/2026-10-31-shadcn-migration.md`，分 5 批/10 项，当前仅盘点与计划完成，尚未引入 UI 依赖或修改页面。下一批从样式隔离、真实组件源码和应用外壳开始，最终清除 Ant Design。特别注意现有 unlayered 全局 button/input 选择器会压过 Tailwind layer，不能只靠加载顺序解决共存。UI 迁移使用独立分支/工作树，不以新 PR 叠栈尚未合入的 #32，也不擅自合并 #32。
+
+## 66. 2026-10-31 shadcn/ui 第一批：基础、导航与任务反馈
+
+用户授权开始迁移。当前分支 **`codex/shadcn-ui`**，独立工作树 `/Users/others/Desktop/novel-forge-worktrees/shadcn-ui`，从 `a36efc0` 准备；原工作树未改。PR #32 仍 OPEN，因此不另开叠栈 PR、不擅自合并。接续先核对两个分支状态，再决定基线对齐。
+
+- 已接入真正的官方 Radix 版 Button、Badge、Separator、Sheet，保留来源/registry 哈希与 MIT 许可；Tailwind v4、Lucide、alias 和语义 tokens 已配置，官方 shadcn CLI info 可识别。
+- 应用桌面侧栏、移动目录、任务与错误恢复按钮、Chip 已替换。旧主题读取同一颜色源；样式 layer 隔离，未启用全局 Preflight。Ant Design 的 StyleProvider layer 必须保留到旧控件迁完，否则全局链接规则会覆盖新导航当前背景。
+- 移动目录焦点循环、Escape/焦点恢复、切桌面解除滚动锁、输入保留；旧备份弹窗/Tooltip 与新 Badge 兼容；合成任务重试错误和结束后保留正文均通过，模型调用 0。桌面 1440×1000、1280×800 与移动 390×844 截图已存。
+- 《雨夜当铺》独立副本 175/176 章导航、白板到第 175 章原文高亮通过；177 份原始输入哈希未变。仍仅四条人工验收节选标注，**没有 Gemini 全书反推，也没有真实连写通过的新证据**。
+- 工程：**88 文件 / 1420 passed、1 skipped**，根+web 类型检查、构建、diff 检查通过。主 JS 1064.95 kB / gzip 345.38 kB，白板独立 199.60 kB；双框架阶段有体积成本，原大包警告仍在。
+- 本工作树默认会命中 Homebrew Node 26.6.0，最终检查和验收服务显式使用原项目 Node 24.20.0：`PATH=/Users/others/.nvm/versions/node/v24.20.0/bin:$PATH`。没有升级全局 Node；两版本早于 2026-10-21 官方安全补丁，维护项见报告。
+
+**第一批完成，不是全站完成**：25 个 TSX 文件仍直接引入 Ant Design（含入口 provider），白板内部工具栏也在后续批次。下一批按计划迁移 Works 和日常页面。详见 `docs/reports/2026-10-31-shadcn-foundation.md`、迁移计划、PRODUCT/DESIGN；本地截图和日志在本工作树 `data/acceptance-2026-10-31/shadcn-foundation/`（不入 Git）。生产预览 5184、Vite 5183 使用独立测试库；生产验收配置已禁用真实模型请求。

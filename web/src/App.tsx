@@ -6,9 +6,11 @@
  * 少一处需要两边同时正确的东西。
  */
 
-import { lazy, Suspense, useCallback, useState } from "react";
-import { Button } from "antd";
-import { MenuOutlined } from "@ant-design/icons";
+import { lazy, Suspense, useCallback, useEffect, useState } from "react";
+import { ArrowLeft, Menu } from "lucide-react";
+import { Button } from "./components/ui/button.js";
+import { Sheet, SheetTrigger, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "./components/ui/sheet.js";
+import { ProjectNavigation } from "./components/ProjectNavigation.js";
 import { api, selectedProjectId, type Alert, type AlertAction, type PlanningAction } from "./api.js";
 import { useFetch, usePolling, useRoute, useToast } from "./hooks.js";
 import { TaskPanel } from "./components/TaskPanel.js";
@@ -43,7 +45,7 @@ export function App(): React.ReactElement {
   const [route] = useRoute();
   const workspace = useFetch(() => api.workspace(), []);
   if (workspace.data === null) {
-    return <div className="empty">{workspace.error === null ? "打开工作区…" : <>读取工作区失败：{workspace.error} <Button size="small" onClick={workspace.reload}>重试</Button></>}</div>;
+    return <div className="empty">{workspace.error === null ? "打开工作区…" : <>读取工作区失败：{workspace.error} <Button size="sm" variant="outline" onClick={workspace.reload}>重试</Button></>}</div>;
   }
   if (route === "/works" || (selectedProjectId() === null && workspace.data.defaultProjectId === null)) {
     return <Works />;
@@ -60,6 +62,15 @@ function ProjectApp({ projectId }: { projectId: string }): React.ReactElement {
 
   const overview = useFetch(() => api.overview(), [nonce]);
   const tasks = usePolling(api.chapterTasks);
+
+  useEffect(() => setNavOpen(false), [route]);
+  useEffect(() => {
+    const desktop = window.matchMedia("(min-width: 721px)");
+    const closeOnDesktop = () => { if (desktop.matches) setNavOpen(false); };
+    closeOnDesktop();
+    desktop.addEventListener("change", closeOnDesktop);
+    return () => desktop.removeEventListener("change", closeOnDesktop);
+  }, []);
 
   /** 全局重取。一键动作会同时改节拍表、事件流与告警，所以整体刷新。 */
   const refresh = useCallback(() => setNonce((n) => n + 1), []);
@@ -131,53 +142,30 @@ function ProjectApp({ projectId }: { projectId: string }): React.ReactElement {
     [go],
   );
 
+  const navigation = {
+    route, title: overview.data?.title ?? "novel-forge",
+    currentChapter: overview.data?.currentChapter ?? 0,
+    nextChapter: overview.data?.nextChapter ?? 1,
+    alertCount: overview.data?.counts.fullList ?? 0,
+    revisionPending: overview.data?.counts.revisionPending ?? 0,
+  };
+  const navigate = (path: string) => { go(path); setNavOpen(false); };
+
   return (
     <div className="shell">
-      <header className="mobile-work-header"><a href="#/works">← 作品</a><strong>{overview.data?.title ?? "novel-forge"}</strong><Button size="small" icon={<MenuOutlined />} aria-label="作品导航" aria-controls="project-navigation" aria-expanded={navOpen} onClick={() => setNavOpen(!navOpen)}>目录</Button></header>
-      <nav className="rail" id="project-navigation" data-open={navOpen} onClick={(event) => { if ((event.target as HTMLElement).closest("a")) setNavOpen(false); }}>
-        <a href="#/works" className="all-works">← 全部作品</a>
-        <div className="rail-title">{overview.data?.title ?? "novel-forge"}</div>
-        <div className="rail-sub">
-          {overview.data === null
-            ? "载入中"
-            : `第 ${overview.data.currentChapter} 章 · 下一章 ${overview.data.nextChapter}`}
-        </div>
+      <a className="skip-navigation" href="#project-content" onClick={event => { event.preventDefault(); document.getElementById("project-content")?.focus(); }}>跳到内容</a>
+      <Sheet open={navOpen} onOpenChange={setNavOpen}>
+        <header className="mobile-work-header"><a href="#/works"><ArrowLeft className="size-4" aria-hidden="true" />作品</a><strong>{navigation.title}</strong>
+          <SheetTrigger asChild><Button size="sm" variant="outline" aria-label="作品导航"><Menu aria-hidden="true" />目录</Button></SheetTrigger>
+        </header>
+        <SheetContent side="left" className="mobile-navigation-dialog w-[min(20rem,90vw)] gap-0 overflow-hidden border-border p-0" overlayClassName="mobile-navigation-overlay">
+          <SheetHeader className="shrink-0 border-b border-border py-5 pr-16 pl-5"><SheetTitle className="text-base">作品导航</SheetTitle><SheetDescription>切换创作页面或查看剧情结构</SheetDescription></SheetHeader>
+          <nav className="min-h-0 flex-1 overflow-y-auto" aria-label="作品导航"><ProjectNavigation {...navigation} onNavigate={navigate} /></nav>
+        </SheetContent>
+      </Sheet>
+      <aside className="app-rail"><nav aria-label="作品导航"><ProjectNavigation {...navigation} onNavigate={navigate} /></nav></aside>
 
-        <Link route={route} to="/chat" go={go}>
-          对话
-        </Link>
-        <Link route={route} to="/preparation" go={go}>作品资料</Link>
-        <Link route={route} to="/" go={go}>
-          首页
-        </Link>
-        <Link route={route} to="/alerts" go={go} count={overview.data?.counts.fullList}>
-          全部提示
-        </Link>
-        <Link route={route} to="/search" go={go}>全文检索</Link>
-        <Link route={route} to="/credits" go={go}>用量与积分</Link>
-
-        <div className="rail-group">结构视图</div>
-        <Link route={route} to="/plotboard" go={go}>剧情白板</Link>
-        {VIEWS.map((v) => (
-          <Link key={v.path} route={route} to={v.path} go={go}>
-            {v.label}
-          </Link>
-        ))}
-
-        <div className="rail-group">正文</div>
-        {/* 有未处理的返修就该一眼看见：它挡着连写，也意味着后面的章建立在旧事实上。 */}
-        {(overview.data?.counts.revisionPending ?? 0) > 0 && (
-          <Link route={route} to="/revision" go={go} count={overview.data?.counts.revisionPending}>
-            跨章返修
-          </Link>
-        )}
-        <Link route={route} to="/export" go={go}>导出作品</Link>
-        <Link route={route} to={`/chapter/${Math.max(overview.data?.currentChapter ?? 1, 1)}`} go={go}>
-          章节与体检
-        </Link>
-      </nav>
-
-      <main className="main">
+      <main className="main" id="project-content" tabIndex={-1}>
         <TaskPanel tasks={tasks.data ?? []} error={tasks.error} route={route} reload={tasks.reload} />
         {overview.error !== null && <div className="empty">读取失败：{overview.error}</div>}
         {overview.data !== null && (
@@ -263,33 +251,4 @@ function Routed({ route, overview, onAction, onIgnore, onJump, refresh, tasks, r
     return <ViewPage kind={view.path} title={view.label} onJump={onJump} highlight={query.get("id")} refresh={refresh} />;
   }
   return <div className="empty">没有这个页面</div>;
-}
-
-function Link({
-  route,
-  to,
-  go,
-  count,
-  children,
-}: {
-  route: string;
-  to: string;
-  go: (to: string) => void;
-  count?: number | undefined;
-  children: React.ReactNode;
-}): React.ReactElement {
-  const active = route === to || (to !== "/" && route.startsWith(to));
-  return (
-    <a
-      href={`#${to}`}
-      data-active={active}
-      onClick={(e) => {
-        e.preventDefault();
-        go(to);
-      }}
-    >
-      <span>{children}</span>
-      {count !== undefined && <span className="rail-count">{count}</span>}
-    </a>
-  );
 }
