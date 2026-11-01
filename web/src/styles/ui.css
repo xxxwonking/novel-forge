@@ -37,7 +37,6 @@
 /* 不启用全局 Preflight，保留正文与现有页面排版。只重置组件控件。 */
 @layer base {
   :root {
-    color-scheme: dark;
     --bg: var(--background);
     --bg-raised: var(--card);
     --bg-elevated: var(--popover);
@@ -61,7 +60,10 @@
   .shell { grid-template-columns: 236px minmax(0, 1fr); }
   .app-rail { background: var(--card); border-right: 1px solid var(--border); overflow: auto; }
   .project-navigation { display: flex; min-height: 100%; flex-direction: column; padding: 16px 12px 20px; font-family: var(--ui-font); }
-  .project-navigation .all-works { margin-bottom: 24px; }
+  .navigation-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 24px; }
+  .theme-page-tools { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .library-mast { gap: 16px; }
+  .library-mast .theme-trigger { margin-left: 0; }
   .navigation-title { margin: 0; padding: 0 10px; overflow-wrap: anywhere; font-size: 15px; line-height: 1.6; font-weight: 600; }
   .navigation-progress { padding: 5px 10px 20px; font-size: 12px; color: var(--muted-foreground); font-variant-numeric: tabular-nums; }
   .navigation-section { display: grid; gap: 4px; }
@@ -87,7 +89,8 @@
     .app-rail { display: none; }
     .navigation-link { min-height: 44px; }
     .project-navigation { padding: 8px 12px 24px; min-height: auto; }
-    .project-navigation .all-works { margin-bottom: 16px; }
+    .navigation-top { margin-bottom: 16px; }
+    .library-mast { flex-wrap: wrap; gap: 10px; }
   }
   @media (min-width: 721px) { .mobile-navigation-dialog, .mobile-navigation-overlay { display: none; } }
   @media (prefers-reduced-motion: reduce) { [data-slot="sheet-overlay"], [data-slot="sheet-content"] { animation: none !important; transition: none !important; } }

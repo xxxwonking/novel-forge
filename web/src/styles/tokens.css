@@ -28,6 +28,7 @@
   --canvas-grid: #36363b;
   --canvas-edge: #71717a;
   --canvas-node-border: #52525b;
+  --relation-romantic: #bc89a5;
   --ui-text-caption: 11px;
   --ui-text-label: 12px;
   --ui-text-small: 13px;
@@ -39,4 +40,43 @@
   --ui-radius-card: 12px;
   --ui-radius: 0.5rem;
   --ui-font: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", -apple-system, sans-serif;
+}
+
+
+/* 浅色使用同一组语义，组件、正文与结构图随根主题一起切换。 */
+:root:not(.dark) {
+  --background: #fafafa;
+  --foreground: #18181b;
+  --card: #ffffff;
+  --card-foreground: #18181b;
+  --popover: #ffffff;
+  --popover-foreground: #18181b;
+  --primary: #18181b;
+  --primary-hover: #3f3f46;
+  --primary-foreground: #ffffff;
+  --secondary: #f4f4f5;
+  --secondary-foreground: #18181b;
+  --muted: #f4f4f5;
+  --muted-foreground: #52525b;
+  --accent: #e4e4e7;
+  --accent-foreground: #18181b;
+  --danger-foreground: #be123c;
+  --border: #d4d4d8;
+  --input: #a1a1aa;
+  --ring: #52525b;
+  --warning: #92400e;
+  --info: #0e7490;
+  --link: #075985;
+  --canvas-grid: #d4d4d8;
+  --canvas-edge: #71717a;
+  --canvas-node-border: #71717a;
+  --relation-romantic: #8c476d;
+  --main: #8a6300;
+  --main-bright: #8a6300;
+  --sub: #426780;
+  --detail: #62626b;
+  --warn: #92400e;
+  --alarm: #b3312c;
+  --calm: #1c6575;
+  --done: #667085;
 }

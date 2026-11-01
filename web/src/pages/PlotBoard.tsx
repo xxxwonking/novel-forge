@@ -1,8 +1,9 @@
+import { getResolvedTheme, subscribeTheme } from "../theme.js";
 import { BoardPlanEditor } from "../components/BoardPlanEditor.js";
 import { Chip } from "../components/Chip.js";
 import { Button, Input } from "../components/controls.js";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "../components/ui/sheet.js";
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Background, Handle, Position, ReactFlow, applyNodeChanges, type Node, type NodeProps, type ReactFlowInstance, type NodeChange, type Edge } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { api, type PlotBoard as BoardData, type PlotBoardNode } from "../api.js";
@@ -36,6 +37,7 @@ export function PlotBoard({ projectId, onJump }: { projectId: string; onJump: (c
 }
 
 function BoardCanvas({ board, projectId, onJump, reload }: { board: BoardData; projectId: string; onJump: (chapter: number, quote: string) => void; reload: () => void }): React.ReactElement {
+  const colorMode = useSyncExternalStore(subscribeTheme, getResolvedTheme, getResolvedTheme);
   const [planning, setPlanning] = useState<number | "new" | null>(null);
   const planningTrigger = useRef<HTMLElement | null>(null);
   const addPlanTrigger = useRef<HTMLButtonElement | null>(null);
@@ -192,7 +194,7 @@ function BoardCanvas({ board, projectId, onJump, reload }: { board: BoardData; p
           onInit={instance => { flow.current = instance; }} defaultViewport={initial.layout.viewport ?? { x: 28, y: 36, zoom: 0.8 }}
           onMove={(_, view) => setZoom(view.zoom)} onMoveEnd={(_, viewport) => setLayout(old => ({ ...old, viewport }))}
           onPaneClick={() => setSelectedId(null)} nodesConnectable={false} edgesReconnectable={false} deleteKeyCode={null}
-          minZoom={minZoom} maxZoom={2} onlyRenderVisibleElements colorMode="dark" multiSelectionKeyCode={null}
+          minZoom={minZoom} maxZoom={2} onlyRenderVisibleElements colorMode={colorMode} multiSelectionKeyCode={null}
           ariaLabelConfig={{ "node.a11yDescription.default": "按 Enter 选中剧情节点，方向键移动卡片，Escape 取消选中。", "node.a11yDescription.keyboardDisabled": "剧情节点", "controls.zoomIn.ariaLabel": "放大", "controls.zoomOut.ariaLabel": "缩小" }}>
           <Background color="var(--canvas-grid)" gap={24} size={1} />
         </ReactFlow>
