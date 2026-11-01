@@ -19,7 +19,8 @@ import type Anthropic from "@anthropic-ai/sdk";
 import type { ModelClient } from "../client/model.js";
 import { idConstraints } from "../chapter/pipeline.js";
 import { QUOTE_INSTRUCTIONS } from "../chapter/quote-instructions.js";
-import { C5_OUTPUT_SCHEMA, parseC5, type ParseContext } from "../chapter/c5-schema.js";
+import { parseC5, type ParseContext } from "../chapter/c5-schema.js";
+import { quoteCatalog } from "../chapter/quote-catalog.js";
 import { c5OutputIssue } from "../chapter/c5-validation.js";
 import { crossCheckC5 } from "../chapter/c5-crosscheck.js";
 import type { C5Declaration } from "../types/events.js";
@@ -45,6 +46,11 @@ export interface InferenceInput {
   readonly chapter: ChapterNo;
   readonly chapterText: string;
   readonly parseContextBase: Omit<ParseContext, "chapterText">;
+  readonly references?: {
+    readonly characters: readonly { readonly id: string; readonly name: string; readonly aliases: readonly string[] }[];
+    readonly settings: readonly { readonly id: string; readonly name: string }[];
+    readonly plotLines: readonly { readonly id: string; readonly label: string }[];
+  };
   /** 已埋设未兑现的伏笔：模型只能从这张表里挑要兑现的编号。 */
   readonly openForeshadows: readonly PendingForeshadow[];
   /**
@@ -96,13 +102,18 @@ export function buildInferenceTask(input: InferenceInput): string {
     INFER_TASK,
     "",
     ...idConstraints(input.parseContextBase),
+    ...(input.references === undefined ? [] : [
+      `人物编号与姓名对照：${JSON.stringify(input.references.characters)}。只按此表对应人物，不从编号猜姓名。`,
+      `地点编号与名称对照：${JSON.stringify(input.references.settings)}`,
+      `情节线编号与含义：${JSON.stringify(input.references.plotLines)}`,
+    ]),
     "",
     input.openForeshadows.length === 0
       ? "目前没有待兑现的旧伏笔，foreshadow_resolved 留空。"
       : ["已埋设、尚未兑现的伏笔（foreshadow_resolved 只能引用这些编号）：",
         ...input.openForeshadows.map((f) => `- ${f.id} 「${f.label}」：${f.intent}（原计划第 ${f.expectedBy} 章前兑现）`)].join("\n"),
     "",
-    ...(input.plannedForeshadows.length === 0 ? [] : [[
+    ...(input.plannedForeshadows.length === 0 ? ["目前没有待埋设规划，foreshadow_planted 的 planned_foreshadow_id 必须省略或为 null。上面的已埋伏笔只能用于兑现，不是可认领规划；不要重新埋设同一条伏笔。"] : [[
       "已规划、尚未埋设的伏笔（作者的大纲里写了，正文还没写到）：",
       ...input.plannedForeshadows.map((f) => `- ${f.id} 「${f.label}」：${f.intent}（计划第 ${f.expectedBy} 章前兑现）`),
       "这一章如果正是埋下其中某一条的地方，就在那条 foreshadow_planted 里填 planned_foreshadow_id。",
@@ -115,7 +126,21 @@ export function buildInferenceTask(input: InferenceInput): string {
     "",
     `# 第 ${input.chapter} 章正文`,
     input.chapterText,
+    "",
+    quoteCatalog(input.chapterText).instruction,
   ].join("\n");
+}
+
+/** 同一份当前状态同时约束提示词和schema；原文引用及生命周期校验仍在解析层执行。 */
+export function inferenceSchema(input: InferenceInput): Record<string, unknown> {
+  const schema = quoteCatalog(input.chapterText).schema;
+  const sections = schema.properties as Record<string, { maxItems?: number; items: { properties: Record<string, Record<string, unknown>> } }>;
+  if (input.plannedForeshadows.length === 0) delete sections.foreshadow_planted!.items.properties.planned_foreshadow_id;
+  else sections.foreshadow_planted!.items.properties.planned_foreshadow_id!.enum = input.plannedForeshadows.map(f => f.id);
+  if (input.openForeshadows.length === 0) sections.foreshadow_resolved!.maxItems = 0;
+  else sections.foreshadow_resolved!.items.properties.foreshadow_id!.enum = input.openForeshadows.map(f => f.id);
+  if (input.parseContextBase.knownSettings?.size === 0) sections.character_states!.items.properties.field!.enum = ["condition", "vital"];
+  return schema;
 }
 
 function systemBlocks(input: InferenceInput): readonly Anthropic.TextBlockParam[] {
@@ -137,6 +162,7 @@ function systemBlocks(input: InferenceInput): readonly Anthropic.TextBlockParam[
  * 缓存写入价高于读取价（§13.4 的同一条理由）。
  */
 export async function inferChapterStructure(client: ModelClient, input: InferenceInput): Promise<InferenceOutcome> {
+  const catalog = quoteCatalog(input.chapterText);
   const call = await client.call({
     purpose: "inference",
     role: "creative",
@@ -144,7 +170,7 @@ export async function inferChapterStructure(client: ModelClient, input: Inferenc
     maxTokens: INFER_MAX_TOKENS,
     system: systemBlocks(input),
     messages: [{ role: "user", content: [{ type: "text", text: buildInferenceTask(input) }] }],
-    outputSchema: C5_OUTPUT_SCHEMA,
+    outputSchema: inferenceSchema(input),
   });
 
   if (call.kind === "error") return { kind: "failed", detail: call.error.message };
@@ -154,8 +180,10 @@ export async function inferChapterStructure(client: ModelClient, input: Inferenc
     return { kind: "failed", detail: "模型响应没有正常结束，这一章的记录没整理完" };
   }
 
-  const json = parseJson(textOf(call.message));
+  let json = parseJson(textOf(call.message));
   if (json === null) return { kind: "failed", detail: "模型输出不是合法 JSON" };
+  try { json = catalog.resolve(json); }
+  catch (error) { return { kind: "problem", problems: [error instanceof Error ? error.message : String(error)], warnings: [] }; }
   const issue = c5OutputIssue(json);
   if (issue !== null) return { kind: "failed", detail: `模型输出的结构不完整或字段无效：${issue}` };
 

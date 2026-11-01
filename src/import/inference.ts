@@ -24,8 +24,7 @@ import { declarationOf } from "../store/event-stream.js";
 import { isPlanOrigin } from "../types/events.js";
 import type { C5Declaration, StructuralEvent } from "../types/events.js";
 import type { ChapterNo, ForeshadowId } from "../types/primitives.js";
-import { buildInferenceTask, inferChapterStructure, INFER_MAX_TOKENS, SYNOPSIS_WINDOW, type PendingForeshadow } from "./infer.js";
-import { C5_OUTPUT_SCHEMA } from "../chapter/c5-schema.js";
+import { buildInferenceTask, inferenceSchema, inferChapterStructure, INFER_MAX_TOKENS, SYNOPSIS_WINDOW, type PendingForeshadow } from "./infer.js";
 import { estimateTokens } from "../context/select-l3.js";
 import type { ModeFacts } from "../credits/estimate.js";
 import { InferenceStore, type InferenceRun } from "./inference-store.js";
@@ -87,8 +86,8 @@ export class InferenceService {
    * 逐章反推这条路要发生多少次调用、合计发出多少输入 token。
    *
    * 次数是**确定的**：`infer()` 一章一次调用，没处理过的章有几个就是几次，所以
-   * 区间两端相同。输入分两部分 —— 章正文逐章精确算，其余开销（任务说明、ID 清单、
-   * 伏笔清单、前情梗概、输出 schema）取"下一章此刻的真实提示词"再乘次数。
+   * 区间两端相同。每章正文、引文目录与schema逐章计入；资料、伏笔及前情开销取当前下一章
+   * 的上下文，再用于各章的完整提示词推算；重跑比例覆盖整份请求。
    *
    * 后者是个**偏低**的近似：反推往后走，伏笔清单与前情梗概都会变长。方向记在这里，
    * 不在界面上装作精确 —— 而只要攒够三次实测，这套推算就整体让位给账本里的均价。
@@ -101,13 +100,14 @@ export class InferenceService {
     // 代价是作者真心不想要的那几章也会被计入，但高报"补全成本"远比低报无害。
     const remaining = chapters.filter((c) => c.state !== "confirmed" && c.state !== "written" && c.state !== "pending").map((c) => c.chapter);
     const first = remaining[0];
-    const overhead = first === undefined ? 0 : estimateTokens(buildInferenceTask({
-      chapter: first, chapterText: "", title: this.deps.source.meta.setting.title, ...this.accumulated(first),
-    })) + estimateTokens(JSON.stringify(C5_OUTPUT_SCHEMA));
-    const prose = remaining.reduce((sum, n) => sum + estimateTokens(this.deps.source.chapterText(n) ?? ""), 0);
     const factor = this.callsPerChapter(inferenceCalls);
     const calls = Math.round(remaining.length * factor);
-    const tokens = overhead * calls + prose;
+    const accumulated = first === undefined ? null : this.accumulated(first);
+    const tokens = accumulated === null ? 0 : Math.round(remaining.reduce((sum, chapter) => {
+      const chapterText = this.deps.source.chapterText(chapter) ?? "";
+      const input = { chapter, chapterText, title: this.deps.source.meta.setting.title, ...accumulated };
+      return sum + estimateTokens(buildInferenceTask(input)) + estimateTokens(JSON.stringify(inferenceSchema(input)));
+    }, 0) * factor);
     return {
       key: "chapters", model, purpose: "inference", maxOutputTokens: INFER_MAX_TOKENS,
       calls: { min: calls, max: calls },
@@ -270,6 +270,7 @@ export class InferenceService {
    * 认领 planned_foreshadow_id。混成一张，模型会去「兑现」一条还没埋下的安排。
    */
   accumulated(chapter: ChapterNo): {
+    readonly references: NonNullable<Parameters<typeof inferChapterStructure>[1]["references"]>;
     readonly parseContextBase: Parameters<typeof inferChapterStructure>[1]["parseContextBase"];
     readonly openForeshadows: readonly PendingForeshadow[];
     readonly plannedForeshadows: readonly PendingForeshadow[];
@@ -293,6 +294,11 @@ export class InferenceService {
     ];
 
     return {
+      references: {
+        characters: characters.map(c => ({ id: c.id, name: c.name, aliases: c.aliases })),
+        settings: meta.settings.map(s => ({ id: s.id, name: s.name })),
+        plotLines: meta.plotLines.map(p => ({ id: p.id, label: p.label })),
+      },
       parseContextBase: {
         chapter,
         knownCharacters: new Set(characters.map((c) => c.id)),
