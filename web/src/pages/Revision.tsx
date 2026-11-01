@@ -13,7 +13,7 @@
  */
 
 import { useState } from "react";
-import { Button, InputNumber, Tooltip } from "antd";
+import { Button, NumberInput, HelpTooltip } from "../components/controls.js";
 import { api, type RevisionChapter } from "../api.js";
 import { useFetch, useRouteActive } from "../hooks.js";
 import { Chip } from "../components/Chip.js";
@@ -33,7 +33,7 @@ export function Revision({ refresh }: { refresh: () => void }): React.ReactEleme
   /** 默认落在被改那一章的下一章：留空会让按钮恒灰，作者以为功能坏了。 */
   const target = other ?? (data.data?.latest === null ? null : (data.data?.latest.chapter ?? 0) + 1);
 
-  if (data.data === null) return <div className="empty">{data.error ?? "读取返修清单…"} <Button size="small" onClick={data.reload}>重试</Button></div>;
+  if (data.data === null) return <div className="empty">{data.error ?? "读取返修清单…"} <Button size="sm" onClick={data.reload}>重试</Button></div>;
   const view = data.data;
 
   const run = async (key: string, action: () => Promise<string>): Promise<void> => {
@@ -59,7 +59,7 @@ export function Revision({ refresh }: { refresh: () => void }): React.ReactEleme
     <div className="finding" data-level="block" role="alert">
       <p>{view.error}</p>
       <p className="muted">读不出来，所以这份清单现在当空的用（导航上的计数也是 0）。原文件还在，没有被删 —— 重建会把它改名留档。</p>
-      <Button size="small" danger loading={busy === "rebuild"} disabled={busy !== null}
+      <Button size="sm" danger loading={busy === "rebuild"} disabled={busy !== null}
         onClick={() => void run("rebuild", async () => {
           const result = await api.rebuildRevision();
           return result.archived === null ? "清单已重建。" : `清单已重建；原文件留档改名为 ${result.archived}，没有删除。`;
@@ -99,7 +99,7 @@ export function Revision({ refresh }: { refresh: () => void }): React.ReactEleme
       </div>
       {view.latest !== null && <div className="row">
         {/* 代码只圈得出有结构关联的章。正文里的牵连没有编号可查，作者比谁都清楚该看哪一章。 */}
-        <label>还担心第 <InputNumber min={view.latest.chapter + 1} value={target} onChange={(value) => setOther(typeof value === "number" ? value : null)} /> 章</label>
+        <label>还担心第 <NumberInput min={view.latest.chapter + 1} value={target} onChange={(value) => setOther(typeof value === "number" ? value : null)} /> 章</label>
         <Button loading={busy === `locate${target ?? 0}`} disabled={busy !== null || target === null} onClick={() => target !== null && void locate(target)}>也查一下</Button>
       </div>}
     </div>
@@ -114,14 +114,14 @@ export function Revision({ refresh }: { refresh: () => void }): React.ReactEleme
           return <article className="prep-beat" key={item.chapter} data-state={item.state}>
             <div className="row">
               <h3>第 {item.chapter} 章</h3>
-              {done ? <Chip>已处理</Chip> : <Tooltip title={severity.hint}><Chip color={severity.color}>{severity.label}</Chip></Tooltip>}
+              {done ? <Chip>已处理</Chip> : <HelpTooltip title={severity.hint}><Chip color={severity.color}>{severity.label}</Chip></HelpTooltip>}
               <span className="muted">因第 {item.triggers.map((t) => t.chapter).join("、")} 章的修订</span>
               <span className="push-right row">
                 <a href={`#/chapter/${item.chapter}`}>读正文</a>
-                <Button size="small" loading={busy === `locate${item.chapter}`} disabled={busy !== null}
+                <Button size="sm" loading={busy === `locate${item.chapter}`} disabled={busy !== null}
                   onClick={() => void locate(item.chapter)}>{item.state === "located" && !item.outdated ? "重新定位" : "定位受影响段落"}</Button>
-                <Button size="small" loading={busy === `open${item.chapter}`} disabled={busy !== null} onClick={() => void open(item.chapter)}>去改这一章</Button>
-                {!done && <Button size="small" type="text" loading={busy === `resolve${item.chapter}`} disabled={busy !== null}
+                <Button size="sm" loading={busy === `open${item.chapter}`} disabled={busy !== null} onClick={() => void open(item.chapter)}>去改这一章</Button>
+                {!done && <Button size="sm" variant="ghost" loading={busy === `resolve${item.chapter}`} disabled={busy !== null}
                   onClick={() => void run(`resolve${item.chapter}`, async () => { await api.resolveRevision(item.chapter); return `第 ${item.chapter} 章已标记处理完毕。`; })}>不用改 / 已改完</Button>}
               </span>
             </div>

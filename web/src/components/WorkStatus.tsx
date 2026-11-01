@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Switch } from "antd";
+import { ToggleSwitch } from "./controls.js";
 import { api } from "../api.js";
 import { useFetch } from "../hooks.js";
 
@@ -29,7 +29,7 @@ export function WorkStatus({ onChanged }: { onChanged?: () => void }): React.Rea
 
   return <>
     <label className="review-toggle">
-      <Switch checked={completed} loading={busy} onChange={(next) => void toggle(next)} />
+      <ToggleSwitch checked={completed} loading={busy} onChange={(next) => void toggle(next)} />
       <span>
         <strong>这本书已经写完</strong>
         <small>{completed

@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { Button, Input } from "antd";
+import { Button, Input, Textarea } from "../components/controls.js";
 import { readTextFile } from "../files.js";
 import { Chip } from "../components/Chip.js";
 import { BeatEditor, CharacterEditor, DraftDialog, PlotLineEditor, SettingEditor, VolumeEditor, type Editing } from "../components/PreparationEditors.js";
@@ -10,6 +10,7 @@ import { WorkStatus } from "../components/WorkStatus.js";
 import { api, type CharacterRecord, type DraftFocus, type ForeshadowClaim, type PreparationContent, type PreparationPayload, type PreparationProposal, type SettingInput, type PlotLineInput, type VolumeCard } from "../api.js";
 import type { RelationClaim, Removals } from "../preparation-changes.js";
 import { useFetch, useRouteActive } from "../hooks.js";
+import { nextPlanChapter, nextVolumeNumber } from "../preparation-numbering.js";
 
 const discuss = (prompt: string): string => `#/chat?prompt=${encodeURIComponent(prompt)}`;
 const planPrompt = "请先读取作品资料，根据我已指定的想法整理人物、必要设定和下一章的具体计划，保存为待确认方案让我看。";
@@ -30,7 +31,7 @@ export function Preparation({ refresh, proposalId }: { refresh: () => void; prop
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  if (data.data === null) return <div className="empty">{data.error ?? "读取作品资料…"} <Button size="small" onClick={data.reload}>重新读取</Button></div>;
+  if (data.data === null) return <div className="empty">{data.error ?? "读取作品资料…"} <Button size="sm" onClick={data.reload}>重新读取</Button></div>;
   const view = data.data;
   const candidate = view.proposals.find((p) => p.id === selected);
 
@@ -71,6 +72,7 @@ export function Preparation({ refresh, proposalId }: { refresh: () => void; prop
         if (isCurrent()) {
           setSelected(result.proposalId ?? null);
           setNotice(`${kept}根据它整理出的人物保存在待确认方案里，请核对后再确认。`);
+          data.reload(); refresh();
         }
       } catch (e) {
         if (isCurrent()) setError(`整理人物没有完成：${(e as Error).message} 资料已收下，可以再点「让 AI 起草人物」重试。`);
@@ -114,41 +116,41 @@ export function Preparation({ refresh, proposalId }: { refresh: () => void; prop
     {(error ?? data.error) !== null && <div className="finding" role="alert" data-level="block">{error ?? data.error}</div>}
     {notice !== null && <p className="prep-notice" role="status">{notice}</p>}
     <div className="prep-tabs" role="group" aria-label="资料视图">
-      <Button type={selected === null ? "primary" : "default"} onClick={() => { setSelected(null); setEditing(false); }}>已指定 / 已确认</Button>
+      <Button variant={selected === null ? "default" : "outline"} onClick={() => { setSelected(null); setEditing(false); }}>已指定 / 已确认</Button>
       <span className="muted">{view.proposals.filter((p) => p.status === "proposed").length} 份方案等待处理</span>
     </div>
     <div className="prep-layout">
       <div className="prep-main">
         {candidate === undefined ? <>
-          <div className="section-head"><h2>当前创作依据</h2><div className="row"><Button type="primary" onClick={() => setDrafting("full")}>让 AI 起草资料</Button><Button onClick={() => setDrafting("chapters")}>让 AI 排后面几章</Button><Button onClick={() => setImporting(true)}>导入已有正文</Button><Button onClick={() => setChoosing(true)}>反推故事结构</Button><Button onClick={() => setEditing(!editing)}>{editing ? "返回资料" : "编辑基本设定与偏好"}</Button></div></div>
+          <div className="section-head"><h2>当前创作依据</h2><div className="row"><Button variant="default" onClick={() => setDrafting("full")}>让 AI 起草资料</Button><Button onClick={() => setDrafting("chapters")}>让 AI 排后面几章</Button><Button onClick={() => setImporting(true)}>导入已有正文</Button><Button onClick={() => setChoosing(true)}>反推故事结构</Button><Button onClick={() => setEditing(!editing)}>{editing ? "返回资料" : "编辑基本设定与偏好"}</Button></div></div>
           <input type="file" accept=".txt,.md,text/plain" multiple ref={profilePicker} style={{ display: "none" }}
             onChange={(e) => { void importProfile(e.target.files); e.target.value = ""; }} />
           {editing ? <AuthorForm view={view} onSaved={saved} /> : <Content content={view.confirmed} onEdit={setEntity} onDraft={setDrafting} onImport={() => profilePicker.current?.click()} importing={importingProfile} />}
-          <section className="prep-section"><div className="section-head"><h2>未来伏笔计划</h2><Button size="small" type="primary" ghost onClick={() => setDrafting("foreshadows")}>从资料反推伏笔</Button></div><p className="muted">这些安排已确认，尚未写成正文中的埋设或兑现。</p><WorkStatus onChanged={refresh} />{view.plannedForeshadows.length === 0 ? <p className="muted">还没有独立的未来伏笔规划。有大纲或简介，就让 AI 从里面认出你已经安排好的伏笔供你核对 —— 确认后它们会以虚线出现在伏笔时间线上。</p> : view.plannedForeshadows.map(plan => <div className="draft-change" key={plan.id}><strong>{plan.label}</strong><p>{plan.intent}</p><small>预期第 {plan.expectedBy} 章前兑现 · 尚未埋设</small></div>)}</section>
+          <section className="prep-section"><div className="section-head"><h2>未来伏笔计划</h2><Button size="sm" variant="default"  onClick={() => setDrafting("foreshadows")}>从资料反推伏笔</Button></div><p className="muted">这些安排已确认，尚未写成正文中的埋设或兑现。</p><WorkStatus onChanged={refresh} />{view.plannedForeshadows.length === 0 ? <p className="muted">还没有独立的未来伏笔规划。有大纲或简介，就让 AI 从里面认出你已经安排好的伏笔供你核对 —— 确认后它们会以虚线出现在伏笔时间线上。</p> : view.plannedForeshadows.map(plan => <div className="draft-change" key={plan.id}><strong>{plan.label}</strong><p>{plan.intent}</p><small>预期第 {plan.expectedBy} 章前兑现 · 尚未埋设</small></div>)}</section>
           <section className="prep-section"><h2>备选想法</h2>{view.ideas.length === 0 ? <p className="muted">暂时没有记录。可以在对话中说“把这个想法记为备选”。</p> : <ul>{view.ideas.map((idea) => <li key={idea.id}>{idea.text}</li>)}</ul>}</section>
         </> : <>
           <div className="prep-proposal-head"><Chip color={candidate.stale ? "orange" : "cyan"}>{status(candidate)}</Chip><h2>{candidate.summary}</h2><p className="muted">{candidate.source === "author" ? "作者指定的修改" : "Agent 提出的建议"} · {new Date(candidate.createdAt).toLocaleString("zh-CN")}</p></div>
           {candidate.stale && <p className="finding" data-level="warn">这份方案依据的资料已改变。请回到对话重新整理，避免覆盖你的新选择。</p>}
           <RemovalList removals={candidate.changes.removals} current={view.confirmed} />
-          <RelationList relations={candidate.changes.relations} current={view.confirmed} />
+          <RelationList relations={candidate.changes.relations} current={candidate.content} />
           <ForeshadowList foreshadows={candidate.changes.foreshadows} />
           {candidate.impacts.map((impact, index) => <div key={index} className="finding" data-level="warn"><strong>{impact.message}</strong><div>{impact.chapters.map((n) => <a key={n} href={`#/chapter/${n}`}>第 {n} 章　</a>)}</div><p>先形成相应章节的候选修改，再核对这些设定。</p></div>)}
           {candidate.findings.map((finding, index) => <div key={index} className="finding" data-level={finding.level}>{finding.message}</div>)}
           {candidate.status === "proposed" && <div className="prep-proposal-actions">
-            <div className="row"><Button type="primary" disabled={busy || candidate.stale || candidate.impacts.length > 0} onClick={() => void act(candidate, "write")}>确认并写第 {view.nextChapter} 章</Button><Button disabled={busy || candidate.stale || candidate.impacts.length > 0} onClick={() => void act(candidate, "confirm")}>只确认方案</Button><Button disabled={busy || candidate.stale || candidate.impacts.length > 0} onClick={() => void act(candidate, "trial")}>按方案先试写</Button><Button type="text" disabled={busy} onClick={() => void act(candidate, "reject")}>丢弃</Button></div>
+            <div className="row"><Button variant="default" disabled={busy || candidate.stale || candidate.impacts.length > 0} onClick={() => void act(candidate, "write")}>确认并写第 {view.nextChapter} 章</Button><Button disabled={busy || candidate.stale || candidate.impacts.length > 0} onClick={() => void act(candidate, "confirm")}>只确认方案</Button><Button disabled={busy || candidate.stale || candidate.impacts.length > 0} onClick={() => void act(candidate, "trial")}>按方案先试写</Button><Button variant="ghost" disabled={busy} onClick={() => void act(candidate, "reject")}>丢弃</Button></div>
             <p className="muted">试写会把这份方案附在草稿上；采用章节时，再一并确认这些依赖。</p>
           </div>}
           <p className="muted">以下为该方案保存时的完整预览。</p><Content content={candidate.content} expanded />
         </>}
       </div>
-      <aside className="prep-sidebar"><h2>方案记录</h2>{view.proposals.length === 0 ? <p className="muted">还没有方案。先和 Agent 聊聊想写的故事。</p> : view.proposals.map((p) => <button className="prep-proposal-item" data-selected={p.id === selected} key={p.id} onClick={() => { setSelected(p.id); setEditing(false); }}><Chip>{status(p)}</Chip><strong>{p.summary}</strong><small>{new Date(p.createdAt).toLocaleDateString("zh-CN")}</small></button>)}</aside>
+      <aside className="prep-sidebar"><h2>方案记录</h2>{view.proposals.length === 0 ? <p className="muted">还没有方案。先和 Agent 聊聊想写的故事。</p> : view.proposals.map((p) => <Button className="prep-proposal-item mt-3 grid h-auto w-full min-w-0 grid-cols-1 justify-items-start whitespace-normal p-3.5 text-left" data-selected={p.id === selected} key={p.id} onClick={() => { setSelected(p.id); setEditing(false); }}><Chip>{status(p)}</Chip><strong>{p.summary}</strong><small>{new Date(p.createdAt).toLocaleDateString("zh-CN")}</small></Button>)}</aside>
     </div>
     {entity?.kind === "character" && <CharacterEditor base={entity.base as CharacterRecord | null} characters={view.confirmed.characters} fingerprint={view.fingerprint} onSaved={saved} onClose={() => setEntity(null)} />}
     {entity?.kind === "setting" && <SettingEditor base={entity.base as SettingInput | null} fingerprint={view.fingerprint} onSaved={saved} onClose={() => setEntity(null)} />}
     {entity?.kind === "plotLine" && <PlotLineEditor base={entity.base as PlotLineInput | null} fingerprint={view.fingerprint} onSaved={saved} onClose={() => setEntity(null)} />}
     {entity?.kind === "volume" && (() => {
       const base = entity.base as VolumeCard | null;
-      const volume = base?.volume ?? Math.max(0, ...view.confirmed.beats.map((b) => b.volume)) + 1;
+      const volume = base?.volume ?? nextVolumeNumber(view.confirmed.volumes, view.confirmed.beats);
       const chapters = view.confirmed.beats.filter((b) => b.volume === volume).map((b) => b.chapter);
       return <VolumeEditor base={base === null ? null : { volume: base.volume, title: base.title, summary: base.summary }}
         volume={volume} span={chapters.length === 0 ? null : { from: Math.min(...chapters), to: Math.max(...chapters) }}
@@ -167,7 +169,7 @@ export function Preparation({ refresh, proposalId }: { refresh: () => void; prop
       setNotice(`已导入正文：${done}${result.totalWords > 0 ? `，共 ${result.totalWords} 字` : ""}，下一章是第 ${result.nextChapter} 章。${kept}接着用「让 AI 起草资料」补出人物（它会读这些资料）。结构有两条路：「从资料反推伏笔」一次调用读你的大纲，便宜，只认资料里写明的安排；「从正文反推结构」逐章读正文，贵得多，但能认出正文里实际埋的事件与伏笔 —— 两条都没走过之前，伏笔时间线是空的。`);
       data.reload(); refresh();
     }} />}
-    {entity?.kind === "beat" && <BeatEditor base={entity.base as never} chapter={view.nextChapter} characters={view.confirmed.characters} settings={view.confirmed.settings} plotLines={view.confirmed.plotLines} fingerprint={view.fingerprint} onSaved={saved} onClose={() => setEntity(null)} />}
+    {entity?.kind === "beat" && <BeatEditor base={entity.base as never} chapter={nextPlanChapter(view.nextChapter, view.confirmed.beats)} characters={view.confirmed.characters} settings={view.confirmed.settings} plotLines={view.confirmed.plotLines} fingerprint={view.fingerprint} onSaved={saved} onClose={() => setEntity(null)} />}
   </>;
 }
 
@@ -185,7 +187,7 @@ function AuthorForm({ view, onSaved }: { view: PreparationPayload; onSaved: (pro
     const changes = { ...(Object.keys(changed).length > 0 ? { setting: changed } : {}), ...(writingRules === view.confirmed.discipline.rules.join("\n") ? {} : { writingRules: rules }) };
     if (Object.keys(changes).length === 0) { setError("没有需要保存的修改。"); setBusy(false); return; }
     void api.recordAuthorDetails({ summary: "作者修改基本设定与写作偏好", baseFingerprint: view.fingerprint, changes }).then(onSaved).catch((e: Error) => setError(e.message)).finally(() => setBusy(false));
-  }}><fieldset disabled={busy}>{(Object.keys(labels) as (keyof typeof values)[]).map((key) => <label key={key}>{labels[key]}{key === "title" ? <Input required value={values[key]} onChange={(e) => setValues({ ...values, [key]: e.target.value })} /> : <Input.TextArea required={key === "premise"} rows={key === "writingRules" ? 6 : 3} value={values[key]} onChange={(e) => setValues({ ...values, [key]: e.target.value })} />}</label>)}{error && <p role="alert" className="finding" data-level="block">{error}</p>}<Button type="primary" htmlType="submit" loading={busy}>保存作者设定</Button></fieldset></form>;
+  }}><fieldset disabled={busy}>{(Object.keys(labels) as (keyof typeof values)[]).map((key) => <label key={key}>{labels[key]}{key === "title" ? <Input required value={values[key]} onChange={(e) => setValues({ ...values, [key]: e.target.value })} /> : <Textarea required={key === "premise"} rows={key === "writingRules" ? 6 : 3} value={values[key]} onChange={(e) => setValues({ ...values, [key]: e.target.value })} />}</label>)}{error && <p role="alert" className="finding" data-level="block">{error}</p>}<Button variant="default" type="submit" loading={busy}>保存作者设定</Button></fieldset></form>;
 }
 
 /**
@@ -244,16 +246,16 @@ function ForeshadowList({ foreshadows }: { foreshadows: readonly ForeshadowClaim
 /** 只读资料视图。传入 `onEdit` 时才出现手改入口 —— 方案预览复用本组件，那里不能编辑。 */
 function Content({ content, onEdit, onDraft, onImport, importing, expanded }: { content: PreparationContent; onEdit?: (editing: Editing) => void; onDraft?: (focus: DraftFocus) => void; onImport?: () => void; importing?: boolean; expanded?: boolean }): React.ReactElement {
   const s = content.setting;
-  const add = (kind: Editing["kind"], label: string): React.ReactElement | null => onEdit === undefined ? null : <Button size="small" onClick={() => onEdit({ kind, base: null })}>{label}</Button>;
+  const add = (kind: Editing["kind"], label: string): React.ReactElement | null => onEdit === undefined ? null : <Button size="sm" onClick={() => onEdit({ kind, base: null })}>{label}</Button>;
   // 起草是主路径，手改是纠正路径 —— 按钮的视觉权重按这个顺序排。
-  const draft = (label: string, focus: DraftFocus): React.ReactElement | null => onDraft === undefined ? null : <Button size="small" type="primary" ghost onClick={() => onDraft(focus)}>{label}</Button>;
-  const edit = (kind: Editing["kind"], base: unknown, name: string): React.ReactElement | null => onEdit === undefined ? null : <Button size="small" type="text" onClick={() => onEdit({ kind, base })}>编辑{name}</Button>;
+  const draft = (label: string, focus: DraftFocus): React.ReactElement | null => onDraft === undefined ? null : <Button size="sm" variant="default"  onClick={() => onDraft(focus)}>{label}</Button>;
+  const edit = (kind: Editing["kind"], base: unknown, name: string): React.ReactElement | null => onEdit === undefined ? null : <Button size="sm" variant="ghost" onClick={() => onEdit({ kind, base })}>编辑{name}</Button>;
   return <>
     <section className="prep-section"><h2>{s.title}</h2><dl className="prep-facts">{([
       ["故事想法", s.premise], ["核心冲突", s.centralConflict], ["故事起点", s.openingSituation], ["主角特征", s.protagonistTraits], ["行为边界", s.protagonistForbidden],
       ["特殊能力", s.specialAbility], ["能力限制", s.abilityLimits], ["世界规则", s.worldRules], ["感情线", s.romanceLine], ["风格", s.styleKeywords], ["不写的内容", s.taboos],
     ] as [string, string | string[]][]).map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{(Array.isArray(value) ? value.join("；") : value) || <span className="muted">尚未指定</span>}</dd></div>)}</dl></section>
-    <section className="prep-section"><div className="section-head"><h2>人物档案 <small>{content.characters.length}</small></h2><div className="row">{onImport === undefined ? null : <Button size="small" loading={importing === true} onClick={onImport}>导入人物档案</Button>}{draft("让 AI 起草人物", "characters")}{add("character", "手工补一个")}</div></div>{content.characters.length === 0 && <p className="muted">还没有人物档案。有现成的角色档案就导进来 —— 上传后会读它并整理出人物供你核对；也可以让 Agent 从正文起草，或直接手填。</p>}<div className="prep-card-grid">{content.characters.map((c) => <article className="prep-character" key={c.id}><div className="row"><h3>{c.name}</h3><Chip>{c.provenance === "proposed" ? "建议" : c.tier === "protagonist" ? "主角" : "已确认"}</Chip></div><p>{c.profile.role}</p><p className="muted">{c.profile.traits.join(" · ")}</p><dl className="prep-facts"><div><dt>想要什么</dt><dd>{c.profile.wants || "尚未指定"}</dd></div><div><dt>害怕什么</dt><dd>{c.profile.fears || "尚未指定"}</dd></div><div><dt>背景</dt><dd>{c.profile.background || "尚未指定"}</dd></div></dl><details open={expanded === true}><summary>外貌与说话方式</summary><p>{c.profile.appearance.map((a) => `${a.key}：${a.value}`).join("；")}</p>{c.speech.exemplars.map((line, i) => <blockquote key={i}>{line}</blockquote>)}{c.speech.forbiddenLexicon.length > 0 && <p>不使用：{c.speech.forbiddenLexicon.join("、")}</p>}</details>{edit("character", c, `「${c.name}」`)}</article>)}</div></section>
+    <section className="prep-section"><div className="section-head"><h2>人物档案 <small>{content.characters.length}</small></h2><div className="row">{onImport === undefined ? null : <Button size="sm" loading={importing === true} onClick={onImport}>导入人物档案</Button>}{draft("让 AI 起草人物", "characters")}{add("character", "手工补一个")}</div></div>{content.characters.length === 0 && <p className="muted">还没有人物档案。有现成的角色档案就导进来 —— 上传后会读它并整理出人物供你核对；也可以让 Agent 从正文起草，或直接手填。</p>}<div className="prep-card-grid">{content.characters.map((c) => <article className="prep-character" key={c.id}><div className="row"><h3>{c.name}</h3><Chip>{c.provenance === "proposed" ? "建议" : c.tier === "protagonist" ? "主角" : "已确认"}</Chip></div><p>{c.profile.role}</p><p className="muted">{c.profile.traits.join(" · ")}</p><dl className="prep-facts"><div><dt>想要什么</dt><dd>{c.profile.wants || "尚未指定"}</dd></div><div><dt>害怕什么</dt><dd>{c.profile.fears || "尚未指定"}</dd></div><div><dt>背景</dt><dd>{c.profile.background || "尚未指定"}</dd></div></dl><details open={expanded === true}><summary>外貌与说话方式</summary><p>{c.profile.appearance.map((a) => `${a.key}：${a.value}`).join("；")}</p>{c.speech.exemplars.map((line, i) => <blockquote key={i}>{line}</blockquote>)}{c.speech.forbiddenLexicon.length > 0 && <p>不使用：{c.speech.forbiddenLexicon.join("、")}</p>}</details>{edit("character", c, `「${c.name}」`)}</article>)}</div></section>
     <section className="prep-section"><div className="section-head"><h2>地点与组织</h2>{add("setting", "新增地点／组织")}</div>{content.settings.length === 0 && <p className="muted">还没有地点或组织设定。</p>}{content.settings.map((place) => <article className="prep-place" key={place.id}><div className="row"><h3>{place.name} <span className="muted">{place.kind === "organization" ? "组织" : "地点"}</span></h3>{edit("setting", place, "设定")}</div><p>{place.description}</p>{place.facts.length > 0 && <ul>{place.facts.map((fact, i) => <li key={i}>{fact}</li>)}</ul>}</article>)}</section>
     <section className="prep-section"><div className="section-head"><h2>情节方向</h2><div className="row">{draft("从资料识别情节线", "plotlines")}{add("plotLine", "新增情节线")}</div></div>{content.plotLines.length === 0 ? <p className="muted">还没有情节线规划。有大纲或简介，就让 AI 从里面认出主线与支线供你核对；也可以直接手填。</p> : <ul>{content.plotLines.map((line) => <li key={line.id}><Chip>{line.weight === "main" ? "主线" : line.weight === "sub" ? "支线" : "细节"}</Chip> {line.label}{edit("plotLine", line, "情节线")}</li>)}</ul>}</section>
     <section className="prep-section"><div className="section-head"><h2>卷</h2>{add("volume", "新增一卷")}</div>

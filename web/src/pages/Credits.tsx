@@ -1,4 +1,4 @@
-import { Button } from "antd";
+import { Button } from "../components/controls.js";
 import { api, type CreditSummary } from "../api.js";
 import { useFetch } from "../hooks.js";
 
@@ -65,6 +65,6 @@ export function Credits(): React.ReactElement {
       </section>
     )}
     {work.loading && summary === null && <div className="empty">读取用量…</div>}
-    {work.error !== null && <Button size="small" onClick={work.reload}>重试</Button>}
+    {work.error !== null && <Button size="sm" onClick={work.reload}>重试</Button>}
   </>;
 }

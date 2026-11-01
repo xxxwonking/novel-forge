@@ -6,7 +6,7 @@
  * 所以把 gate 的判断结果显式列出来。
  */
 
-import { Button } from "antd";
+import { Button } from "../components/controls.js";
 import { Chip } from "../components/Chip.js";
 import { api, type Alert, type AlertAction, type PlanningAction } from "../api.js";
 import { useFetch } from "../hooks.js";
@@ -108,7 +108,7 @@ export function AlertList({ onAction, onIgnore, refreshKey, onPlanningAction }: 
                   <td className="num">{alert.score.toFixed(2)}</td>
                   <td>
                     {reason === "acknowledged" && (
-                      <Button size="small" type="text" onClick={() => void api.unacknowledge(alert.id).then(() => window.location.reload())}>
+                      <Button size="sm" variant="ghost" onClick={() => void api.unacknowledge(alert.id).then(() => window.location.reload())}>
                         取消静音
                       </Button>
                     )}

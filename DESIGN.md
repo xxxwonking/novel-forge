@@ -1,6 +1,6 @@
 ---
 name: novel-forge
-description: 分批迁移中的小说创作工作区，shadcn/ui 外壳与公共控件
+description: 小说创作工作区，统一的 shadcn/ui 页面与公共控件
 colors:
   background: "#09090b"
   foreground: "#fafafa"
@@ -52,15 +52,15 @@ components:
 
 ## Overview
 
-用户已指定真正的 shadcn/ui 与深色中性色方向。本文件从首批实际实现提取，仅规范已迁移的外壳和公共控件；后续页面按迁移计划接入。旧页面仍有衬线标题、渐变面板和 Ant Design 控件，不能把它们当作新页面继续沿用的规范，也不能宣称它们已迁移。
+用户已指定真正的 shadcn/ui 与深色中性色方向。全站控件已迁移至官方 Radix 版 shadcn/ui 源码；页面继续使用原有业务 API、SVG 与 React Flow。移除 Ant Design provider、theme 和生产依赖。本文规范迁移后的实际实现。
 
 ## Colors
 
-运行时颜色源为 `web/src/styles/tokens.css`；Tailwind 通过 `@theme inline` 引用语义变量，过渡期 Ant Design 在入口读取相同变量。CSS layers 顺序为 theme → antd → legacy → base → components → utilities。旧结构图的主支线色保持独立，不将主线语义直接映射为通用 primary。
+运行时颜色源为 `web/src/styles/tokens.css`；Tailwind 通过 `@theme inline` 引用语义变量。CSS layers 顺序为 theme → layout → base → components → utilities；原页面布局置于 layout，控件样式不再被低层全局选择器覆盖。旧结构图的主支线色保持独立，不将主线语义直接映射为通用 primary。
 
 ## Typography
 
-导航、任务和控件使用相同 sans 字体。作品名 15px/600，导航 13px，分组说明 12px，非交互待办计数 11px，控件通常 14px。正文阅读区的衬线排版独立保留；不使用全局 Preflight 重置它。
+页面标题、导航、任务和控件使用相同 sans 字体。作品名 15px/600，导航 13px，分组说明 12px，非交互待办计数 11px，控件通常 14px。正文阅读区的衬线排版独立保留；不使用全局 Preflight 重置它。
 
 ## Layout
 
@@ -68,7 +68,7 @@ components:
 
 ## Elevation & Depth
 
-任务卡使用中性填色与细边框，不加渐变和侧边状态条。Sheet 通过遮罩和官方 overlay 阴影表达覆盖层级；业务状态同时有文字，不能只靠色彩。
+页面、资料卡和任务卡使用中性填色与细边框，不加装饰渐变和侧边状态条。Sheet 通过遮罩和官方 overlay 阴影表达覆盖层级；业务状态同时有文字，不能只靠色彩。
 
 ## Shapes
 
@@ -76,11 +76,11 @@ components:
 
 ## Components
 
-已接入 Button、Badge、Separator、Sheet 官方源码，来源与适配记录在 `web/src/components/ui/README.md`。Chip 是业务状态到 Badge 的映射，保留 warning/info/danger 语义，并透传事件、说明与 ref。Button 默认不提交表单。移动导航具备焦点循环、Escape 和焦点恢复；所有装饰图标使用 Lucide 并隐藏于辅助技术。
+已接入 Button、Badge、Separator、Sheet、Dialog、AlertDialog、Input、Textarea、Select、Checkbox、Switch、Tooltip、Popover、Toggle/ToggleGroup、Collapsible、Alert 官方源码，来源与适配记录在 `web/src/components/ui/README.md`。`controls.tsx` 组合异步按钮、可清空数字输入、多选和业务弹层；不依赖另一套 UI 框架。Chip 是业务状态到 Badge 的映射，保留 warning/info/danger 语义，并透传事件、说明与 ref。Button 默认不提交表单。移动导航具备焦点循环、Escape 和焦点恢复；受控业务弹层显式归还触发按钮焦点，联开弹层时不抢新弹层焦点。弹窗固定标题/底部操作，正文独立滚动。Textarea 显式 rows 时固定行数并内部滚动；聊天输入最小 124px，仅输入框显示聚焦 ring。所有装饰图标使用 Lucide 并隐藏于辅助技术。
 
 ## Do's and Don'ts
 
-- 使用语义 tokens 和组件源码；分批替换旧控件，不创建底层仍调用 Ant Design 的同名外观包装。
-- 兼容层必须有移除边界；完成所有页面前保留旧 provider，不能提前删除以求依赖数字清零。
+- 使用语义 tokens 和实际组件源码；新增控件组合放在应用层，不重新引入 Ant Design。
+- 业务变更先检查 API 参数、空值和确认边界；组件替换不能让候选立即成为正式事实。
 - 不用 emoji/字符代替图标，不在普通标签里加入只用于实现调试的信息。
-- 不把后续批次的未验收页面或模型流程列为已完成。
+- 组件迁移完成不代表模型稳定性或175章逐章反推验收完成；证据范围见交付报告。

@@ -7,8 +7,8 @@
  */
 
 import { useState } from "react";
-import { Button, Tag } from "antd";
-import { ArrowRightOutlined, ImportOutlined } from "@ant-design/icons";
+import { Button, StatusTag } from "../components/controls.js";
+import { ArrowRight as ArrowRightOutlined, Import as ImportOutlined } from "lucide-react";
 import { api, type Alert, type AlertAction, type Overview } from "../api.js";
 import { AlertCard } from "../components/AlertCard.js";
 import { ImportChapters } from "../components/ImportChapters.js";
@@ -52,7 +52,7 @@ export function Home({ overview, onAction, onIgnore, refresh }: HomeProps): Reac
             <p>抓起已经写好的稿子放进来，接着往下写；也可以先和 Agent 把故事想清楚。</p>
           </div>
           <div className="row">
-            <Button type="primary" icon={<ImportOutlined />} onClick={() => setImporting(true)}>导入已有正文</Button>
+            <Button variant="default" icon={<ImportOutlined />} onClick={() => setImporting(true)}>导入已有正文</Button>
             <a href="#/chat?mode=planning">先聊聊再定 →</a>
           </div>
         </section>
@@ -64,7 +64,7 @@ export function Home({ overview, onAction, onIgnore, refresh }: HomeProps): Reac
             <p>从正文与导入的资料里整理人物档案并分档，结果保存在待确认方案里，由你核对。</p>
           </div>
           <div className="row">
-            <Button type="primary" loading={identifying} onClick={() => void identify()}>从正文识别人物</Button>
+            <Button variant="default" loading={identifying} onClick={() => void identify()}>从正文识别人物</Button>
             <a href="#/preparation">到作品资料 →</a>
           </div>
         </section>
@@ -157,7 +157,7 @@ function NextBeat({ beat }: { beat: NonNullable<Overview["nextBeat"]> }): React.
   return (
     <div className="panel next-beat">
       <header className="next-beat-head">
-        <Tag color="gold">{TYPE_LABEL[plan.chapterType] ?? plan.chapterType}</Tag>
+        <StatusTag color="gold">{TYPE_LABEL[plan.chapterType] ?? plan.chapterType}</StatusTag>
         {budget !== null && (
           <div className="next-beat-budget">
             {/* 字数预算是派生的（§10.2 必须在写作前算出来），所以这里显示的是
@@ -181,7 +181,7 @@ function NextBeat({ beat }: { beat: NonNullable<Overview["nextBeat"]> }): React.
             <ul className="next-beat-events">
               {plan.events.map((e, i) => (
                 <li key={i}>
-                  <Tag>权重 {e.weight}</Tag> {e.summary}
+                  <StatusTag>权重 {e.weight}</StatusTag> {e.summary}
                   {e.plotLine !== null && <span className="muted"> · {e.plotLine}</span>}
                 </li>
               ))}
@@ -195,7 +195,7 @@ function NextBeat({ beat }: { beat: NonNullable<Overview["nextBeat"]> }): React.
             <ul className="next-beat-events">
               {plan.resolves.map((r) => (
                 <li key={r.foreshadowId}>
-                  <Tag color="gold">{r.foreshadowId}</Tag> {r.completeness === "full" ? "完全收束" : "部分收束"}
+                  <StatusTag color="gold">{r.foreshadowId}</StatusTag> {r.completeness === "full" ? "完全收束" : "部分收束"}
                 </li>
               ))}
             </ul>

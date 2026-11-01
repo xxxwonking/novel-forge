@@ -1,4 +1,4 @@
-@layer theme, antd, legacy, base, components, utilities;
+@layer theme, layout, base, components, utilities;
 @import "tailwindcss/theme.css" layer(theme);
 @import "tailwindcss/utilities.css" layer(utilities);
 @import "tw-animate-css";
@@ -34,7 +34,7 @@
   --font-sans: var(--ui-font);
 }
 
-/* 不启用全局 Preflight，避免迁移期间重置正文和旧页面。只重置已迁移控件。 */
+/* 不启用全局 Preflight，保留正文与现有页面排版。只重置组件控件。 */
 @layer base {
   :root {
     color-scheme: dark;

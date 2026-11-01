@@ -14,7 +14,7 @@
  */
 
 import { useRef, useState } from "react";
-import { Button, Tooltip } from "antd";
+import { Button, HelpTooltip } from "../components/controls.js";
 import { api, type InferenceChapter, type InferenceView } from "../api.js";
 import { useFetch, useRouteActive } from "../hooks.js";
 import { Chip } from "../components/Chip.js";
@@ -39,7 +39,7 @@ export function Inference({ refresh }: { refresh: () => void }): React.ReactElem
   const [open, setOpen] = useState<number | null>(null);
   const stop = useRef(false);
 
-  if (data.data === null) return <div className="empty">{data.error ?? "读取反推进度…"} <Button size="small" onClick={data.reload}>重试</Button></div>;
+  if (data.data === null) return <div className="empty">{data.error ?? "读取反推进度…"} <Button size="sm" onClick={data.reload}>重试</Button></div>;
   const view = data.data;
   // 记录里是人物 ID，作者读的是名字；资料还没读回来时退回显示 ID。
   const name = (id: string): string => preparation.data?.confirmed.characters.find((c) => c.id === id)?.name ?? id;
@@ -115,7 +115,7 @@ export function Inference({ refresh }: { refresh: () => void }): React.ReactElem
       <div className="row">
         {running
           ? <Button danger onClick={() => { stop.current = true; }}>停下</Button>
-          : <Button type="primary" disabled={view.blocked !== null || busy !== null || view.nextChapter === null} onClick={() => void run(true)}>连续反推</Button>}
+          : <Button variant="default" disabled={view.blocked !== null || busy !== null || view.nextChapter === null} onClick={() => void run(true)}>连续反推</Button>}
         <Button disabled={view.blocked !== null || busy !== null || view.nextChapter === null} onClick={() => void run(false)}>{view.nextChapter === null ? "只反推一章" : `只反推第 ${view.nextChapter} 章`}</Button>
         <Button loading={busy === "confirmAll"} disabled={busy !== null || view.pending.length === 0} onClick={() => void confirmAll()}>{view.pending.length === 0 ? "确认全部" : `确认全部 ${view.pending.length} 章`}</Button>
       </div>
@@ -131,15 +131,15 @@ export function Inference({ refresh }: { refresh: () => void }): React.ReactElem
           return <article className="prep-beat" key={chapter.chapter} data-state={chapter.state}>
             <div className="row">
               <h3>第 {chapter.chapter} 章</h3>
-              <Tooltip title={state.hint}><Chip color={state.color}>{state.label}</Chip></Tooltip>
+              <HelpTooltip title={state.hint}><Chip color={state.color}>{state.label}</Chip></HelpTooltip>
               <span className="muted">{chapter.words} 字</span>
               <span className="push-right row">
                 <a href={`#/chapter/${chapter.chapter}`}>读正文</a>
-                {chapter.declaration !== null && <Button size="small" type="text" onClick={() => setOpen(expanded ? null : chapter.chapter)}>{expanded ? "收起" : "看这一章反推出什么"}</Button>}
-                {chapter.state === "pending" && <Button size="small" type="primary" loading={busy === `confirm${chapter.chapter}`} disabled={busy !== null} onClick={() => void act(chapter.chapter, "confirm")}>确认</Button>}
+                {chapter.declaration !== null && <Button size="sm" variant="ghost" onClick={() => setOpen(expanded ? null : chapter.chapter)}>{expanded ? "收起" : "看这一章反推出什么"}</Button>}
+                {chapter.state === "pending" && <Button size="sm" variant="default" loading={busy === `confirm${chapter.chapter}`} disabled={busy !== null} onClick={() => void act(chapter.chapter, "confirm")}>确认</Button>}
                 {(chapter.state === "pending" || chapter.state === "problem" || chapter.state === "failed") && <>
-                  <Button size="small" loading={busy === `again${chapter.chapter}`} disabled={busy !== null} onClick={() => void act(chapter.chapter, "again")}>重跑</Button>
-                  <Button size="small" type="text" disabled={busy !== null} onClick={() => void act(chapter.chapter, "reject")}>跳过</Button>
+                  <Button size="sm" loading={busy === `again${chapter.chapter}`} disabled={busy !== null} onClick={() => void act(chapter.chapter, "again")}>重跑</Button>
+                  <Button size="sm" variant="ghost" disabled={busy !== null} onClick={() => void act(chapter.chapter, "reject")}>跳过</Button>
                 </>}
               </span>
             </div>

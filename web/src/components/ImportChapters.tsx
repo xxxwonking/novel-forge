@@ -17,7 +17,7 @@
  */
 
 import { useRef, useState } from "react";
-import { Button, Checkbox, Input, Modal } from "antd";
+import { Button, CheckField, Input, DialogFrame, Textarea } from "./controls.js";
 import { api, type ImportPreview, type ImportResult } from "../api.js";
 import { readTextFile } from "../files.js";
 
@@ -114,11 +114,11 @@ export function ImportChapters({ onImported, onClose }: {
     : { label: incoming > 0 ? `导入 ${incoming} 章` : preview.materials.length > 0 ? `收下 ${preview.materials.length} 份资料` : "确认导入",
       disabled: !canImport, action: "apply" as const };
 
-  return <Modal open className="prep-editor" title="导入已有正文" width={720}
+  return <DialogFrame open className="prep-editor" title="导入已有正文" width={720}
     onCancel={() => { if (!busy) onClose(); }} maskClosable={!busy}
     footer={[
       <Button key="cancel" disabled={busy} onClick={onClose}>取消</Button>,
-      <Button key="ok" type="primary" loading={busy} disabled={primary.disabled} onClick={() => void run(primary.action)}>
+      <Button key="ok" variant="default" loading={busy} disabled={primary.disabled} onClick={() => void run(primary.action)}>
         {primary.label}
       </Button>,
     ]}>
@@ -141,7 +141,7 @@ export function ImportChapters({ onImported, onClose }: {
       {filename !== null && <span className="muted">已读取 {filename}（{total.toLocaleString()} 字符）</span>}
     </div>
     <label className="import-paste">直接粘贴正文
-      <Input.TextArea rows={6} value={text} disabled={busy} onChange={(e) => replace(e.target.value, null)}
+      <Textarea rows={6} value={text} disabled={busy} onChange={(e) => replace(e.target.value, null)}
         placeholder={"第一章 破庙\n少年在破庙里醒来……\n\n第二章 断剑\n……"} />
     </label>
     <p className="muted">每章标题独占一行即可：「第一章」「第1章」「第一回」「Chapter 1」都能识别。每章一个文件的，把这一批文件一起选中即可，按文件名里的章号排序；大纲、人物档案这类没有章节标记的文件会收进作品资料，不当正文。</p>
@@ -173,9 +173,9 @@ export function ImportChapters({ onImported, onClose }: {
         这些文件没有章节标记，会收进作品资料（识别人物、认情节线时用得上）：{preview.materials.join("、")}。
       </p>}
 
-      {replacing.length > 0 && <Checkbox checked={overwrite} disabled={busy} onChange={(e) => setOverwrite(e.target.checked)}>
+      {replacing.length > 0 && <CheckField checked={overwrite} disabled={busy} onChange={(e) => setOverwrite(e)}>
         覆盖第 {replacing.map((c) => c.chapter).join("、")} 章已有的正文（原内容不保留，无法撤销）
-      </Checkbox>}
+      </CheckField>}
     </div>}
-  </Modal>;
+  </DialogFrame>;
 }

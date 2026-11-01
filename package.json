@@ -26,12 +26,9 @@
     "vitest": "4.1.11"
   },
   "dependencies": {
-    "@ant-design/cssinjs": "^2.1.2",
-    "@ant-design/icons": "^6.3.4",
     "@anthropic-ai/sdk": "^0.124.0",
     "@langchain/langgraph": "^1.4.14",
     "@xyflow/react": "^12.12.0",
-    "antd": "^6.6.4",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "fflate": "^0.8.3",

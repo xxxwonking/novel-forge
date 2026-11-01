@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { Alert, Button, InputNumber, Segmented, Spin } from "antd";
-import { DownloadOutlined, FileTextOutlined } from "@ant-design/icons";
+import { Notice, Button, NumberInput, SegmentedControl, LoadingIndicator } from "../components/controls.js";
+import { Download as DownloadOutlined, FileText as FileTextOutlined } from "lucide-react";
 import { api, type ExportArtifactFormat, type ExportKind, type ExportSelection, type TextExportPreview } from "../api.js";
 
 const chapterRange = (from: number, to: number) => from === to ? `第 ${from} 章` : `第 ${from}–${to} 章`;
@@ -94,7 +94,7 @@ export function Export({ exportId }: { exportId: string | null }): React.ReactEl
     <form className="panel export-form" onSubmit={event => { event.preventDefault(); void prepare(); }}>
       <fieldset disabled={busy || loading}>
         <legend>导出内容</legend>
-        <Segmented
+        <SegmentedControl
           value={kind}
           onChange={value => setKind(value as ExportKind)}
           disabled={busy || loading}
@@ -103,7 +103,7 @@ export function Export({ exportId }: { exportId: string | null }): React.ReactEl
       </fieldset>
       {kind === "manuscript" && <fieldset disabled={busy || loading}>
         <legend>导出范围</legend>
-        <Segmented
+        <SegmentedControl
           value={scope}
           onChange={value => setScope(value as "all" | "range" | "volume")}
           disabled={busy || loading}
@@ -111,20 +111,20 @@ export function Export({ exportId }: { exportId: string | null }): React.ReactEl
         />
         {scope === "range" && <div className="export-range">
           <span>从第</span>
-          <InputNumber aria-label="起始章号" min={1} step={1} value={from} onChange={setFrom} disabled={busy || loading} />
+          <NumberInput aria-label="起始章号" min={1} step={1} value={from} onChange={setFrom} disabled={busy || loading} />
           <span>章，到第</span>
-          <InputNumber aria-label="结束章号" min={1} step={1} value={to} onChange={setTo} disabled={busy || loading} />
+          <NumberInput aria-label="结束章号" min={1} step={1} value={to} onChange={setTo} disabled={busy || loading} />
           <span>章</span>
         </div>}
         {scope === "volume" && <div className="export-range">
           <span>第</span>
-          <InputNumber aria-label="卷号" min={1} step={1} value={volume} onChange={setVolume} disabled={busy || loading} />
+          <NumberInput aria-label="卷号" min={1} step={1} value={volume} onChange={setVolume} disabled={busy || loading} />
           <span>卷</span>
         </div>}
       </fieldset>}
       <fieldset disabled={busy || loading}>
         <div className="panel-actions">
-          <Button type="primary" htmlType="submit" loading={busy} disabled={loading} icon={<FileTextOutlined />}>
+          <Button variant="default" type="submit" loading={busy} disabled={loading} icon={<FileTextOutlined />}>
             {preview === null ? "预览导出" : "按当前内容重新预览"}
           </Button>
           <span className="muted">预览会固定这一刻的正式版本，之后的采用不会改变它。</span>
@@ -132,9 +132,9 @@ export function Export({ exportId }: { exportId: string | null }): React.ReactEl
       </fieldset>
     </form>
 
-    {error !== null && <Alert className="export-alert" type="error" showIcon role="alert" message={error} />}
-    {loading && <p className="export-loading" role="status"><Spin size="small" /> 正在读取这次固定的导出预览…</p>}
-    {changed && <Alert className="export-alert" type="warning" showIcon message="范围已修改" description="请重新预览；下方清单和下载仍对应上一次预览。" />}
+    {error !== null && <Notice className="export-alert" type="error"  role="alert" message={error} />}
+    {loading && <p className="export-loading" role="status"><LoadingIndicator /> 正在读取这次固定的导出预览…</p>}
+    {changed && <Notice className="export-alert" type="warning"  message="范围已修改" description="请重新预览；下方清单和下载仍对应上一次预览。" />}
 
     {preview !== null && <section className="panel export-preview" aria-label="本次导出预览" data-export-id={preview.id ?? "empty"}>
       <header className="export-preview-head">
@@ -159,8 +159,8 @@ export function Export({ exportId }: { exportId: string | null }): React.ReactEl
       <div className="panel-actions export-download">
         {preview.artifacts.map(artifact => <Button
           key={artifact.format}
-          type={artifact.format === preview.artifacts[0]?.format ? "primary" : "default"}
-          size="large"
+          variant={artifact.format === preview.artifacts[0]?.format ? "default" : "outline"}
+          size="lg"
           icon={<DownloadOutlined />}
           disabled={preview.id === null || loading || changed}
           loading={busy}
