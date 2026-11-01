@@ -28,6 +28,13 @@ async function extract(): Promise<string> {
   const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
   const task = pdfjs.getDocument({
     data: bytes,
+    cMapUrl: fileURLToPath(
+      new URL("./cmaps/", import.meta.resolve("pdfjs-dist/package.json")),
+    ),
+    cMapPacked: true,
+    wasmUrl: fileURLToPath(
+      new URL("./wasm/", import.meta.resolve("pdfjs-dist/package.json")),
+    ),
     standardFontDataUrl: fileURLToPath(
       new URL(
         "./standard_fonts/",

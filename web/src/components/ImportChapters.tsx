@@ -81,7 +81,7 @@ export function ImportChapters({ onImported, onClose }: {
       setText(""); setFiles(read); setFilename(`${read.length} 个文件`); setPreview(null); setOverwrite(false);
       const skipped=candidates.filter(f=>!chosen.includes(f));
       setIgnoredFiles(skipped.map(f=>f.webkitRelativePath||f.name));
-    } catch (e) { setError((e as Error).message); }
+    } catch (e) { setFiles([]); setText(""); setPreview(null); setFilename(null); setError((e as Error).message); }
     finally { setBusy(false); }
   };
 

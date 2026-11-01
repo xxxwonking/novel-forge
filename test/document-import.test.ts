@@ -47,3 +47,12 @@ it("并发解析有界，超出并发的请求明确拒绝而不占用更多work
   await expect(convertDocument(input)).rejects.toThrow(/正在|繁忙/);
   await Promise.all([a, b]);
 });
+it("中文CID字体PDF能读取章节标记，不依赖浏览器网络字体", async () => {
+  const { pdfCjk } = await import("./document-fixtures.js");
+  const converted = await convertDocument({
+    name: "中文小说.pdf",
+    base64: pdfCjk().toString("base64"),
+  });
+  expect(converted.text).toContain("第一章");
+  expect(converted.text).toContain("雨夜");
+});

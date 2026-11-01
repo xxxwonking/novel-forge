@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { test, expect } from "@playwright/test";
-import { docx, pdf } from "../document-fixtures.js";
+import { docx, pdf, pdfCjk } from "../document-fixtures.js";
 test("中文DOCX正文和人物档案经过真实转换与预览，扫描PDF失败不导入", async ({
   page,
   request,
@@ -47,11 +47,21 @@ test("中文DOCX正文和人物档案经过真实转换与预览，扫描PDF失�
   await dialog
     .locator("input[type=file][multiple]")
     .setInputFiles({
-      name: "扫描.pdf",
+      name: "小说.pdf",
       mimeType: "application/pdf",
-      buffer: pdf(""),
+      buffer: pdfCjk(),
     });
+  await dialog.getByRole("button", { name: "预览切分", exact: true }).click();
+  await expect(dialog.getByRole("row", { name: /第 1 章 雨夜/ })).toBeVisible();
+  await dialog.locator("input[type=file][multiple]").setInputFiles({
+    name: "扫描.pdf",
+    mimeType: "application/pdf",
+    buffer: pdf(""),
+  });
   await expect(dialog.getByRole("alert")).toContainText("OCR");
+  await expect(dialog.getByRole("row", { name: /第 1 章 雨夜/ })).toHaveCount(
+    0,
+  );
   const after = await (
     await request.get("/api/preparation", { headers })
   ).json();
