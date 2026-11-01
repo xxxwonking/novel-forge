@@ -413,11 +413,24 @@ export type AgentEffect =
   | { kind: "action_failed"; tool: string; message: string };
 
 export interface ConversationTurn {
+  requestId?: string;
+  retryOf?: string;
+  status?: "failed" | "incomplete";
+  retryable?: boolean;
   role: "user" | "agent";
   text: string;
   at: string;
   effects?: AgentEffect[];
 }
+
+export interface ProviderInput {
+  id?:string; name:string; protocol:"chat"|"claude"|"gemini"; baseURL:string; model:string; judgeModel?:string; apiKey?:string;
+  jsonMode?:"json_schema"|"json_object"|"prompt"; thinking?:"default"|"enabled"|"disabled";
+  reasoningEffort?:"default"|"low"|"high"|"max"; stream?:"auto"|"always"|"never";
+  includeUsage?:boolean; timeoutMs?:number; maxOutputTokens?:number;
+}
+export interface PublicProvider extends Omit<ProviderInput,"apiKey"> {id:string;hasApiKey:boolean}
+export interface ProviderSettings {activeId:string;profiles:PublicProvider[];environment:{id:string;name:string;protocol:string;model:string;configured:boolean;baseURL:string}}
 
 export interface AlternativeIdea {
   id: string;
@@ -429,6 +442,10 @@ export interface AlternativeIdea {
 export type ConversationMode = "normal" | "planning";
 
 export interface ConversationReply {
+  requestId?: string;
+  sessionId?: string;
+  status?: "failed" | "incomplete";
+  retryable?: boolean;
   text: string;
   effects: AgentEffect[];
   toolRounds: number;
@@ -436,6 +453,9 @@ export interface ConversationReply {
 }
 
 export interface ConversationHistory {
+  sessionId: string;
+  sessions: { id: string; title: string; turns: number; updatedAt: string | null }[];
+  pendingRequest: { id: string; at: string } | null;
   turns: ConversationTurn[];
   ideas: AlternativeIdea[];
   mode: ConversationMode;
@@ -869,10 +889,17 @@ export const api = {
   unacknowledge: (alertId: string) => post<ActionResult>("/api/alerts/unacknowledge", { alertId }),
 
   // 对话式主 Agent 与章节草稿
-  conversationHistory: () => request<ConversationHistory>("/api/conversation"),
+  conversationHistory: (id?: string) => request<ConversationHistory>(`/api/conversation${id===undefined?"":`?sessionId=${encodeURIComponent(id)}`}`),
+  manageConversation: (action: "create"|"select"|"rename", id?:string,title?:string) => post<ConversationHistory>("/api/conversation/sessions",{action,id,title}),
   converse: (text: string) => post<ConversationReply>("/api/conversation", { text }),
-  converseStream: (text: string, onEvent: (event: ConversationStreamEvent) => void) => streamRequest("/api/conversation/stream", { text }, onEvent),
-  setConversationMode: (mode: ConversationMode) => post<{ mode: ConversationMode }>("/api/conversation/mode", { mode }),
+  converseStream: (text: string, onEvent: (event: ConversationStreamEvent) => void, options: {sessionId?:string;requestId?:string;retryOf?:string} = {}) => streamRequest("/api/conversation/stream", { text,...options }, onEvent),
+  setConversationMode: (mode: ConversationMode, sessionId?:string) => post<{ mode: ConversationMode }>("/api/conversation/mode", { mode,sessionId }),
+  providers: () => request<ProviderSettings>("/api/providers"),
+  saveProvider: (profile: ProviderInput) => post<ProviderSettings>("/api/providers",{action:"save",profile}),
+  copyEnvironmentProvider: () => post<ProviderSettings>("/api/providers",{action:"copyEnvironment"}),
+  selectProvider: (id:string) => post<ProviderSettings>("/api/providers",{action:"select",id}),
+  deleteProvider: (id:string) => post<ProviderSettings>("/api/providers",{action:"delete",id}),
+  testProvider: (id:string) => post<{ok:boolean;model:string;message:string}>("/api/providers/test",{id}),
   chapterDrafts: (n: number) => request<DraftView[]>(`/api/chapter/drafts?n=${n}`),
   chapterDraft: (n: number, id: string) => request<DraftView>(`/api/chapter/draft?n=${n}&id=${encodeURIComponent(id)}`),
   editDraft: (input: { chapter: number; draftId: string; revisionToken: string; body: string; summary: string; requestId: string }) => post<DraftView>("/api/chapter/edit", input),

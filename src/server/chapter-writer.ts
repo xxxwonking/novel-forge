@@ -81,7 +81,7 @@ export class ChapterWriter {
 
   /** 客户端一律向会话要 —— 它是唯一包了计量的出口，自己造一个就会绕过记账。 */
   private ensureClient(): void {
-    if (this.client === undefined) this.client = this.session.getModelClient();
+    this.client = this.session.getModelClient();
   }
 
   /** 显式检查才启动执行；保存正文不会顺带调用模型。 */

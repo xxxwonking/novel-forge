@@ -264,6 +264,8 @@ function asFilter(v: string): ForeshadowFilter {
 }
 
 export interface AgentLoopResult {
+  readonly status?: "failed" | "incomplete";
+  readonly retryable?: boolean;
   readonly text: string;
   readonly effects: readonly AgentEffect[];
   readonly toolRounds: number;
@@ -292,6 +294,7 @@ export async function runAgentLoop(
   const quotes = new ConversationQuotes(ctx.getChapterText, messages, ctx.getChapterDraft);
   let toolRounds = 0;
   const effects: AgentEffect[] = [];
+  let writeAttempted = false;
   const stopped = (text: string, hitCap = false): AgentLoopResult => ({
     text, effects, toolRounds, hitCap,
     // 交接和错误说明来自程序，不伪装成带有模型内部字段的 assistant 消息。
@@ -311,14 +314,15 @@ export async function runAgentLoop(
     });
 
     if (result.kind === "error") {
-      return stopped(`（模型调用失败：${result.error.message}）`);
+      const partial=result.partialText?.trim()?stream?.finish(result.partialText)??quotes.render(result.partialText):"";
+      return { ...stopped(`${partial?`${partial}\n\n`:""}（模型调用失败：${result.error.message}）`), status: "failed", retryable: !writeAttempted };
     }
     if (result.kind === "refusal") {
       return stopped(quotes.render(result.userMessage));
     }
     if (result.kind === "max_tokens") {
       const raw = extractText(result.message);
-      return stopped((stream?.finish(raw) ?? quotes.render(raw)) || "（回复超出长度上限，未完成）");
+      return { ...stopped((stream?.finish(raw) ?? quotes.render(raw)) || "（回复超出长度上限，未完成）"), status: "incomplete", retryable: !writeAttempted };
     }
     const raw = extractText(result.message);
     const rendered = stream?.finish(raw) ?? quotes.render(raw);
@@ -335,6 +339,7 @@ export async function runAgentLoop(
     const toolResults: Anthropic.ToolResultBlockParam[] = [];
     for (const b of result.message.content) {
       if (b.type !== "tool_use") continue;
+      if (!/^(?:get_|list_)/u.test(b.name)) writeAttempted = true;
       observe?.({ type: "tool", name: b.name, status: "started", ok: true });
       const allowed = !restrictTools || callOpts.tools?.some(tool => tool.name === b.name) === true;
       const message = `本次任务不允许调用工具 ${b.name}，请只使用本轮提供的工具。`;

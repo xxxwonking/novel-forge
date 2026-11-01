@@ -1,4 +1,4 @@
-import { ArrowLeft, BookOpen, ClipboardList, Coins, Download, FileText, House, MessagesSquare, Network, Route, Search, TriangleAlert, Users, Waypoints, Workflow, type LucideIcon } from "lucide-react";
+import { ArrowLeft, BookOpen, ClipboardList, Coins, Download, FileText, House, MessagesSquare, Network, Route, Search, Settings2, TriangleAlert, Users, Waypoints, Workflow, type LucideIcon } from "lucide-react";
 import { Separator } from "./ui/separator.js";
 
 interface Props {
@@ -31,6 +31,7 @@ export function ProjectNavigation({ route, title, currentChapter, nextChapter, a
       {link("/alerts", "全部提示", TriangleAlert, alertCount)}
       {link("/search", "全文检索", Search)}
       {link("/credits", "用量与积分", Coins)}
+      {link("/providers", "AI 供应商", Settings2)}
     </div>
     <div className="navigation-label">结构视图</div>
     <div className="navigation-section">

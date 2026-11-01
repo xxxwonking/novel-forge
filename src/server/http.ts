@@ -114,6 +114,12 @@ async function route(
     const global = workspaceApi(workspace, apiRequest);
     if (global !== null) { send(res, global.status, global.body); return; }
     const session = selectedSession(workspace, req);
+    if (req.method === "POST" && url.pathname === "/api/providers/test") {
+      const body = apiRequest.body as { id?: unknown } | null;
+      if (typeof body?.id !== "string") throw new ChapterWriteError(400, "请选择已保存的供应商");
+      send(res, 200, await session.testProvider(workspace.providers.createClient(body.id)));
+      return;
+    }
     if (req.method === "POST" && url.pathname === "/api/conversation/stream") {
       await streamConversation(session, apiRequest.body, res);
       return;

@@ -115,6 +115,8 @@ export interface PreparationDraftResult {
 }
 
 export interface ProjectSessionOptions extends ChapterWriterOptions {
+  readonly clientFactory?: () => ModelClient;
+  readonly modelName?: typeof resolveModelName;
   /**
    * 全局剩余积分，每次模型调用前现问一次。工作区提供它（汇总全部作品，含回收站）。
    * 不经工作区单独构造会话时退回本作品自己的账 —— 仍然有闸门，只是看不见别的作品。
@@ -152,6 +154,9 @@ export class ProjectSession {
   private progress: ReturnType<typeof buildStoryProgress> | null = null;
   private readonly conversation: ConversationStore;
   private modelClient: ModelClient | undefined;
+  private modelSource: ModelClient | undefined;
+  private readonly clientFactory: (() => ModelClient) | undefined;
+  private readonly modelName: typeof resolveModelName;
   private readonly creditBalance: (() => number) | undefined;
 
   constructor(
@@ -160,6 +165,8 @@ export class ProjectSession {
     writing: ProjectSessionOptions = {},
   ) {
     this.creditBalance = writing.creditBalance;
+    this.clientFactory = writing.client === undefined ? writing.clientFactory : undefined;
+    this.modelName = writing.modelName ?? resolveModelName;
     this.store = new ProjectStore(root);
     this.drafts = new DraftStore(root);
     const snap = this.store.load();
@@ -693,18 +700,36 @@ export class ProjectSession {
    * 一轮对话：主 Agent 理解意图、自主选工具，产出回复与本回合的 effects。
    * 需要模型客户端（未配置抛 503）—— 只读浏览不经过这里，不受影响。
    */
-  async converse(text: string, observe?: ConversationObserver): Promise<ConversationReply> {
+  async converse(text: string, observe?: ConversationObserver, request: {sessionId?: string; requestId?: string; retryOf?: string} = {}): Promise<ConversationReply> {
     const client = this.getModelClient();
     const service = new MainAgentService({
       client,
-      store: this.conversation,
+      store: this.conversation.forSession(request.sessionId),
       // 排队的回合在真正开始时取资料，包含前一回合已采用的正文和状态。
       ctx: () => this.buildAgentContext(text.trim()),
       contextInfo: () => this.agentContextInfo(),
       maxRounds: this.rules.agent.maxConversationRounds,
       maxPlanningRounds: this.rules.agent.maxPlanningRounds,
     });
-    return service.send(text, observe);
+    return service.send(text, observe, request);
+  }
+
+  conversationHistory(id?: string) {
+    const store = this.conversation.forSession(id), state = store.load();
+    return {
+      turns: state.turns, ideas: state.ideas, mode: state.mode,
+      sessionId: store.sessionId(), sessions: this.conversation.listSessions(),
+      pendingRequest: state.pendingRequest === undefined ? null : { id: state.pendingRequest.id, at: state.pendingRequest.at },
+    };
+  }
+
+  manageConversation(action: string, id?: string, title?: string) {
+    if (action === "create") return this.conversationHistory(this.conversation.createSession(title));
+    if (!id) throw new Error("缺少会话编号");
+    if (action === "select") this.conversation.selectSession(id);
+    else if (action === "rename" && title !== undefined) this.conversation.renameSession(id, title);
+    else throw new Error("无效的会话操作");
+    return this.conversationHistory(id);
   }
 
   conversationMode(): ConversationMode {
@@ -712,8 +737,8 @@ export class ProjectSession {
   }
 
   /** 模式是对话的属性，存在会话文件里 —— 它决定这一轮能不能写入，必须与工具集是同一份真相。 */
-  setConversationMode(mode: ConversationMode): ConversationMode {
-    this.conversation.setMode(mode);
+  setConversationMode(mode: ConversationMode, id?: string): ConversationMode {
+    this.conversation.forSession(id).setMode(mode);
     return mode;
   }
 
@@ -1039,7 +1064,7 @@ export class ProjectSession {
       + estimateTokens(this.preparationAsk({ focus: "foreshadows", apply: true }, null));
     const toolResult = estimateTokens(JSON.stringify(this.preparation.view()));
     const materials: ModeFacts = {
-      key: "materials", model: resolveModelName("judge"), purpose: PREPARATION_PURPOSE,
+      key: "materials", model: this.modelName("judge"), purpose: PREPARATION_PURPOSE,
       maxOutputTokens: PREPARATION_DRAFT_MAX_TOKENS,
       // 下界是"读一次、提一次"，上界是轮数上限。
       calls: { min: 2, max: Math.max(2, rounds) },
@@ -1047,12 +1072,23 @@ export class ProjectSession {
     };
     const ledger = readCreditEntries(this.root);
     // 逐章那档的次数要含重试，而重试次数只有账本数得出来（投影里一章只留一条记录）。
-    const chapters = this.inference.estimateFacts(resolveModelName("creative"), ledger.filter((e) => e.purpose === "inference").length);
+    const chapters = this.inference.estimateFacts(this.modelName("creative"), ledger.filter((e) => e.purpose === "inference").length);
     return estimateModes([materials, chapters], ledger, loadPricing());
   }
 
   /** 全流程唯一的客户端出口：在这里包上计量与余额闸门，任何调用点都不会绕过记账或拦截。 */
   getModelClient(): ModelClient {
+    if (this.clientFactory) {
+      try {
+        const source = this.clientFactory();
+        if (source !== this.modelSource) {
+          this.modelSource = source;
+          this.modelClient = this.meter(source);
+        }
+      } catch (error) {
+        throw new ChapterWriteError(503, `模型配置不可用：${error instanceof Error ? error.message : "配置错误"}`);
+      }
+    }
     if (this.modelClient === undefined) {
       try {
         this.modelClient = this.meter(createModelClient());
@@ -1061,6 +1097,18 @@ export class ProjectSession {
       }
     }
     return this.modelClient;
+  }
+
+  async testProvider(client: ModelClient) {
+    const result = await this.meter(client).call({
+      role: "judge", purpose: "provider_test", maxTokens: 32,
+      messages: [{ role: "user", content: "Reply with OK. Do not call tools." }],
+    });
+    if (result.kind !== "ok") {
+      throw new ChapterWriteError(502, result.kind === "error" ? result.error.message
+        : result.kind === "refusal" ? result.userMessage : "连接成功，但测试回复被截断，请检查输出限额");
+    }
+    return { ok: true, model: result.message.model, message: "已收到模型回复；文本连接可用，工具和写章能力仍需在实际任务中核对。" };
   }
 
   private materialCharacterChecklist(): readonly string[] {

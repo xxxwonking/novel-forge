@@ -14,6 +14,7 @@ import type { ChapterWriterOptions } from "../server/chapter-writer.js";
 import type { Genre, Platform } from "../types/beat.js";
 import type { WorkSetting } from "../types/work.js";
 import { createBackupPackage, parseBackupPackage, writeBackupFiles } from "./backup.js";
+import { ProviderStore } from "../client/providers.js";
 
 /** 已删除作品的归档条目。`archive` 是 `.trash/` 下的目录名，也是作者能在磁盘上找到它的凭据。 */
 export interface RemovedWork extends WorkSummary {
@@ -77,6 +78,7 @@ const ARCHIVE_NAME = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})(\d{3})Z-(.+)$
 const validId = (id: string): boolean => /^[\p{L}\p{N}][\p{L}\p{N} ._-]{0,127}$/u.test(id) && !/[. ]$/u.test(id);
 
 export class Workspace {
+  readonly providers: ProviderStore;
   readonly root: string;
   readonly defaultProjectId: string | null;
   private readonly openedRoot: string | undefined;
@@ -84,6 +86,7 @@ export class Workspace {
 
   constructor(root: string, private readonly options: WorkspaceOptions = {}) {
     this.root = resolve(root);
+    this.providers=new ProviderStore(this.root);
     this.openedRoot = options.projectRoot === undefined ? undefined : resolve(options.projectRoot);
     this.defaultProjectId = this.openedRoot === undefined ? null
       : dirname(this.openedRoot) === this.root && validId(basename(this.openedRoot)) ? basename(this.openedRoot) : "opened-project";
@@ -105,7 +108,7 @@ export class Workspace {
     let session = this.sessions.get(canonicalRoot);
     if (session === undefined) {
       // 余额是全局的：每本书的闸门都要看整个工作区的账，不能只看自己。
-      session = new ProjectSession(canonicalRoot, undefined, { ...this.options, creditBalance: () => this.credits().balance });
+      session = new ProjectSession(canonicalRoot, undefined, { ...this.options, creditBalance: () => this.credits().balance,clientFactory:()=>this.providers.createClient(),modelName:role=>this.providers.modelName(role) });
       this.sessions.set(canonicalRoot, session);
     }
     return session;

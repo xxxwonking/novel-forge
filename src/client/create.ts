@@ -2,12 +2,26 @@ import { ClaudeClient, MODELS, type ModelRole } from "./claude.js";
 import { ChatClient } from "./chat.js";
 import { chatOptionsFromEnv } from "./chat-config.js";
 import type { ModelClient } from "./model.js";
+import { GeminiClient } from "./gemini.js";
 
 /** 配置选择显式生效；chat 的配置或请求失败均不回退到 Claude。 */
-export function createModelClient(env: Readonly<Record<string, string | undefined>> = process.env): ModelClient {
+export function createModelClient(
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): ModelClient {
   const provider = env.NOVEL_MODEL_PROVIDER ?? "claude";
   if (provider === "claude") return ClaudeClient.fromEnv(env);
-  if (provider !== "chat") throw new Error("未知 NOVEL_MODEL_PROVIDER；可用值为 chat 或 claude");
+  if (provider === "gemini")
+    return new GeminiClient({
+      baseURL:
+        env.GEMINI_BASE_URL?.trim() ||
+        "https://generativelanguage.googleapis.com/v1beta",
+      apiKey: env.GEMINI_API_KEY?.trim() ?? "",
+      model: env.GEMINI_MODEL?.trim() ?? "",
+    });
+  if (provider !== "chat")
+    throw new Error(
+      "未知 NOVEL_MODEL_PROVIDER；可用值为 chat、claude 或 gemini",
+    );
   return new ChatClient(chatOptionsFromEnv(env));
 }
 
@@ -22,8 +36,16 @@ export function createModelClient(env: Readonly<Record<string, string | undefine
  * **chat 接入不按 role 分派**：它只有一个 `CHAT_MODEL`，`MODELS.creative/judge`
  * 那张分工表在这条路径上根本不生效。这正是不能直接查 `MODELS` 的原因。
  */
-export function resolveModelName(role: ModelRole, env: Readonly<Record<string, string | undefined>> = process.env): string {
+export function resolveModelName(
+  role: ModelRole,
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): string {
   const provider = env.NOVEL_MODEL_PROVIDER ?? "claude";
   if (provider === "chat") return env.CHAT_MODEL?.trim() ?? "";
+  if (provider === "gemini") return env.GEMINI_MODEL?.trim() ?? "";
+  if (env.ANTHROPIC_MODEL?.trim())
+    return role === "judge"
+      ? env.ANTHROPIC_JUDGE_MODEL?.trim() || env.ANTHROPIC_MODEL.trim()
+      : env.ANTHROPIC_MODEL.trim();
   return MODELS[role];
 }

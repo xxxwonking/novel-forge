@@ -206,7 +206,7 @@ export function handle(session: ProjectSession, req: ApiRequest): ApiResponse {
       case "/api/tasks":
         return ok(session.chapterTasks());
       case "/api/conversation":
-        return ok({ turns: session.conversationTurns(), ideas: session.listIdeas(), mode: session.conversationMode() });
+        try { return ok(session.conversationHistory(req.query.get("sessionId") ?? undefined)); } catch (e) { return bad((e as Error).message); }
       case "/api/views":
         return ok({...session.derived.views,outlineNodes:session.preparation.outlineNodes()});
       case "/api/plot-board":
@@ -256,6 +256,9 @@ export function handle(session: ProjectSession, req: ApiRequest): ApiResponse {
         return chapterAdopt(session, req.body);
       case "/api/conversation/mode":
         return conversationMode(session, req.body);
+      case "/api/conversation/sessions":
+        if (!isRecord(req.body) || typeof req.body["action"]!=="string") return bad("缺少会话操作");
+        try { return ok(session.manageConversation(req.body["action"],typeof req.body["id"]==="string"?req.body["id"]:undefined,typeof req.body["title"]==="string"?req.body["title"]:undefined)); } catch(e) { return bad((e as Error).message); }
       case "/api/chapter/discard":
         return chapterDiscard(session, req.body);
       case "/api/chapter/restore":
@@ -653,11 +656,17 @@ async function preparationDraft(session: ProjectSession, body: unknown): Promise
 }
 
 /** 切换对话模式。纯状态切换，不调模型，所以留在同步 handle 里。 */
+function conversationRequest(body: Record<string,unknown>): {sessionId?:string;requestId?:string;retryOf?:string} {
+  for (const key of ["sessionId","requestId","retryOf"]) if (body[key]!==undefined && typeof body[key]!=="string") throw new ChapterWriteError(400,`${key}必须是字符串`);
+  return {...(typeof body["sessionId"]==="string"?{sessionId:body["sessionId"]}:{}),...(typeof body["requestId"]==="string"?{requestId:body["requestId"]}:{}),...(typeof body["retryOf"]==="string"?{retryOf:body["retryOf"]}:{})};
+}
+
 function conversationMode(session: ProjectSession, body: unknown): ApiResponse {
   if (!isRecord(body)) return bad("请求体必须是对象");
   const mode = body["mode"];
   if (mode !== "normal" && mode !== "planning") return bad("mode 必须是 normal 或 planning");
-  return ok({ mode: session.setConversationMode(mode) });
+  try { return ok({ mode: session.setConversationMode(mode,typeof body["sessionId"]==="string"?body["sessionId"]:undefined) }); }
+  catch (error) { return bad((error as Error).message); }
 }
 
 /**
@@ -669,7 +678,7 @@ async function conversationSend(session: ProjectSession, body: unknown): Promise
   const text = body["text"];
   if (typeof text !== "string" || text.trim() === "") return bad("缺少 text");
   try {
-    return ok(await session.converse(text));
+    return ok(await session.converse(text, undefined, conversationRequest(body)));
   } catch (error) {
     if (error instanceof ChapterWriteError) return { status: error.status, body: { error: error.message } };
     throw error;
@@ -691,7 +700,7 @@ export async function conversationStream(
   if (typeof text !== "string" || text.trim() === "") return bad("缺少 text");
   let started = false;
   try {
-    const reply = await session.converse(text, (event) => { started = true; emit(event); });
+    const reply = await session.converse(text, (event) => { started = true; emit(event); }, conversationRequest(body));
     emit({ type: "done", reply });
   } catch (error) {
     if (!started && error instanceof ChapterWriteError) return { status: error.status, body: { error: error.message } };

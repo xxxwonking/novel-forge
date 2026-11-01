@@ -32,6 +32,7 @@ const Drafts = lazy(() => import("./pages/Drafts.js").then(module => ({ default:
 const Export = lazy(() => import("./pages/Export.js").then(module => ({ default: module.Export })));
 const Inference = lazy(() => import("./pages/Inference.js").then(module => ({ default: module.Inference })));
 const Revision = lazy(() => import("./pages/Revision.js").then(module => ({ default: module.Revision })));
+const Providers = lazy(() => import("./pages/Providers.js").then(module => ({ default: module.Providers })));
 
 const VIEWS = [
   { path: "/foreshadow", label: "伏笔时间线" },
@@ -45,6 +46,7 @@ const PlotBoard = lazy(() => import("./pages/PlotBoard.js").then(module => ({ de
 export function App(): React.ReactElement {
   const [route] = useRoute();
   const workspace = useFetch(() => api.workspace(), []);
+  if(route==="/providers"&&selectedProjectId()===null&&workspace.data?.defaultProjectId==null)return <main className="main"><a href="#/works">返回作品库</a><Suspense fallback={<p role="status">读取配置…</p>}><Providers/></Suspense></main>;
   if (workspace.data === null) {
     return <div className="empty">{workspace.error === null ? "打开工作区…" : <>读取工作区失败：{workspace.error} <Button size="sm" variant="outline" onClick={workspace.reload}>重试</Button></>}</div>;
   }
@@ -157,7 +159,7 @@ function ProjectApp({ projectId }: { projectId: string }): React.ReactElement {
       <a className="skip-navigation" href="#project-content" onClick={event => { event.preventDefault(); document.getElementById("project-content")?.focus(); }}>跳到内容</a>
       <Sheet open={navOpen} onOpenChange={setNavOpen}>
         <header className="mobile-work-header"><a href="#/works"><ArrowLeft className="size-4" aria-hidden="true" />作品</a><strong>{navigation.title}</strong>
-          <SheetTrigger asChild><Button size="sm" variant="outline" aria-label="作品导航"><Menu aria-hidden="true" />目录</Button></SheetTrigger>
+          <SheetTrigger asChild><Button size="sm" variant="outline" aria-label="作品导航"><Menu aria-hidden="true" />作品导航</Button></SheetTrigger>
         </header>
         <SheetContent side="left" className="mobile-navigation-dialog w-[min(20rem,90vw)] gap-0 overflow-hidden border-border p-0" overlayClassName="mobile-navigation-overlay">
           <SheetHeader className="shrink-0 border-b border-border py-5 pr-16 pl-5"><SheetTitle className="text-base">作品导航</SheetTitle><SheetDescription>切换创作页面或查看剧情结构</SheetDescription></SheetHeader>
@@ -234,6 +236,7 @@ function RouteContent({ route, overview, onAction, onIgnore, onJump, refresh, ta
   if (path === "/export") return <Export exportId={query.get("id")} />;
   if (path === "/search") return <Search query={query.get("q") ?? ""} />;
   if (path === "/credits") return <Credits />;
+  if (path === "/providers") return <Providers />;
   if (path === "/inference") return <Inference refresh={refresh} />;
   if (path === "/revision") return <Revision refresh={refresh} />;
   if (path?.startsWith("/draft/")) {

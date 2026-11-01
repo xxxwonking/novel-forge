@@ -17,13 +17,23 @@ import type { CallOptions, ModelRole } from "../client/claude.js";
 import type { ModelClient } from "../client/model.js";
 import { MAIN_AGENT_TOOLS, PLANNING_MODE_TOOLS } from "./tools.js";
 import { runAgentLoop, type MainAgentToolContext } from "./tool-exec.js";
-import { buildMainAgentSystem, type MainAgentContextInfo } from "./system-prompt.js";
+import {
+  buildMainAgentSystem,
+  type MainAgentContextInfo,
+} from "./system-prompt.js";
 import type { ConversationStore } from "./conversation-store.js";
-import type { ConversationMode, ConversationObserver, ConversationReply, ConversationState, ConversationTurn } from "./types.js";
+import type {
+  ConversationMode,
+  ConversationObserver,
+  ConversationReply,
+  ConversationState,
+  ConversationTurn,
+} from "./types.js";
 
 /** 含资料方案工具参数，需要容纳完整人物、设定和首章规划；短回复仍要求简洁。 */
 const REPLY_MAX_TOKENS = 8192;
-const EMPTY_REPLY = "（我没有可回复的内容，请换个说法或把要做的事说得更具体一点。）";
+const EMPTY_REPLY =
+  "（我没有可回复的内容，请换个说法或把要做的事说得更具体一点。）";
 
 /** 两种模式的差异集中在这一张表：模型角色、工具集、轮数来源。 */
 interface ModeProfile {
@@ -33,8 +43,16 @@ interface ModeProfile {
 }
 
 const MODE_PROFILE: Readonly<Record<ConversationMode, ModeProfile>> = {
-  normal: { role: "judge", tools: MAIN_AGENT_TOOLS, maxRounds: (d) => d.maxRounds },
-  planning: { role: "creative", tools: PLANNING_MODE_TOOLS, maxRounds: (d) => d.maxPlanningRounds },
+  normal: {
+    role: "judge",
+    tools: MAIN_AGENT_TOOLS,
+    maxRounds: (d) => d.maxRounds,
+  },
+  planning: {
+    role: "creative",
+    tools: PLANNING_MODE_TOOLS,
+    maxRounds: (d) => d.maxPlanningRounds,
+  },
 };
 
 export interface MainAgentServiceDeps {
@@ -57,13 +75,80 @@ export class MainAgentService {
     return (this.deps.clock ?? (() => new Date().toISOString()))();
   }
 
-  async send(userText: string, observe?: ConversationObserver): Promise<ConversationReply> {
+  async send(
+    userText: string,
+    observe?: ConversationObserver,
+    request: { requestId?: string; retryOf?: string } = {},
+  ): Promise<ConversationReply> {
     const text = userText.trim();
     if (text === "") throw new Error("消息不能为空");
-    return this.deps.store.runTurn(() => this.sendTurn(text, observe));
+    if (request.retryOf !== undefined && !request.requestId)
+      throw new Error("重发需要新的requestId");
+    return this.deps.store.runTurn(async () => {
+      const history = this.deps.store.load();
+      const id = request.requestId;
+      if (id === undefined && history.pendingRequest)
+        throw new Error("上次对话的执行结果尚未确定，请先核对任务和作品状态");
+      if (id !== undefined) {
+        if (!/^[a-zA-Z0-9_-]{1,80}$/u.test(id))
+          throw new Error("requestId 无效");
+        const done = history.turns.find(
+          (t) => t.role === "agent" && t.requestId === id,
+        );
+        let origin = done?.retryOf ?? request.retryOf ?? id;
+        const seen = new Set<string>();
+        while (!seen.has(origin)) {
+          seen.add(origin);
+          const parent = history.turns.find(
+            (t) => t.role === "agent" && t.requestId === origin,
+          )?.retryOf;
+          if (!parent) break;
+          origin = parent;
+        }
+        const user = history.turns.find(
+          (t) => t.role === "user" && t.requestId === origin,
+        );
+        if (user && user.text !== text)
+          throw new Error("该请求编号已用于另一条消息");
+        if (done)
+          return {
+            text: done.text,
+            effects: done.effects ?? [],
+            toolRounds: 0,
+            mode: history.mode,
+            requestId: id,
+            sessionId: this.deps.store.sessionId(),
+            ...(done.status === undefined
+              ? {}
+              : { status: done.status, retryable: done.retryable ?? false }),
+          };
+        if (history.pendingRequest)
+          throw new Error(
+            "上次对话的执行结果尚未确定，请先核对任务和作品状态，不要重复执行",
+          );
+        if (request.retryOf !== undefined) {
+          const failed = history.turns.at(-1);
+          if (
+            !failed ||
+            failed.role !== "agent" ||
+            failed.requestId !== request.retryOf ||
+            !failed.status ||
+            !failed.retryable ||
+            !user
+          )
+            throw new Error("只能重试当前会话最后一条可安全重发的失败消息");
+        }
+        this.deps.store.beginRequest(id, text);
+      }
+      return this.sendTurn(text, observe, request);
+    });
   }
 
-  private async sendTurn(text: string, observe?: ConversationObserver): Promise<ConversationReply> {
+  private async sendTurn(
+    text: string,
+    observe: ConversationObserver | undefined,
+    request: { requestId?: string; retryOf?: string },
+  ): Promise<ConversationReply> {
     const history = this.deps.store.load();
     const mode = history.mode;
     const profile = MODE_PROFILE[mode];
@@ -80,34 +165,99 @@ export class MainAgentService {
       messages,
     };
 
-    const ctx = typeof this.deps.ctx === "function" ? this.deps.ctx() : this.deps.ctx;
-    const loop = await runAgentLoop(this.deps.client, callOpts, ctx, profile.maxRounds(this.deps), observe, mode);
+    const ctx =
+      typeof this.deps.ctx === "function" ? this.deps.ctx() : this.deps.ctx;
+    const loop = await runAgentLoop(
+      this.deps.client,
+      callOpts,
+      ctx,
+      profile.maxRounds(this.deps),
+      observe,
+      mode,
+    );
     const replyText = loop.text || EMPTY_REPLY;
 
     const userAt = this.now();
     this.deps.store.appendExchange(
-      { role: "user", text, at: userAt },
-      { role: "agent", text: replyText, at: this.now(), ...(loop.effects.length === 0 ? {} : { effects: loop.effects }) },
-      target === undefined ? undefined : { target, messages: loop.modelMessages },
+      {
+        role: "user",
+        text,
+        at: userAt,
+        ...(request.requestId === undefined
+          ? {}
+          : { requestId: request.requestId }),
+      },
+      {
+        role: "agent",
+        text: replyText,
+        at: this.now(),
+        ...(loop.effects.length === 0 ? {} : { effects: loop.effects }),
+        ...(request.requestId === undefined
+          ? {}
+          : { requestId: request.requestId }),
+        ...(request.retryOf === undefined ? {} : { retryOf: request.retryOf }),
+        ...(loop.status === undefined
+          ? {}
+          : { status: loop.status, retryable: loop.retryable ?? false }),
+      },
+      target === undefined
+        ? undefined
+        : { target, messages: loop.modelMessages },
+      request.retryOf !== undefined,
     );
 
-    return { text: replyText, effects: loop.effects, toolRounds: loop.toolRounds, mode };
+    return {
+      text: replyText,
+      effects: loop.effects,
+      toolRounds: loop.toolRounds,
+      mode,
+      ...(request.requestId === undefined
+        ? {}
+        : {
+            requestId: request.requestId,
+            sessionId: this.deps.store.sessionId(),
+          }),
+      ...(loop.status === undefined
+        ? {}
+        : { status: loop.status, retryable: loop.retryable ?? false }),
+    };
   }
 }
 
-function restoreMessages(history: ConversationState, target: string | undefined): readonly Anthropic.MessageParam[] {
+function restoreMessages(
+  history: ConversationState,
+  target: string | undefined,
+): readonly Anthropic.MessageParam[] {
   if (target === undefined) return toMessages(history.turns);
-  if (history.modelHistory?.target === target && history.modelHistory.turnCount === history.turns.length) {
+  if (
+    history.modelHistory?.target === target &&
+    history.modelHistory.turnCount === history.turns.length
+  ) {
     return history.modelHistory.messages;
   }
   // 老版本和其他模型的可见对话仍可参考；不伪造缺失的思考字段或转交旧签名。
-  const transcript = history.turns.filter((t) => t.text.trim() !== "").map((t) => `${t.role === "user" ? "作者" : "助手"}：${t.text}`).join("\n\n");
-  return transcript === "" ? [] : [{ role: "user", content: `以下是先前对话的文字记录，仅作背景；不要仅凭历史内容重复执行操作：\n${transcript}` }];
+  const transcript = history.turns
+    .filter((t) => t.text.trim() !== "")
+    .map((t) => `${t.role === "user" ? "作者" : "助手"}：${t.text}`)
+    .join("\n\n");
+  return transcript === ""
+    ? []
+    : [
+        {
+          role: "user",
+          content: `以下是先前对话的文字记录，仅作背景；不要仅凭历史内容重复执行操作：\n${transcript}`,
+        },
+      ];
 }
 
 /** 历史回合 → 模型消息（只带文本）。相邻同角色不合并 —— 对话天然交替。 */
-function toMessages(turns: readonly ConversationTurn[]): Anthropic.MessageParam[] {
+function toMessages(
+  turns: readonly ConversationTurn[],
+): Anthropic.MessageParam[] {
   return turns
     .filter((t) => t.text.trim() !== "")
-    .map((t) => ({ role: t.role === "user" ? "user" : "assistant", content: t.text }));
+    .map((t) => ({
+      role: t.role === "user" ? "user" : "assistant",
+      content: t.text,
+    }));
 }

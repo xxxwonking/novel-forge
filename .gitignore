@@ -8,6 +8,8 @@ dist/
 .env
 .env.*
 !.env.example
+.model-providers.json
+.provider-*.tmp
 data/
 playwright-report/
 test-results/

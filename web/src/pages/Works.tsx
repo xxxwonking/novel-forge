@@ -113,6 +113,7 @@ export function Works(): React.ReactElement {
           <div className="section-head">
             <h2>我的作品 <span>{String(count).padStart(2, "0")}</span></h2>
             <InlineGroup>
+              <a href="#/providers">AI 供应商</a>
               <Button variant="ghost" size="sm" icon={<ImportOutlined />} disabled={pending !== null || importing} onClick={() => { setImportError(null); setShelfError(null); setImportOpen(true); }}>导入备份</Button>
               <Button variant="ghost" size="sm" icon={<ReloadOutlined />} loading={workspace.loading && workspace.data !== null} onClick={workspace.reload}>刷新</Button>
             </InlineGroup>
