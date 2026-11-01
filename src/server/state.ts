@@ -10,6 +10,8 @@
  * 不一致，而那正是全量重放要避免的问题。重算一次是毫秒级的。
  */
 
+import { OutlineStore } from "../preparation/outline.js";
+import { materialCharacterNames, uncoveredOutlineSections } from "../preparation/intake-checklist.js";
 import { EventStream, commitDeclaration } from "../store/event-stream.js";
 import { ProjectStore, alertStateMap, type PlotLineDef, type ProjectSnapshot } from "../store/persist.js";
 import { DraftStore } from "../task/draft-store.js";
@@ -42,7 +44,7 @@ import { MaterialStore, type MaterialFile } from "../import/materials.js";
 import { NOT_IN_PROSE, type ForeshadowClaim, type RelationClaim } from "../types/relations.js";
 import type { PresenceScan } from "../types/presence.js";
 import type { ImportFile } from "../import/split.js";
-import { characterSource } from "../preparation/sources.js";
+import { characterSource, materialContext } from "../preparation/sources.js";
 import { appendCreditEntry, readCreditEntries, summarize } from "../credits/ledger.js";
 import { estimateModes, type InferenceEstimate, type ModeFacts } from "../credits/estimate.js";
 import { loadPricing } from "../credits/pricing.js";
@@ -91,7 +93,7 @@ export interface PreparationDraftOptions {
   /** 作者的一句话补充要求，可空 —— 空了就只按作品想法推断。 */
   readonly brief?: string;
   /** characters 只起草人物；plotlines 只认情节线；foreshadows 只从资料反推伏笔规划；full 连地点、情节线与下一章计划一起；chapters 只排后面 count 章的章计划。 */
-  readonly focus: "characters" | "plotlines" | "foreshadows" | "full" | "chapters";
+  readonly focus: "characters" | "plotlines" | "foreshadows" | "full" | "chapters" | "materials" | "outline";
   readonly count?: number;
   /** true 落成候选方案；false 只把草稿交回来（表单试填），不写任何文件。 */
   readonly apply: boolean;
@@ -105,6 +107,8 @@ export interface PreparationDraftResult {
   readonly summary?: string;
   /** apply: false 时的草稿人物，供表单填入。 */
   readonly characters: readonly CharacterInput[];
+  /** 服务端分阶段整理时使用；不会把中间结果确认为作品资料。 */
+  readonly capturedInput?: PreparationInput;
 }
 
 export interface ProjectSessionOptions extends ChapterWriterOptions {
@@ -696,8 +700,15 @@ export class ProjectSession {
    */
   private preparationAsk(options: PreparationDraftOptions, chapters: { readonly from: number; readonly to: number } | null): string {
       // 人物、情节线、伏笔读同一批材料：作者的大纲与简介里写着这三样，正文抽样只作核对。
-      const sources = this.characterSources();
-      const focus = options.focus === "characters"
+      const sources = this.characterSources(options.focus === "materials" || options.focus === "outline");
+      const materialsTask = options.focus === "materials" || options.focus === "outline";
+      const checklist = materialsTask ? this.materialCharacterChecklist() : [];
+      const outlineInstruction = '从上传大纲中提取具体剧情走向，写入 changes.outlineNodes，并建立必要 changes.plotLines。每个节点包含 N 开头id、plotLine（已有或本批P编号，可null）、chapter（只有资料原句明确标注第几章才能填写，否则null）、order（资料叙事顺序）、summary、kind、characters（已有/本批人物ID，没有就[]）、source:{file,quote}。file沿用资料清单的文件名，quote必须从该文件逐字复制，不改主语、标点或省略拼接；有章号时引用必须包含原章节标记。资料里明确写出的开端、中段与终局都应覆盖，不能只选开篇简介。能行动/对话的掌柜、守门人等角色应保留，不因身份特殊就当成纯规则删除。这些是资料推断，不是已核实正文事实，不创建 beats 或正式事件。仅有目录标题时不能扩写具体过程；优先引用简介/大纲中明确叙述的段落，按已有阶段整理，不能凭标题编动作。若只有目录/简介，就按资料支持的阶段整理，不编满全书每章。已有节点按ID更新，同一出处不重复建卡。';
+      const focus = materialsTask
+        ? options.focus === "materials"
+          ? "这是整项目整理的第一步：只归并人物档案与明确的人物关系（changes.characters、changes.relations）。不要提交情节线或剧情节点，它们会由下一步单独整理。跨文件按姓名与别名合并，一人一卡；保留能行动或对话的具象角色，包括掌柜、守门人等。纯规则位置、器物或群像不要强行变成个人，在summary里写明排除名称与原因。已有卡沿用ID，不重写已确认性格与历史。"
+          : `这是资料剧情整理步骤：只提交情节线和剧情节点，不修改人物档案或关系。未确认的人物ID先留空，合并时会按资料原句中的明确姓名关联。${outlineInstruction}`
+        : options.focus === "characters"
         ? `这次**只**起草人物档案（changes.characters）。地点、情节线、章节计划一律不要动。把这本书里**已经出现过的人物**尽量都建出来，一人一张卡，并按出场权重分档：protagonist（主角）、major（主要）、minor（次要）、extra（龙套）；身份与定位写进 profile.role，关系与来历写进 profile.background。${sources !== null && sources.from.length > 0 ? "人物以作者提供的资料文件为准，正文抽样只用来核对谁真的出过场。资料里如果写了人物之间的关系（搭档、亲属、师徒、仇敌…），一并填进 changes.relations —— 每条一个方向，双向关系填两条，note 用一句话说清是什么关系；**只填资料里写明的，不要自己推测**。" : ""}`
         : options.focus === "plotlines"
           ? "这次**只**认出情节线（changes.plotLines）。人物、地点、章节计划一律不要动。情节线是**贯穿多章的叙事主干**（一桩要查到底的案子、一条感情线、某个组织的图谋），不是单章里发生的事 —— 一章就了结的写不成情节线。从作者的大纲、简介与正文抽样里认，每条给一个 P 开头的编号、一句话标签（label），并定权重：main（主线，断几章就该警觉）、sub（支线）、detail（细节线）。**只认资料里写明或正文里明显贯穿的**，宁可少认几条也不要为了凑数编造。"
@@ -723,6 +734,7 @@ export class ProjectSession {
         "（这条请求来自资料页的「让 AI 起草」按钮，不是作者在对话里打的字，请直接执行，不要反问。）",
         "先 get_preparation 读取作者已指定的想法与现有正式资料，再据此推断并补齐：",
         focus,
+        ...(options.focus === "materials" && checklist.length ? [`人物档案覆盖清单：${checklist.join("、")}。每个条目都要归并到已有/本批人物卡；不能建卡的抽象规则、群像等，在方案summary中逐一写出名称与排除原因，不得静默省略。`] : []),
         ...(options.focus === "full" ? ["整份起草是补齐：只提交空白的设定字段与尚未建立的资料，已有 premise、书名、写作规则都不能重新表述或覆盖。已有想法即使不够详细，也要原样尊重。"] : []),
         ...(this.chapterNumbers().length === 0 ? [] : [`作品已有 ${this.chapterNumbers().length} 章正文；如需安排后续，从第 ${this.nextChapter} 章接续，不要重置为开篇。`]),
         ...(sources === null || sources.text === "" ? [] : ["以下是这本书已有的材料：", sources.text]),
@@ -730,6 +742,7 @@ export class ProjectSession {
         ...(sources === null || sources.sampled.length === 0 ? [] : [`注意：正文只抽样了上面那 ${sources.sampled.length} 章的开头，全书共 ${this.chapterNumbers().length} 章。${options.focus === "plotlines" ? "资料文件里写了、抽样里没见到的线，也照样认出来" : options.focus === "foreshadows" ? "以资料文件为主：伏笔要靠通读全书才看得准，抽样的章首读不出中段埋的东西 —— 资料里没写明的，不要靠六段抽样去猜" : "没有抽到的章里的人物如果资料文件提到了，也照样建卡"}；不要声称你读过全书。`]),
         // 人物卡的完整性要求只对建人物的两档说 —— 排章计划与认情节线都不碰人物卡。
         ...(options.focus === "characters" || options.focus === "full" ? ["人物 profile 与 speech 必须是完整的：定位、外貌、性格标签、想要什么、害怕什么、背景，以及说话方式（语域、情绪表达、句长区间、句式偏好、至少一条正例台词）。作者的设定常常只有一句想法 —— 人物具体是什么样由你判断，不要回过头去问作者。"] : []),
+        ...(options.focus === "materials" ? ["人物卡需要完整的profile与speech结构。按资料归并，不编造新的过往事件；缺失的机械声音参数或拟写台词只作建议，在summary说明需要作者核对。不要为了补齐字段而改写作者的人物。"] : []),
         "用 propose_preparation 保存为一份方案供作者审阅。不要确认方案，不要写章，不要采用任何稿件。",
         'propose_preparation 的根对象必须包含 summary（本次方案的一句话摘要）、baseFingerprint、changes，例如 {"summary":"识别已有情节线","baseFingerprint":"沿用 get_preparation 的指纹","changes":{"plotLines":[{"id":"P_Main","label":"已有主线","weight":"main"}]}}。summary 必须放在根对象，不能用 changes.volumes 中的卷纲 summary 代替；不要提交 proposalId 或根级 volume。示例只说明封装，changes 内容按本次范围填写。',
         "人物关系只连接资料明确支持的两个人物。地点、规则位置或未建卡对象不可强行映射为另一位人物；关系说明必须具体，不能用破折号占位。",
@@ -755,7 +768,57 @@ export class ProjectSession {
    * `apply: false` 是「试填」：只把草稿交回来给表单，不落任何文件。它靠包装
    * `proposePreparation` 捕获输入实现 —— 校验照常发生（错误仍回喂），只是不保存。
    */
+  private parsePreparationDraft(raw:unknown, focus:PreparationDraftOptions["focus"]):PreparationInput {
+    const input = parsePreparationInput(raw);
+    if(focus === "materials" || focus === "outline") {
+      if(focus === "materials") {
+        const cards=[...this.characters,...(input.changes.characters??[])];
+        const names=this.materialCharacterChecklist();
+        const missing=names.filter(name=>!cards.some(c=>c.name===name || c.aliases.includes(name)) && !input.summary.includes(name));
+        if(missing.length) throw new Error(`人物档案条目尚未交代：${missing.join("、")}。请补卡或在summary逐一说明不建卡原因，不要静默省略`);
+      }
+      const allowed = focus === "materials" ? ["characters","relations"] : ["plotLines","outlineNodes"];
+      if(Object.keys(input.changes).some(key=>!allowed.includes(key))) throw new Error("人物步骤只能整理人物和关系；大纲步骤只能整理情节线和剧情节点。不得混入其他设定、规则、伏笔或章计划。");
+    }
+    if (focus === "full") {
+      const current = this.preparation.view().confirmed;
+      const populated = (value: unknown) => Array.isArray(value) ? value.length > 0 : typeof value === "string" ? value.trim() !== "" : value != null;
+      const changed = Object.entries(input.changes.setting ?? {}).filter(([key, value]) => {
+        const previous = current.setting[key as keyof typeof current.setting];
+        return populated(previous) && JSON.stringify(value) !== JSON.stringify(previous);
+      }).map(([key]) => key);
+      if (input.changes.writingRules !== undefined && JSON.stringify(input.changes.writingRules) !== JSON.stringify(current.discipline.rules)) changed.push("writingRules");
+      if (changed.length > 0) throw new Error(`整份起草只能补齐空白，不可改写作者已有 ${changed.join("、")}。请保留这些字段，只提交尚缺的资料；不要把被拒的改动重新提交。`);
+    }
+    if (focus === "outline") {
+      const nodes = input.changes.outlineNodes ?? [];
+      new OutlineStore(this.root).validateSources(nodes);
+      const store = new MaterialStore(this.root);
+      const merged = new Map(this.preparation.outlineNodes().map(node => [node.id, node]));
+      for (const node of nodes) merged.set(node.id, node);
+      const materials = materialContext(store.list().map(m => ({ name: m.name, text: store.read(m.file) ?? "" })));
+      const missing = uncoveredOutlineSections(materials, [...merged.values()]);
+      if (missing.length > 0) throw new Error(`分章大纲有具体内容但未覆盖：${missing.map(s => `${s.file}：${s.heading}`).join("、")}。请补齐对应资料节点，不能只提交开篇；目录标题没有正文段落的不要求扩写`);
+    }
+    return input;
+  }
+
+  /** 人物和剧情分别生成，完成后合并为一份候选，绝不在两步之间确认资料。 */
+  private async draftImportedMaterials(options:PreparationDraftOptions, observe?:ConversationObserver):Promise<PreparationDraftResult> {
+    const version=()=>{const store=new MaterialStore(this.root);return JSON.stringify(store.list().map(m=>({file:m.file,text:store.read(m.file)})));};
+    const sourceVersion=version(), baseFingerprint=this.preparation.fingerprint();
+    const people=await this.draftPreparation({...options,focus:"materials",apply:false},observe);
+    const outline=await this.draftPreparation({...options,focus:"outline",apply:false},observe);
+    if(!people.capturedInput || !outline.capturedInput) throw new ChapterWriteError(502,"资料整理步骤没有返回完整结果，原导入内容保留");
+    if(version()!==sourceVersion) throw new ChapterWriteError(409,"整理期间上传资料发生变化，请重新整理；本次未保存混合版本的方案");
+    const cards=[...this.characters,...(people.capturedInput.changes.characters??[])];
+    const outlineNodes=outline.capturedInput.changes.outlineNodes?.map(n=>({...n,characters:[...new Set(n.characters.length?n.characters:cards.filter(c=>n.source.quote.includes(c.name)).map(c=>c.id))]}));
+    const proposal=this.preparation.propose({summary:people.capturedInput.summary,baseFingerprint,changes:{...people.capturedInput.changes,...outline.capturedInput.changes,...(outlineNodes===undefined?{}:{outlineNodes})}},"assistant");
+    return {reply:`${people.reply}\n\n${outline.reply}`,proposalId:proposal.id,summary:proposal.summary,characters:[]};
+  }
+
   async draftPreparation(options: PreparationDraftOptions, observe?: ConversationObserver): Promise<PreparationDraftResult> {
+    if((options.focus === "materials" || options.focus === "outline") && new MaterialStore(this.root).list().length === 0) throw new ChapterWriteError(400,"请先上传大纲、人物档案等资料；本次尚未调用模型。");
     if (options.focus === "chapters") {
       const missing = [
         ...(this.characters.some(c => c.provenance === "committed" || c.provenance === "authored") ? [] : ["已确认的人物档案"]),
@@ -763,6 +826,7 @@ export class ProjectSession {
       ];
       if (missing.length > 0) throw new ChapterWriteError(400, `排章前请先补齐${missing.join("和")}：在作品资料页起草并确认人物，再新增地点／组织。本次尚未调用模型。`);
     }
+    if(options.focus === "materials" && options.apply) return this.draftImportedMaterials(options,observe);
     const client = this.getModelClient();
     const chapters = options.focus === "chapters" ? this.batchRange(options.count) : null;
     const ask = this.preparationAsk(options, chapters);
@@ -773,17 +837,7 @@ export class ProjectSession {
       ...base,
       proposePreparation: async (raw: unknown, author: boolean): Promise<AgentActionOutcome> => {
         try {
-          const input = parsePreparationInput(raw);
-          if (options.focus === "full") {
-            const current = this.preparation.view().confirmed;
-            const populated = (value: unknown) => Array.isArray(value) ? value.length > 0 : typeof value === "string" ? value.trim() !== "" : value != null;
-            const changed = Object.entries(input.changes.setting ?? {}).filter(([key, value]) => {
-              const previous = current.setting[key as keyof typeof current.setting];
-              return populated(previous) && JSON.stringify(value) !== JSON.stringify(previous);
-            }).map(([key]) => key);
-            if (input.changes.writingRules !== undefined && JSON.stringify(input.changes.writingRules) !== JSON.stringify(current.discipline.rules)) changed.push("writingRules");
-            if (changed.length > 0) throw new Error(`整份起草只能补齐空白，不可改写作者已有 ${changed.join("、")}。请保留这些字段，只提交尚缺的资料；不要把被拒的改动重新提交。`);
-          }
+          this.parsePreparationDraft(raw,options.focus);
         } catch (error) {
           const detail = error instanceof Error ? error.message : String(error);
           const message = `${detail}。参数须为 {summary, baseFingerprint, changes}；summary 必须放在根对象，填写本次方案的一句话摘要，不能用卷纲摘要代替。`;
@@ -797,7 +851,7 @@ export class ProjectSession {
         try {
           // 试填只校验形状（schema），不跑需要正式资料配合的业务校验 —— 那些等作者
           // 在表单里定稿后保存时再跑，否则一个还没埋设的伏笔引用会让整个试填报废。
-          captured = parsePreparationInput(input);
+          captured = this.parsePreparationDraft(input,options.focus);
           return { message: "（草稿已收下，尚未保存为方案。内容已完整时不要再重复提交。）" };
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
@@ -809,16 +863,16 @@ export class ProjectSession {
     const loop = await runAgentLoop(client, {
       role: "judge",
       purpose: PREPARATION_PURPOSE,
-      maxTokens: PREPARATION_DRAFT_MAX_TOKENS,
-      tools: PREPARATION_DRAFT_TOOLS,
+      maxTokens: options.focus === "materials" || options.focus === "outline" ? 16_000 : PREPARATION_DRAFT_MAX_TOKENS,
+      tools: options.focus === "materials" || options.focus === "outline" ? PREPARATION_DRAFT_TOOLS.filter(t=>["get_preparation","propose_preparation"].includes(t.name)) : PREPARATION_DRAFT_TOOLS,
       system: buildMainAgentSystem(this.agentContextInfo()),
       messages: [{ role: "user", content: ask }],
-    }, ctx, this.rules.agent.maxConversationRounds, observe);
+    }, ctx, this.rules.agent.maxConversationRounds, observe, "normal", true);
 
     const reply = loop.text.trim();
     if (!options.apply) {
       if (captured === null) throw new ChapterWriteError(502, `起草没有产出可用的资料${reply === "" ? "" : `：${reply}`}`);
-      return { reply, characters: (captured as PreparationInput).changes.characters ?? [] };
+      return { reply, characters: (captured as PreparationInput).changes.characters ?? [], capturedInput:captured };
     }
     const proposed = loop.effects.find((effect) => effect.kind === "preparation_proposed");
     if (proposed === undefined || proposed.kind !== "preparation_proposed") {
@@ -964,12 +1018,17 @@ export class ProjectSession {
     return this.modelClient;
   }
 
+  private materialCharacterChecklist(): readonly string[] {
+    const store = new MaterialStore(this.root);
+    return materialCharacterNames(materialContext(store.list().map(m => ({ name: m.name, text: store.read(m.file) ?? "" }))));
+  }
+
   /** 「从正文识别人物」要看的材料：作者提供的资料文件 + 正文抽样。 */
-  private characterSources(): ReturnType<typeof characterSource> {
+  private characterSources(materialsOnly=false): ReturnType<typeof characterSource> {
     const store = new MaterialStore(this.root);
     return characterSource({
       materials: store.list().map((m) => ({ name: m.name, text: store.read(m.file) ?? "" })),
-      chapterNumbers: this.chapterNumbers(),
+      chapterNumbers: materialsOnly ? [] : this.chapterNumbers(),
       chapterText: (n) => this.chapterText(n),
     });
   }

@@ -21,6 +21,24 @@ const SAMPLE_CHARS = 600;
 /** 资料合计进上下文的上限。单份已在导入侧限过，这里防的是很多份叠起来。 */
 const MATERIAL_MAX_CHARS = 60_000;
 
+/** 覆盖检查与提示词必须使用同一份有界输入，不能要求模型补齐未读取的人名。 */
+export function materialContext(materials: readonly { readonly name: string; readonly text: string }[]): readonly { readonly name: string; readonly text: string }[] {
+  let remaining = MATERIAL_MAX_CHARS;
+  return materials.flatMap(material => {
+    if (remaining <= 0) return [];
+    const text = material.text.slice(0, remaining);
+    remaining -= text.length;
+    return [{ name: material.name, text }];
+  });
+}
+
+/** 同一预算用于提示词与界面的覆盖说明，超出时明确点名。 */
+export function materialCoverageWarnings(materials:readonly {name:string;text:string}[]):readonly string[] {
+  let used=0; const warnings:string[]=[];
+  for(const m of materials){const room=Math.max(0,MATERIAL_MAX_CHARS-used);if(room===0)warnings.push(`${m.name}：本次未读取（资料上下文已满）`);else if(m.text.length>room)warnings.push(`${m.name}：仅读取前 ${room} 字符，剩余需分批整理`);used+=Math.min(room,m.text.length);}
+  return warnings;
+}
+
 export interface CharacterSourceInput {
   readonly materials: readonly { readonly name: string; readonly text: string }[];
   readonly chapterNumbers: readonly ChapterNo[];
@@ -68,6 +86,7 @@ export function characterSource(input: CharacterSourceInput): CharacterSource {
     materials.push(`【资料文件：${material.name}】\n${text}`);
   }
 
+  const warnings=materialCoverageWarnings(input.materials);
   const sampled = sampleChapters(input.chapterNumbers);
   const excerpts = sampled.map((chapter) => {
     const body = input.chapterText(chapter) ?? "";
@@ -75,6 +94,7 @@ export function characterSource(input: CharacterSourceInput): CharacterSource {
   });
 
   const parts = [
+    ...(warnings.length>0 ? ["资料读取范围提示（不能声称完整汇总）：",...warnings] : []),
     ...(materials.length > 0 ? ["作者随旧稿一并提供的资料文件：", ...materials] : []),
     ...(excerpts.length > 0
       ? [`从正文里抽样了 ${sampled.length} 章的开头（全书共 ${input.chapterNumbers.length} 章，没有读全文）：`, ...excerpts]

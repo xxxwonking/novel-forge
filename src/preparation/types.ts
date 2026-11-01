@@ -1,9 +1,10 @@
+import type { OutlineNode } from "./outline.js";
 import type { ProjectSnapshot } from "../store/persist.js";
 import type { ChapterPlan, GateFinding, WorkProfile } from "../types/beat.js";
 import type { WorkSetting } from "../types/work.js";
 import type { ForeshadowClaim, RelationClaim } from "../types/relations.js";
 
-export type PreparationContent = Pick<ProjectSnapshot, "setting" | "discipline" | "profile" | "characters" | "settings" | "plotLines" | "volumes" | "beats">;
+export type PreparationContent = Pick<ProjectSnapshot, "setting" | "discipline" | "profile" | "characters" | "settings" | "plotLines" | "volumes" | "beats"> & { readonly outlineNodes?: readonly OutlineNode[] };
 export type CharacterInput = Omit<ProjectSnapshot["characters"][number], "provenance" | "updatedAt" | "introducedAt">;
 
 /** 只允许修改资料与规划；来源、预算、正式故事事件均不能由模型填写。数组按 ID/章号更新。 */
@@ -17,6 +18,8 @@ export interface PreparationChanges {
   /** 卷名与卷纲，按卷号更新。卷的边界不在这里 —— 那是 beats 的 volume。 */
   readonly volumes?: readonly { readonly volume: number; readonly title: string; readonly summary: string }[];
   readonly beats?: readonly { readonly chapter: number; readonly volume: number; readonly plan: ChapterPlan }[];
+  /** 大纲材料的具体节点；独立保存，不是正文事件或章节计划。 */
+  readonly outlineNodes?: readonly OutlineNode[];
   /**
    * 资料里声明的人物关系。与正文里的关系事件是同一个投影源的两种形态 ——
    * 区别只在有没有正文出处，这里没有。
@@ -29,6 +32,7 @@ export interface PreparationChanges {
   readonly foreshadows?: readonly ForeshadowClaim[];
   /** 删除单独说：`changes` 的其余部分一律是按 ID/章号的 upsert，没有「少送就等于删」。 */
   readonly removals?: {
+    readonly outlineNodes?: readonly string[];
     readonly characters?: readonly string[];
     readonly settings?: readonly string[];
     readonly plotLines?: readonly string[];
@@ -56,6 +60,8 @@ export interface PreparationProposal extends PreparationInput {
 }
 
 export interface PreparationView {
+  readonly materialWarnings: readonly string[];
+  readonly materials: readonly { readonly name: string; readonly file: string; readonly words: number; readonly kind: string }[];
   readonly plannedForeshadows: readonly { readonly id: string; readonly label: string; readonly intent: string; readonly expectedBy: number; readonly weight: string }[];
   readonly taskPolicy: { readonly autoRevisionLimit: number };
   readonly fingerprint: string;

@@ -176,9 +176,9 @@ export function handle(session: ProjectSession, req: ApiRequest): ApiResponse {
       case "/api/conversation":
         return ok({ turns: session.conversationTurns(), ideas: session.listIdeas(), mode: session.conversationMode() });
       case "/api/views":
-        return ok(session.derived.views);
+        return ok({...session.derived.views,outlineNodes:session.preparation.outlineNodes()});
       case "/api/plot-board":
-        return ok(buildPlotBoard({ ...session.meta, events: session.events(), text: n => session.chapterText(n) }, session.rules.anchor));
+        return ok(buildPlotBoard({ ...session.meta, outlineNodes:session.preparation.outlineNodes(), events: session.events(), text: n => session.chapterText(n) }, session.rules.anchor));
       case "/api/alerts":
         return ok(alerts(session));
       case "/api/issues":
@@ -599,7 +599,7 @@ async function chapterWrite(session: ProjectSession, body: unknown, start = fals
 async function preparationDraft(session: ProjectSession, body: unknown): Promise<ApiResponse> {
   if (!isRecord(body)) return bad("请求体必须是对象");
   const focus = body["focus"] ?? "characters";
-  if (focus !== "characters" && focus !== "plotlines" && focus !== "foreshadows" && focus !== "full" && focus !== "chapters") return bad("focus 只能是 characters、plotlines、foreshadows、full 或 chapters");
+  if (focus !== "characters" && focus !== "plotlines" && focus !== "foreshadows" && focus !== "full" && focus !== "chapters" && focus !== "materials" && focus !== "outline") return bad("focus 只能是 characters、plotlines、foreshadows、full 、chapters、materials 或 outline");
   const count = body["count"];
   if (count !== undefined && !Number.isSafeInteger(count)) return bad("count 必须是整数");
   const apply = body["apply"] ?? true;

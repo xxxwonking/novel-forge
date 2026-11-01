@@ -97,6 +97,8 @@ const num = (value: number | null, fallback: number): number => value ?? fallbac
  */
 const SAMPLE_BRIEF = "例如：主要写一个账房和一个守夜的老人；基调要冷，别写感情线。";
 const DRAFT_COPY: Record<DraftFocus, { readonly title: string; readonly intro: string; readonly sample: string }> = {
+  materials: { title:"整理导入资料",intro:"AI会先归并已上传的人物档案和关系，再整理有资料出处的剧情节点，两步完成后保存为一份待确认方案。档案缺失的声音参数和拟写台词只作建议，需要核对。",sample:"例如：同名与别名归并为同一人，资料冲突请指出，不自行改写原作。" },
+  outline: { title:"从大纲生成剧情节点",intro:"AI会读取已上传的大纲与简介，整理具体剧情节点及主支线。章号没有依据就留空，资料推断不冒充已写事实。",sample:"例如：按大纲的阶段推进整理，保留资料中明确的转折，不编造逐章细节。" },
   characters: { title: "让 AI 起草人物", intro: "AI 会读作品的想法与你已确认的资料，推断出人物的性格、动机与说话方式，保存成一份待确认方案。", sample: SAMPLE_BRIEF },
   plotlines: { title: "从资料识别情节线", intro: "AI 会读你的大纲、简介等资料和正文抽样，认出贯穿多章的主线与支线，保存成一份待确认方案。", sample: "例如：感情线算支线；单卷里就了结的案子不算。" },
   foreshadows: { title: "从资料反推伏笔", intro: "AI 会读你的大纲、简介等资料和正文抽样，认出你已经安排好、但还没写到的伏笔，保存成一份待确认方案。它只认资料里的安排，不逐章读正文 —— 一次调用，便宜。", sample: "例如：只认真正埋了线的安排，别把普通设定当伏笔。" },

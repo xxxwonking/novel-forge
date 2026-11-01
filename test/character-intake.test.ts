@@ -130,6 +130,10 @@ describe("人物来源的装配", () => {
     expect(build().from).toEqual([]);
   });
 
+  it("资料超出上下文时点名截断与未读文件，不声称完整汇总",()=>{
+    const source=characterSource({materials:[{name:"长大纲.md",text:"字".repeat(60001)},{name:"后续人物.md",text:"林舟是记者。"}],chapterNumbers:[],chapterText:()=>undefined});
+    expect(source.text).toContain("长大纲.md：仅读取");expect(source.text).toContain("后续人物.md：本次未读取");
+  });
   it("没有正文也没有资料时说明清楚，不编造", () => {
     const source = characterSource({ materials: [], chapterNumbers: [], chapterText: () => undefined });
     expect(source.sampled).toEqual([]);

@@ -18,13 +18,13 @@ export interface BoardCard {
   position: BoardPosition;
 }
 export const boardStorageKey = (projectId: string): string => `novel-forge:plot-board:v1:${encodeURIComponent(projectId)}`;
-export const chapterKey = (groupId: string, chapter: number): string => `chapter:${groupId}:${chapter}`;
+export const chapterKey = (groupId: string, chapter: number | null): string => `chapter:${groupId}:${chapter ?? "unassigned"}`;
 export const groupKey = (groupId: string): string => `group:${groupId}`;
 
 /** 按实际出现的章号排布；不按章号预分配数组，不留几千个空章节。 */
 export function boardCards(board: PlotBoard, collapsed: readonly string[]): BoardCard[] {
   const result: BoardCard[] = [];
-  const chapters = [...new Set(board.nodes.map(n => n.chapter))].sort((a, b) => a - b);
+  const chapters = [...new Set(board.nodes.map(n => n.chapter))].sort((a, b) => (a ?? Infinity) - (b ?? Infinity));
   const columns = new Map(chapters.map((chapter, i) => [chapter, i]));
   const folded = new Set(collapsed);
   const activeGroups = board.groups.filter(g => board.nodes.some(n => n.groupId === g.id));
@@ -34,11 +34,11 @@ export function boardCards(board: PlotBoard, collapsed: readonly string[]): Boar
   for (const group of board.groups) {
     const members = board.nodes.filter(n => n.groupId === group.id);
     if (members.length === 0) continue;
-    const lineChapters = [...new Set(members.map(n => n.chapter))].sort((a, b) => a - b);
+    const lineChapters = [...new Set(members.map(n => n.chapter))].sort((a, b) => (a ?? Infinity) - (b ?? Infinity));
     if (folded.has(groupKey(group.id))) {
       const index = result.length;
       result.push({ id: groupKey(group.id), groupId: group.id, title: group.label,
-        summary: `${members.length} 个事件 · 第 ${lineChapters[0]}–${lineChapters.at(-1)} 章`, type: "group", members,
+        summary: `${members.length} 个节点 · ${lineChapters.some(c=>c!==null)?`第 ${lineChapters.find(c=>c!==null)}–${lineChapters.filter(c=>c!==null).at(-1)} 章`:"资料未标注章号"}`, type: "group", members,
         position: overview ? { x: (index % overviewColumns) * 312, y: Math.floor(index / overviewColumns) * 240 } : { x: 0, y } });
       y += 240;
       continue;
@@ -48,11 +48,11 @@ export function boardCards(board: PlotBoard, collapsed: readonly string[]): Boar
       const chapterMembers = members.filter(n => n.chapter === chapter);
       const x = (columns.get(chapter) ?? 0) * 312;
       if (folded.has(chapterKey(group.id, chapter))) {
-        result.push({ id: chapterKey(group.id, chapter), groupId: group.id, title: `第 ${chapter} 章`,
+        result.push({ id: chapterKey(group.id, chapter), groupId: group.id, title: chapter === null ? "未标注章号的资料" : `第 ${chapter} 章`,
           summary: `${chapterMembers.length} 个事件 · 点击展开`, type: "chapter", members: chapterMembers, position: { x, y } });
       } else {
         rows = Math.max(rows, chapterMembers.length);
-        chapterMembers.forEach((node, i) => result.push({ id: node.id, groupId: group.id, title: `第 ${node.chapter} 章`, summary: node.summary,
+        chapterMembers.forEach((node, i) => result.push({ id: node.id, groupId: group.id, title: node.chapter === null ? `资料节点 ${node.outlineOrder ?? i+1}` : `第 ${node.chapter} 章`, summary: node.summary,
           type: "event", members: [node], position: { x, y: y + i * 216 } }));
       }
     }
