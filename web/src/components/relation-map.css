@@ -1,0 +1,36 @@
+@layer components {
+  .relation-map { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(260px, 1fr); gap: 24px; padding: 16px; align-items: start; }
+  .relation-network, .relation-history { min-width: 0; }
+  .relation-toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-height: 36px; font-size: 12px; }
+  .relation-toolbar > span { margin-right: auto; }
+  .relation-canvas { display: block; width: 100%; max-width: 640px; height: auto; margin-inline: auto; }
+  .relation-orbit { fill: none; stroke: var(--border); stroke-width: 1; }
+  .relation-connection, .relation-person { transition: opacity 160ms ease-out; }
+  .relation-person { cursor: pointer; outline: none; }
+  .relation-focus { opacity: 0; }
+  .relation-person:focus-visible .relation-focus, .relation-person[aria-pressed="true"] .relation-focus { opacity: 1; }
+  .relation-particle { pointer-events: none; animation: relation-travel 4.8s linear infinite alternate; }
+  .relation-canvas[data-paused="true"] .relation-particle { animation-play-state: paused; }
+  .relation-caption { margin: 0 0 12px; font-size: 12px; line-height: 1.7; }
+  .relation-history h2 { margin: 8px 0 16px; font: 600 14px/1.5 var(--ui-font); }
+  .relation-history td { overflow-wrap: anywhere; }
+  .relation-history table { table-layout: fixed; width: 100%; }
+  .relation-history th:last-child { width: 52px; }
+  .relation-source { display: flex; }
+  @keyframes relation-travel {
+    0% { transform: var(--particle-from); opacity: 0; }
+    10%, 90% { opacity: 1; }
+    100% { transform: var(--particle-to); opacity: 0; }
+  }
+  @media (max-width: 1100px) { .relation-map { grid-template-columns: minmax(0, 1fr); } }
+  @media (max-width: 720px) {
+    .relation-map { padding: 12px; gap: 16px; }
+    .relation-canvas .chart-label { font-size: 18px; }
+    .relation-hit { r: 36px; }
+    .relation-toolbar [data-slot="button"], .relation-source[data-slot="button"] { min-height: 44px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .relation-particle { display: none; animation: none; }
+    .relation-connection, .relation-person { transition: none; }
+  }
+}
