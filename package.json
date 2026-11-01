@@ -4,16 +4,19 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "typecheck": "tsc --noEmit && tsc -p web --noEmit",
+    "typecheck": "tsc --noEmit && tsc -p web --noEmit && tsc -p test/e2e --noEmit",
     "test": "vitest run",
     "acceptance:m1": "tsx src/harness/ten-chapters.ts",
     "acceptance:chat": "node --env-file-if-exists=.env.local --import tsx src/harness/chat-smoke.ts",
     "seed": "tsx src/harness/seed-demo.ts",
     "serve": "node --env-file-if-exists=.env.local --import tsx src/server/main.ts",
     "web": "vite --config web/vite.config.ts web",
-    "web:build": "vite build --config web/vite.config.ts web"
+    "web:build": "vite build --config web/vite.config.ts web",
+    "test:e2e": "playwright test"
   },
   "devDependencies": {
+    "@axe-core/playwright": "4.14.0",
+    "@playwright/test": "1.64.1",
     "@tailwindcss/vite": "^4.3.3",
     "@types/node": "^22.20.2",
     "@types/react": "^19.1.2",

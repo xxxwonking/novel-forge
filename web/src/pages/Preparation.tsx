@@ -148,7 +148,7 @@ export function Preparation({ refresh, proposalId }: { refresh: () => void; prop
           <p className="muted">以下为该方案保存时的完整预览。</p><Content content={candidate.content} expanded />
         </>}
       </div>
-      <aside className="prep-sidebar"><h2>方案记录</h2>{view.proposals.length === 0 ? <p className="muted">还没有方案。先和 Agent 聊聊想写的故事。</p> : view.proposals.map((p) => <Button className="prep-proposal-item mt-3 grid h-auto w-full min-w-0 grid-cols-1 justify-items-start whitespace-normal p-3.5 text-left" data-selected={p.id === selected} key={p.id} onClick={() => { setSelected(p.id); setEditing(false); }}><Chip>{status(p)}</Chip><strong>{p.summary}</strong><small>{new Date(p.createdAt).toLocaleDateString("zh-CN")}</small></Button>)}</aside>
+      <aside className="prep-sidebar" aria-label="方案记录"><h2>方案记录</h2>{view.proposals.length === 0 ? <p className="muted">还没有方案。先和 Agent 聊聊想写的故事。</p> : view.proposals.map((p) => <Button className="prep-proposal-item mt-3 grid h-auto w-full min-w-0 grid-cols-1 justify-items-start whitespace-normal p-3.5 text-left" data-selected={p.id === selected} key={p.id} onClick={() => { setSelected(p.id); setEditing(false); }}><Chip>{status(p)}</Chip><strong>{p.summary}</strong><small>{new Date(p.createdAt).toLocaleDateString("zh-CN")}</small></Button>)}</aside>
     </div>
     {entity?.kind === "character" && <CharacterEditor base={entity.base as CharacterRecord | null} characters={view.confirmed.characters} fingerprint={view.fingerprint} onSaved={saved} onClose={() => setEntity(null)} />}
     {entity?.kind === "setting" && <SettingEditor base={entity.base as SettingInput | null} fingerprint={view.fingerprint} onSaved={saved} onClose={() => setEntity(null)} />}
