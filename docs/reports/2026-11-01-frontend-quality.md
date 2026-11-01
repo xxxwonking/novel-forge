@@ -23,10 +23,11 @@
 | 控制台与页面异常 | 独立浏览器会话记录为空 |
 | Impeccable | 本次修改目标定点扫描0项；不代表全仓历史告警已清零 |
 | git diff --check | 通过 |
+| GitHub Actions / Ubuntu Chromium | 首轮run 41279665152通过；最终提交状态见PR #38 Checks |
 
 修改产品代码前已记录手机详情缺失、无名地标及标题跳级的失败；新增分组展开焦点用例也先失败，再修复转绿。失败记录和最终日志保留在本机`/tmp/nf-quality-*.log`。人工截图、几何边界、axe与控制台记录在本工作树的`data/acceptance/frontend-quality/`，不入Git。
 
-CI对PR和master执行npm ci、类型检查、单测、构建及Chromium浏览器检查，失败上传合成作品的截图和trace。远端实际运行结果以本分支PR Checks为准；本机使用已安装Chrome验证，不能据此宣称GitHub的Chromium已通过。测试服务自建临时书库、禁用模型，固定5193端口，冲突时失败，不接管已有服务。人工预览为5194端口独立副本。
+CI对PR和master执行npm ci、类型检查、单测、构建及Chromium浏览器检查，失败上传合成作品的截图和trace。实际远端首轮[检查通过](https://github.com/xxxwonking/novel-forge/actions/runs/41279665152)，本机另用已安装Chrome验证；最终提交状态见[PR #38 Checks](https://github.com/xxxwonking/novel-forge/pull/38/checks)。测试服务自建临时书库、禁用模型，固定5193端口，冲突时失败，不接管已有服务。人工预览为5194端口独立副本。
 
 ## 依赖与边界
 

@@ -3078,4 +3078,4 @@ PR #37已合入master `294ea85`。用户要求继续修复复核发现的其他�
 - 新增Playwright+axe开发依赖、10个隔离浏览器用例、GitHub Actions和`.nvmrc`24.22.1。E2E服务不加载.env或用户书库，禁止模型调用，端口5193冲突即失败。CI使用官方固定Actions提交、只读权限，无模型密钥；远端结果查本分支PR Checks。
 - 本机Node24.22.1：94文件/1487 passed、1 skipped；根/web/E2E类型、构建、10项Chrome浏览器回归通过。主JS603.92kB/gzip188.24，大包提示保留。新增用例先失败后修复，分组展开焦点回退也有回归。
 - 人工复验《雨夜当铺》独立副本，390×844、768×1024、1440×1000；手机详情axe零违规、控制台无异常。模型调用0，不代表连写/全书反推/文学质量新通过；物理手机软键盘未验。
-- 报告`docs/reports/2026-11-01-frontend-quality.md`，截图在本工作树忽略目录`data/acceptance/frontend-quality/`。预览5194，隔离库`/tmp/nf-quality-acceptance/library`；原书和用户服务未改。未擅自合并本批PR。
+- 已提交推送并创建PR #38，首轮Linux/Chromium CI通过（run 41279665152），最终提交状态查PR Checks；尚未合并。报告`docs/reports/2026-11-01-frontend-quality.md`，截图在本工作树忽略目录`data/acceptance/frontend-quality/`。预览5194，隔离库`/tmp/nf-quality-acceptance/library`；原书和用户服务未改。
