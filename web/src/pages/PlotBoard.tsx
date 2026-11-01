@@ -30,13 +30,15 @@ const NODE_TYPES = { story: StoryCard };
 export function PlotBoard({ projectId, onJump }: { projectId: string; onJump: (chapter: number, quote: string) => void }): React.ReactElement {
   const result = useFetch(api.plotBoard, [projectId]);
   if (result.error !== null) return <section className="plot-board board-message" role="alert"><h1>剧情白板暂时无法读取</h1><p>{result.error}</p><Button className="board-button" onClick={result.reload}>重新加载</Button></section>;
-  if (result.loading || result.data === null) return <section className="plot-board board-message" aria-busy="true"><h1>剧情白板</h1><p role="status">正在整理剧情事件与章计划…</p></section>;
+  // 刷新时保留已有画布，避免卸载后丢失键盘焦点、选中状态和视口。
+  if (result.data === null) return <section className="plot-board board-message" aria-busy="true"><h1>剧情白板</h1><p role="status">正在整理剧情事件与章计划…</p></section>;
   return <BoardCanvas key={projectId} board={result.data} projectId={projectId} onJump={onJump} reload={result.reload} />;
 }
 
 function BoardCanvas({ board, projectId, onJump, reload }: { board: BoardData; projectId: string; onJump: (chapter: number, quote: string) => void; reload: () => void }): React.ReactElement {
   const [planning, setPlanning] = useState<number | "new" | null>(null);
   const planningTrigger = useRef<HTMLElement | null>(null);
+  const addPlanTrigger = useRef<HTMLButtonElement | null>(null);
   const [mobile, setMobile] = useState(() => window.matchMedia("(max-width: 720px)").matches);
   // 弹层开关是展示状态；选中仍以React Flow为唯一来源，聚焦不触发模态切换。
   const [mobileDetailsOpen, setMobileDetailsOpen] = useState(false);
@@ -151,8 +153,8 @@ function BoardCanvas({ board, projectId, onJump, reload }: { board: BoardData; p
     : selected && <aside className="board-details" aria-label="分组详情">{!mobile && <div className="board-detail-head"><h2>{selected.title}</h2><Button className="board-button" onClick={() => setSelectedId(null)}>关闭</Button></div>}<p>{selected.summary}</p><Button className="board-button board-primary" onClick={() => { toggle(selected.id); setSelectedId(null); }}>展开查看事件</Button></aside>;
 
   return <section className="plot-board" aria-label="剧情白板">
-    {planning !== null && <BoardPlanEditor chapter={planning} onChanged={reload} onClose={() => { setPlanning(null); requestAnimationFrame(() => planningTrigger.current?.isConnected && planningTrigger.current.focus()); }} />}
-    <header className="board-header"><div><h1>剧情白板</h1><p>{written} 个已写事件 · {board.nodes.length - written - outlined} 个未来计划 · {outlined} 个资料节点</p></div><div className="board-actions"><Button className="board-button" onClick={event => { planningTrigger.current = event.currentTarget; setPlanning("new"); }}>新增未来章计划</Button>
+    {planning !== null && <BoardPlanEditor chapter={planning} returnFocusRef={planningTrigger} onChanged={() => { planningTrigger.current = addPlanTrigger.current; reload(); }} onClose={() => { setPlanning(null); requestAnimationFrame(() => planningTrigger.current?.isConnected && planningTrigger.current.focus()); }} />}
+    <header className="board-header"><div><h1>剧情白板</h1><p>{written} 个已写事件 · {board.nodes.length - written - outlined} 个未来计划 · {outlined} 个资料节点</p></div><div className="board-actions"><Button ref={addPlanTrigger} className="board-button" onClick={event => { planningTrigger.current = event.currentTarget; setPlanning("new"); }}>新增未来章计划</Button>
       {selectedEvent?.status === "planned" && selectedEvent.chapter !== null && <Button className="board-button" onClick={event => { planningTrigger.current = event.currentTarget; setMobileDetailsOpen(false); setPlanning(selectedEvent.chapter!); }}>编辑选中章计划</Button>}
       {selectedEvent?.status === "written" && <a href={`#/inference?chapter=${selectedEvent.chapter}`}>核对本章结构</a>}
     <Button className="board-button board-directory-toggle" aria-expanded={directoryOpen} aria-controls="board-directory" onClick={() => setDirectoryOpen(!directoryOpen)}>情节目录</Button><a className="board-button" href="#/plotlines">章节轨道</a><Button className="board-button" onClick={reload}>刷新数据</Button></div></header>

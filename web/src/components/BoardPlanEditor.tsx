@@ -8,10 +8,12 @@ export function BoardPlanEditor({
   chapter,
   onClose,
   onChanged,
+  returnFocusRef,
 }: {
   chapter: number | "new";
   onClose: () => void;
   onChanged: () => void;
+  returnFocusRef: React.RefObject<HTMLElement | null>;
 }): React.ReactElement {
   const data = useFetch(api.preparation);
   const [chosen, setChosen] = useState<number | null>(
@@ -39,6 +41,7 @@ export function BoardPlanEditor({
   if (proposal)
     return (
       <DialogFrame
+        returnFocusRef={returnFocusRef}
         open
         title="确认白板规划"
         onCancel={onClose}
@@ -96,6 +99,7 @@ export function BoardPlanEditor({
   if (!view)
     return (
       <DialogFrame
+        returnFocusRef={returnFocusRef}
         open
         title="读取章计划"
         onCancel={onClose}
@@ -128,6 +132,7 @@ export function BoardPlanEditor({
     );
   return (
     <DialogFrame
+      returnFocusRef={returnFocusRef}
       open
       title="安排未来章计划"
       onCancel={onClose}

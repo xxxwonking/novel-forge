@@ -90,4 +90,27 @@ test("白板新增未来计划先保存候选，取消不落正式节点，确�
   });
   await expect(edit).toBeVisible();
   await edit.getByRole("button", { name: "取消", exact: true }).click();
+  await page
+    .getByRole("button", { name: "编辑选中章计划", exact: true })
+    .click();
+  const revised = page.getByRole("dialog", {
+    name: "编辑第 3 章计划",
+    exact: true,
+  });
+  await revised
+    .getByLabel("核心事件", { exact: true })
+    .fill("李长风继续核查红印与原始记录");
+  await revised.getByRole("button", { name: "保存", exact: true }).click();
+  const reloaded = page.waitForResponse(
+    (r) =>
+      new URL(r.url()).pathname === "/api/plot-board" && r.status() === 200,
+  );
+  await page
+    .getByRole("dialog", { name: "确认白板规划", exact: true })
+    .getByRole("button", { name: "确认规划", exact: true })
+    .click();
+  await reloaded;
+  await expect(
+    page.getByRole("button", { name: "新增未来章计划", exact: true }),
+  ).toBeFocused();
 });
