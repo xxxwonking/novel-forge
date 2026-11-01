@@ -1,5 +1,6 @@
 import { Chip } from "../components/Chip.js";
 import { Button, Input } from "../components/controls.js";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "../components/ui/sheet.js";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Background, Handle, Position, ReactFlow, applyNodeChanges, type Node, type NodeProps, type ReactFlowInstance, type NodeChange, type Edge } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
@@ -34,6 +35,18 @@ export function PlotBoard({ projectId, onJump }: { projectId: string; onJump: (c
 }
 
 function BoardCanvas({ board, projectId, onJump, reload }: { board: BoardData; projectId: string; onJump: (chapter: number, quote: string) => void; reload: () => void }): React.ReactElement {
+  const [mobile, setMobile] = useState(() => window.matchMedia("(max-width: 720px)").matches);
+  // 弹层开关是展示状态；选中仍以React Flow为唯一来源，聚焦不触发模态切换。
+  const [mobileDetailsOpen, setMobileDetailsOpen] = useState(false);
+  const wasMobile = useRef(mobile);
+  const canvas = useRef<HTMLDivElement>(null);
+  const returnFocus = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    const media = window.matchMedia("(max-width: 720px)");
+    const update = () => setMobile(media.matches);
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
   const storageKey = boardStorageKey(projectId);
   const [initial] = useState(() => {
     try {
@@ -58,6 +71,12 @@ function BoardCanvas({ board, projectId, onJump, reload }: { board: BoardData; p
   const toggle = useCallback((id: string) => setLayout(old => ({ ...old, collapsed: old.collapsed.includes(id) ? old.collapsed.filter(c => c !== id) : [...old.collapsed, id] })), []);
   const [nodes, setNodes] = useState<StoryNode[]>([]);
   const selectedId = nodes.find(node => node.selected)?.id ?? null;
+  useEffect(() => {
+    if (wasMobile.current !== mobile) {
+      setMobileDetailsOpen(mobile && selectedId !== null);
+      wasMobile.current = mobile;
+    }
+  }, [mobile, selectedId]);
   // 选中状态只存放在 React Flow 节点中，避免详情状态与画布状态相互回写。
   const setSelectedId = useCallback((id: string | null) => setNodes(old => old.map(node => {
     const selected = node.id === id;
@@ -87,6 +106,7 @@ function BoardCanvas({ board, projectId, onJump, reload }: { board: BoardData; p
     const p = layout.positions[card.id] ?? card.position;
     void flow.current?.setCenter(p.x + 136, p.y + 90, { zoom: 0.85 });
     setSelectedId(card.id);
+    setMobileDetailsOpen(true);
     setPendingFocus(null);
     setDirectoryOpen(false);
   }, [pendingFocus, cards, layout.positions, setSelectedId]);
@@ -114,6 +134,7 @@ function BoardCanvas({ board, projectId, onJump, reload }: { board: BoardData; p
   }, []);
   const focus = (card: BoardCard) => {
     setSelectedId(card.id);
+    setMobileDetailsOpen(true);
     const position = layout.positions[card.id] ?? card.position;
     void flow.current?.setCenter(position.x + 136, position.y + 90, { zoom: 0.85 });
     setDirectoryOpen(false);
@@ -124,6 +145,8 @@ function BoardCanvas({ board, projectId, onJump, reload }: { board: BoardData; p
   const outlined = board.nodes.filter(n=>n.status === "outlined").length;
   const search = query.trim().toLocaleLowerCase();
   const found = search ? board.nodes.filter(n => `${n.chapter ?? ""} ${n.summary} ${n.characters.map(c => c.name).join(" ")}`.toLocaleLowerCase().includes(search)) : [];
+  const details = selectedEvent ? <PlotBoardDetails node={selectedEvent} groupLabel={groupLabels.get(selectedEvent.groupId) ?? "未分线"} onJump={onJump} onClose={() => setSelectedId(null)} showHeader={!mobile} />
+    : selected && <aside className="board-details" aria-label="分组详情">{!mobile && <div className="board-detail-head"><h2>{selected.title}</h2><Button className="board-button" onClick={() => setSelectedId(null)}>关闭</Button></div>}<p>{selected.summary}</p><Button className="board-button board-primary" onClick={() => { toggle(selected.id); setSelectedId(null); }}>展开查看事件</Button></aside>;
 
   return <section className="plot-board" aria-label="剧情白板">
     <header className="board-header"><div><h1>剧情白板</h1><p>{written} 个已写事件 · {board.nodes.length - written - outlined} 个未来计划 · {outlined} 个资料节点</p></div><div className="board-actions"><Button className="board-button board-directory-toggle" aria-expanded={directoryOpen} aria-controls="board-directory" onClick={() => setDirectoryOpen(!directoryOpen)}>情节目录</Button><a className="board-button" href="#/plotlines">章节轨道</a><Button className="board-button" onClick={reload}>刷新数据</Button></div></header>
@@ -149,26 +172,44 @@ function BoardCanvas({ board, projectId, onJump, reload }: { board: BoardData; p
             </section>;
           })}
       </aside>
-      <div className="board-canvas" aria-label="剧情画布">
+      <div className="board-canvas" role="region" aria-label="剧情画布" tabIndex={-1} ref={canvas} onKeyDownCapture={event => {
+        if (!mobile || (event.key !== "Enter" && event.key !== " ")) return;
+        const target = event.target as HTMLElement;
+        if (!target.classList.contains("react-flow__node") || !target.dataset.id) return;
+        event.preventDefault(); event.stopPropagation();
+        setSelectedId(target.dataset.id); setMobileDetailsOpen(true);
+      }}>
         <ReactFlow<StoryNode> nodes={nodes} edges={edges} nodeTypes={NODE_TYPES} onNodesChange={onNodesChange}
+          onNodeClick={(_, node) => { setSelectedId(node.id); setMobileDetailsOpen(true); }}
           onInit={instance => { flow.current = instance; }} defaultViewport={initial.layout.viewport ?? { x: 28, y: 36, zoom: 0.8 }}
           onMove={(_, view) => setZoom(view.zoom)} onMoveEnd={(_, viewport) => setLayout(old => ({ ...old, viewport }))}
           onPaneClick={() => setSelectedId(null)} nodesConnectable={false} edgesReconnectable={false} deleteKeyCode={null}
           minZoom={minZoom} maxZoom={2} onlyRenderVisibleElements colorMode="dark" multiSelectionKeyCode={null}
           ariaLabelConfig={{ "node.a11yDescription.default": "按 Enter 选中剧情节点，方向键移动卡片，Escape 取消选中。", "node.a11yDescription.keyboardDisabled": "剧情节点", "controls.zoomIn.ariaLabel": "放大", "controls.zoomOut.ariaLabel": "缩小" }}>
-          <Background color="#36363b" gap={24} size={1} />
+          <Background color="var(--canvas-grid)" gap={24} size={1} />
         </ReactFlow>
       </div>
-      {selectedEvent ? <PlotBoardDetails node={selectedEvent} groupLabel={groupLabels.get(selectedEvent.groupId) ?? "未分线"} onJump={onJump} onClose={() => setSelectedId(null)} />
-        : selected && <aside className="board-details" aria-label="分组详情"><div className="board-detail-head"><h2>{selected.title}</h2><Button className="board-button" onClick={() => setSelectedId(null)}>关闭</Button></div><p>{selected.summary}</p><Button className="board-button board-primary" onClick={() => { toggle(selected.id); setSelectedId(null); }}>展开查看事件</Button></aside>}
+      {!mobile && details}
     </div>
+    {mobile && selected && <Sheet open={mobileDetailsOpen} onOpenChange={open => { setMobileDetailsOpen(open); if (!open) setSelectedId(null); }}>
+      <SheetContent side="bottom" className="board-mobile-details" onOpenAutoFocus={() => {
+        returnFocus.current = [...(canvas.current?.querySelectorAll<HTMLElement>(".react-flow__node") ?? [])].find(node => node.dataset.id === selected.id) ?? null;
+      }} onCloseAutoFocus={event => {
+        event.preventDefault();
+        const target = returnFocus.current?.isConnected ? returnFocus.current : canvas.current;
+        target?.focus({ preventScroll: true });
+      }}>
+        <SheetHeader><SheetTitle>{selectedEvent ? "节点详情" : selected.title}</SheetTitle><SheetDescription className="sr-only">查看选中剧情与出处，关闭后返回画布。</SheetDescription></SheetHeader>
+        {details}
+      </SheetContent>
+    </Sheet>}
     <footer className="board-footer"><span>拖动空白平移 · 滚轮缩放 · 连线仅表示同线先后</span><span role="status">{saveFailed ? "布局无法保存；请检查浏览器存储权限" : "布局保存在此浏览器 · 按作品隔离"}</span></footer>
   </section>;
 }
 
-export function PlotBoardDetails({ node, groupLabel, onJump, onClose }: { node: PlotBoardNode; groupLabel: string; onJump: (chapter: number, quote: string) => void; onClose: () => void }): React.ReactElement {
+export function PlotBoardDetails({ node, groupLabel, onJump, onClose, showHeader = true }: { node: PlotBoardNode; groupLabel: string; onJump: (chapter: number, quote: string) => void; onClose: () => void; showHeader?: boolean }): React.ReactElement {
   const point = node.status === "written" ? node.point : null;
-  return <aside className="board-details" aria-label="剧情节点详情"><div className="board-detail-head"><h2>节点详情</h2><Button className="board-button" onClick={onClose}>关闭</Button></div>
+  return <aside className="board-details" aria-label="剧情节点详情">{showHeader && <div className="board-detail-head"><h2>节点详情</h2><Button className="board-button" onClick={onClose}>关闭</Button></div>}
     <div className="board-actions"><Chip className="board-badge" data-status={node.status}>{node.status === "written" ? "已写事实" : node.status === "outlined" ? "资料推断" : "未来计划"}</Chip><Chip className="board-badge">{KIND[node.kind]}</Chip></div>
     <h3>{node.chapter===null?"资料未标注章号":`第 ${node.chapter} 章`}</h3><p className="board-detail-summary">{node.summary}</p>
     <dl><dt>情节线</dt><dd>{groupLabel}</dd><dt>来源</dt><dd>{node.source}</dd>{node.volume !== null && <><dt>卷</dt><dd>第 {node.volume} 卷</dd></>}<dt>关联人物</dt><dd>{node.characters.map(c => c.name).join("、") || "未标注人物"}</dd></dl>

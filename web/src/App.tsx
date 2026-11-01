@@ -163,7 +163,7 @@ function ProjectApp({ projectId }: { projectId: string }): React.ReactElement {
           <nav className="min-h-0 flex-1 overflow-y-auto" aria-label="作品导航"><ProjectNavigation {...navigation} onNavigate={navigate} /></nav>
         </SheetContent>
       </Sheet>
-      <aside className="app-rail"><nav aria-label="作品导航"><ProjectNavigation {...navigation} onNavigate={navigate} /></nav></aside>
+      <aside className="app-rail" aria-label="作品侧栏"><nav aria-label="作品导航"><ProjectNavigation {...navigation} onNavigate={navigate} /></nav></aside>
 
       <main className="main" id="project-content" tabIndex={-1}>
         <TaskPanel tasks={tasks.data ?? []} error={tasks.error} route={route} reload={tasks.reload} />

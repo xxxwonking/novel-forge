@@ -23,6 +23,20 @@
   --warning: #e9b55e;
   --info: #94c8dc;
   --link: #a5c9e0;
+  --canvas-panel: color-mix(in srgb, var(--background), var(--card));
+  --canvas-planned: color-mix(in srgb, var(--background) 40%, var(--card));
+  --canvas-grid: #36363b;
+  --canvas-edge: #71717a;
+  --canvas-node-border: #52525b;
+  --ui-text-caption: 11px;
+  --ui-text-label: 12px;
+  --ui-text-small: 13px;
+  --ui-text-subheading: 14px;
+  --ui-text-mobile-title: 18px;
+  --ui-text-title: 20px;
+  --ui-radius-xs: 4px;
+  --ui-radius-sm: 6px;
+  --ui-radius-card: 12px;
   --ui-radius: 0.5rem;
   --ui-font: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", -apple-system, sans-serif;
 }

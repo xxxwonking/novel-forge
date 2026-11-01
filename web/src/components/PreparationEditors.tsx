@@ -242,7 +242,7 @@ export function CharacterEditor({ base, characters, fingerprint, onSaved, onClos
       <Field label="禁止行为（一行一个）"><Textarea rows={2} value={forbidden} onChange={(e) => setForbidden(e.target.value)} /></Field>
     </div>
 
-    <h4 className="prep-editor-head">说话方式</h4>
+    <h3 className="prep-editor-head">说话方式</h3>
     <p className="muted">这几项直接决定声音一致性检查，写空等于关掉对应的检查项。</p>
     <div className="prep-grid">
       <Field label="语域"><ChoiceSelect value={speech.register} onChange={(v) => setSpeech({ ...speech, register: v as typeof speech.register })} options={options(REGISTERS)} /></Field>

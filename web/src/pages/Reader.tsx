@@ -136,7 +136,7 @@ export function Reader({ chapter, quote }: ReaderProps): React.ReactElement {
           </article>
         </div>
 
-        <aside className="reader-side">
+        <aside className="reader-side" aria-label="章节体检">
           <Health health={health.data} />
         </aside>
       </div>
@@ -148,7 +148,7 @@ function Health({ health }: { health: HealthPayload | null }): React.ReactElemen
   if (health === null) {
     return (
       <>
-        <h3>体检</h3>
+        <h2>体检</h2>
         <p className="muted">这一章没有节拍表，无法体检。</p>
       </>
     );
@@ -162,7 +162,7 @@ function Health({ health }: { health: HealthPayload | null }): React.ReactElemen
 
   return (
     <>
-      <h3>体检</h3>
+      <h2>体检</h2>
       {health.chapterGate !== null && (
         <div className="reader-metrics">
           <div><span>{health.chapterGate.words}</span><small>字（只计汉字与西文词）</small></div>

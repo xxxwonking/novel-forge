@@ -835,7 +835,7 @@ th.num {
   padding: 24px 22px 60px; border-left: 1px solid var(--line);
   background: var(--bg-sunken); font-size: 13px;
 }
-.reader-side h3 {
+.reader-side :is(h2, h3) {
   margin: 0 0 10px;
   font: 10px/1 var(--mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-faint);
 }

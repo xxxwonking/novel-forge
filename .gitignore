@@ -9,3 +9,5 @@ dist/
 .env.*
 !.env.example
 data/
+playwright-report/
+test-results/
