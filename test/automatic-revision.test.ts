@@ -10,7 +10,7 @@ import { loadRules } from "../src/rules/load.js";
 import { deriveBudget } from "../src/beat/derive.js";
 import { countWords } from "../src/text/measure.js";
 import { automaticGeneration } from "../src/task/automatic-revision.js";
-import { insertionPoints } from "../src/task/expansion-scope.js";
+import { applyInsertions, insertionPoints } from "../src/task/expansion-scope.js";
 import type { ModelClient } from "../src/client/model.js";
 import type { CallResult } from "../src/client/claude.js";
 import { C5_JSON, NO_MODEL_REVIEW, PROSE, WRITE_BEAT, fakeClient, modelText, savedDraft, writingSnapshot } from "./writing-fixtures.js";
@@ -36,6 +36,34 @@ function deferred<T>() {
 }
 
 describe("一次写章的有界自动修订", () => {
+  it("两个有效位置也不能重复插入完全相同的新段落", () => {
+    const body = "他走到石阶前。\n\n他收起了灯。";
+    expect(() => applyInsertions(body, {insertions:[{ref:"@insert:1",text:"同一段新增行动。"},{ref:"@insert:2",text:"同一段新增行动。"}]}, insertionPoints(body))).toThrow(/无效/u);
+  });
+  it("一次补写调用可在多个已冻结位置展开，原稿各段与结尾保留且不增加修订轮数", async () => {
+    const prefix = "他在石阶前看了一眼。\n\n";
+    const original = prefix + PROSE;
+    const half = Math.ceil((target - countWords(original)) / 2);
+    const model = fakeClient([modelText(original),modelText(C5_JSON),modelText(JSON.stringify({insertions:[{ref:"@insert:1",text:"风".repeat(half)},{ref:"@insert:2",text:"雨".repeat(half)}]})),modelText(C5_JSON)]);
+    const { session, store } = fixture(model.client);
+    const result = await session.writeChapter({chapter:3});
+    expect(result.status).toBe("ready");
+    expect(result.body).toBe("风".repeat(half)+"\n\n"+prefix+"雨".repeat(half)+"\n\n"+PROSE);
+    expect(store.loadDraft(3,"ch3d1")?.body).toBe(original);
+    expect(result.autoRevisionsUsed).toBe(1);
+    expect(model.calls).toHaveLength(4);
+  });
+  it.each([
+    {insertions:[{ref:"@insert:1",text:"新增一段"},{ref:"@insert:1",text:"同处重复"}]},
+    {insertions:[{ref:"@insert:999",text:"未知位置"}]},
+    {insertions:[{ref:"@insert:1",text:PROSE}]},
+    {insertions:[{ref:"@insert:1",text:"同一段"},{ref:"@insert:2",text:"同一段"}]},
+  ])("多位置补写无效时整份拒绝，不部分应用：%j",async({insertions})=>{
+    const model=fakeClient([modelText(PROSE),modelText(C5_JSON),modelText(JSON.stringify({insertions}))]);
+    const {session}=fixture(model.client);
+    expect(await session.writeChapter({chapter:3})).toMatchObject({status:"failed",body:PROSE,error:{step:"C4"}});
+    expect(model.calls).toHaveLength(3);
+  });
   it("为纯短稿提供可选段落目录，不再固定章末补写", () => {
     const body = "行动开始。\n\n行动完成。\n\n保留结尾。";
     const generation = automaticGeneration(body, [{ rule: "route_patch", level: "block", message: "字数不足", threshold: 2100 }]);

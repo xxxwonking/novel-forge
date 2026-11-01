@@ -7,7 +7,7 @@ import type { ModelClient } from "../client/model.js";
 import { runToolLoop, type ToolContext } from "./tool-exec.js";
 import { C4_MAX_TOKENS, type WriteResult } from "./steps.js";
 import type { DraftGeneration } from "./types.js";
-import { insertionInstruction, resolveInsertion, validateInsertionPoints } from "./expansion-scope.js";
+import { applyInsertions, insertionInstruction, resolveInsertion, validateInsertionPoints } from "./expansion-scope.js";
 
 const REWRITE_SCHEMA = {
   type: "object", additionalProperties: false, required: ["decision", "replacement", "summary", "scopeAdvice"],
@@ -35,7 +35,7 @@ export async function rewriteChapterBody(client: ModelClient, input: ChapterRunI
     return { kind: "failed", detail: "保存的修改范围与原文不一致，请重新选择源稿和范围" };
   }
   const task = insertionPoints !== undefined
-    ? `本章篇幅不足。选择适合展开本章既有行动的位置，原稿、后续段落与结尾都由程序保留。\n${insertionInstruction(insertionPoints)}\n\n原稿全文：\n${originalBody}\n\n【本次补写任务与篇幅】\n${instruction}\n所选编号是插入位置，不是只允许补一小段；围绕本章允许的行动连续展开多个段落，完成上述新增篇幅目标，再衔接原段落。不能在动作已经结束之后重复执行该动作。第一行单独输出所选 @insert:编号，之后只输出新增正文，不重复原稿，不输出字数说明。若必须扩大范围，才输出 JSON {"decision":"expand_scope","replacement":"","summary":"原因","scopeAdvice":"需作者决定的事"}。`
+    ? `本章篇幅不足。选择适合展开本章既有行动的位置，原稿、后续段落与结尾都由程序保留。\n${insertionInstruction(insertionPoints)}\n\n原稿全文：\n${originalBody}\n\n【本次补写任务与篇幅】\n${instruction}\n围绕本章允许的行动连续展开多个段落，完成所有推进单元的新增篇幅，再衔接各自的原段落。不能在动作已经结束之后重复执行该动作。完整输出含全部 insertions 的单个 JSON，不重复原稿、不输出字数说明。若必须扩大范围，才输出 JSON {"decision":"expand_scope","replacement":"","summary":"原因","scopeAdvice":"需作者决定的事"}。`
     : insertionOffset !== undefined
     ? `本章只有篇幅不足。本轮仅在下面给出的原稿结尾段之前插入正文，原稿与结尾都由程序保留，不能重写或复述。只展开已有行动，不新增计划外事件。正常完成时只输出新增正文，不输出 JSON、原稿、固定结尾或说明。若必须扩大范围，才输出 JSON {"decision":"expand_scope","replacement":"","summary":"原因","scopeAdvice":"需作者决定的事"}。\n补写要求：${instruction}\n\n原稿全文：\n${originalBody}\n\n插入位置之后的固定结尾（不要重复输出）：\n${originalBody.slice(insertionOffset)}`
     : mode === "continue"
@@ -76,6 +76,11 @@ export async function rewriteChapterBody(client: ModelClient, input: ChapterRunI
         : JSON.parse(text.replace(/^\s*```(?:json)?\s*|\s*```\s*$/gu, ""));
     }
     catch { return { kind: "failed", detail: "修订响应不是合法 JSON，原文保持不变" }; }
+    if (insertionPoints !== undefined && raw !== null && typeof raw === "object" && "insertions" in raw) {
+      try { body = applyInsertions(originalBody,raw,insertionPoints); }
+      catch(error) { return { kind: "failed", detail: error instanceof Error ? error.message : String(error) }; }
+      return { kind: "ok", body, req, c4Response: result.message, sessionMessages: loop.messages, hitToolCap: loop.hitCap, declarationBody: true, summary: "保留原稿，在本章多个行动处补足过程" };
+    }
     const issue = outputShapeIssue(raw, REWRITE_SCHEMA as OutputShape, "修订结果");
     if (issue !== null) return { kind: "failed", detail: issue };
     const changed = raw as { decision: "apply" | "expand_scope"; replacement: string; summary: string; scopeAdvice: string };

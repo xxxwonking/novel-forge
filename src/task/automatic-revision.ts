@@ -31,7 +31,12 @@ export function automaticGeneration(body: string, findings: readonly GateFinding
       "这是本次初稿的整章修订范围。只修复有正文与本章目标支持的问题；若需要新的方向或扩大作品范围，返回 expand_scope 并说明需要作者决定什么。",
       "不要为了迎合可能错误的结构摘要而编造人物死亡、关系或伏笔兑现。修订后的正文将重新核对结构并执行同样的检查。",
       ...(short === undefined ? [] : [`原稿实测 ${words} 字，正文下限 ${short.threshold} 字，至少增加 ${short.threshold! - words} 个内容字。${budget === undefined ? "" : `完整正文目标 ${budget.sweet} 字，新增篇幅目标 ${Math.max(budget.sweet - words, 0)} 字。`}不能只润色或补几句；汉字逐字计，西文按词计，标点与空白不计。先在内部为已有行动的过程、阻力和反馈安排新增篇幅，保持原有结局，不增加计划外事件。`]),
-      points === undefined ? "replacement 交付修改后的完整正文。" : "本轮改用保留原稿的补写：先选择目录里的插入位置，随后只交付新增正文。原稿和结尾由程序逐字保留，不要重复输出或包装成 JSON。只展开本章计划内、尚未充分展开的行动与具体判断，不推进新的事件或改写结局。",
+      ...(points === undefined || short === undefined ? [] : (() => {
+        const target = Math.max((budget?.sweet ?? short.threshold!) - words,0);
+        const units = Math.min(points.length, Math.max(1,Math.min(4, Math.ceil(target / 650))));
+        return [`将新增篇幅分成 ${units} 个连续推进单元，分别插在 ${units} 个不同原段之前，每单元目标 ${Math.ceil(target/units)} 个内容字。每个单元写足多段完整场面，分别展开已有计划的行动、判断、阻力与反馈，不能用一段摘要代替。所有单元在本次一次响应内完整交付，不要只交第一个。`];
+      })()),
+      points === undefined ? "replacement 交付修改后的完整正文。" : "本轮改用保留原稿的补写：先选择目录里的插入位置，随后只交付新增正文。原稿和结尾由程序逐字保留；只在 insertions 的 text 中交付新增正文，不要重复输出原稿。只展开本章计划内、尚未充分展开的行动与具体判断，不推进新的事件或改写结局。",
       `本次实际检查：\n${JSON.stringify(findings, null, 2)}`,
     ].join("\n"),
   };
