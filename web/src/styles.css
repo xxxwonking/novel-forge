@@ -337,6 +337,11 @@ a.book-card:hover .book-cta { color: var(--main); }
 .draft-change { display: flex; justify-content: space-between; align-items: center; gap: 20px; padding: 12px 0; border-bottom: 1px solid var(--line); }
 .draft-change p { margin: 6px 0; }
 .draft-change button { flex-shrink: 0; }
+.inference-review-dialog .draft-change { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; overflow-wrap: anywhere; }
+.inference-review-dialog .draft-change blockquote { margin: 0; }
+.inference-review-choice { padding-top: 8px; }
+.inference-review-dialog .prep-facts > .inference-review-choice { display: block; margin: 0; }
+.inference-review-choice[data-excluded="true"] .draft-change { opacity: .55; }
 .draft-change[data-important="true"] { border-left: 1px solid var(--warn); padding-left: 14px; }
 .draft-prose { max-width: 850px; white-space: pre-wrap; overflow-wrap: anywhere; font: 16px/2.1 var(--sans); padding: 20px 0 60px; }
 .draft-prose mark { background: #c9a22744; color: var(--ink); padding: 2px 0; }

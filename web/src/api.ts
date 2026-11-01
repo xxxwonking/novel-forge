@@ -677,6 +677,7 @@ export interface InferenceDeclaration {
   characterPresence: { characterId: string; role: string }[];
 }
 export interface InferenceChapter {
+  review?: { token: string; declaration: InferenceDeclaration };
   chapter: number; words: number;
   state: "written" | "confirmed" | "pending" | "problem" | "failed" | "skipped" | "none";
   problems: string[]; warnings: string[]; at: string | null;
@@ -787,6 +788,7 @@ export const api = {
   inferenceEstimate: () => request<{ modes: InferenceEstimate[] }>("/api/import/inference/estimate"),
   inferChapter: (chapter: number) => post<InferenceChapter>("/api/import/infer", { chapter }),
   confirmInference: (chapter: number) => post<{ chapter: number; committed: number }>("/api/import/inference/confirm", { chapter }),
+  confirmValidInference: (chapter: number, reviewToken: string, excludedRecords?: { section: keyof InferenceDeclaration; index: number }[]) => post<{ chapter: number; committed: number }>("/api/import/inference/confirm-valid", { chapter, reviewToken, ...(excludedRecords === undefined || excludedRecords.length === 0 ? {} : { excludedRecords }) }),
   rejectInference: (chapter: number) => post<{ chapter: number; rejected: number }>("/api/import/inference/reject", { chapter }),
   exportPreview: (input: { kind: "manuscript"; selection: ExportSelection } | { kind: "bible" }) => post<TextExportPreview>("/api/export/preview", input),
   getExport: (id: string) => request<TextExportPreview>(`/api/export?id=${encodeURIComponent(id)}`),

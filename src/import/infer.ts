@@ -21,6 +21,7 @@ import { idConstraints } from "../chapter/pipeline.js";
 import { QUOTE_INSTRUCTIONS } from "../chapter/quote-instructions.js";
 import { parseC5, type ParseContext } from "../chapter/c5-schema.js";
 import { quoteCatalog } from "../chapter/quote-catalog.js";
+import { declarationToWire } from "../chapter/c5-correction.js";
 import { c5OutputIssue } from "../chapter/c5-validation.js";
 import { crossCheckC5 } from "../chapter/c5-crosscheck.js";
 import type { C5Declaration } from "../types/events.js";
@@ -34,6 +35,10 @@ export const INFER_MAX_TOKENS = 4_000;
 
 /** 带进提示词的前情梗概章数。上下文预算，不是规则阈值 —— 整本书装不下。 */
 export const SYNOPSIS_WINDOW = 10;
+/** 当前复核仅排除重复埋设；未知人物、无效字段和引用错误仍须纠正后重跑。 */
+export const canReviewProblems = (problems: readonly string[]): boolean => problems.length > 0 && problems.every(p =>
+  p.startsWith("「") && p.endsWith("」已有同名伏笔或不能唯一定位的规划，请明确规划编号，不能重复创建") ||
+  p.startsWith("本稿重复声明埋设「") && p.endsWith("，请保留一条准确记录"));
 
 export interface PendingForeshadow {
   readonly id: string;
@@ -70,7 +75,7 @@ export interface InferenceInput {
 export type InferenceOutcome =
   | { readonly kind: "ok"; readonly declaration: C5Declaration; readonly warnings: readonly string[] }
   /** 记录本身有毛病（引用了不存在的人物、引文不在正文里），作者处理后重跑。 */
-  | { readonly kind: "problem"; readonly problems: readonly string[]; readonly warnings: readonly string[] }
+  | { readonly kind: "problem"; readonly problems: readonly string[]; readonly warnings: readonly string[]; readonly candidate?: Record<string, unknown> }
   /** 这一轮没拿到可用输出：调用失败、被拒、截断、不是 JSON。 */
   | { readonly kind: "failed"; readonly detail: string };
 
@@ -200,7 +205,9 @@ export async function inferChapterStructure(client: ModelClient, input: Inferenc
   const blocking = findings.filter((f) => f.level === "block" && f.rule === "c5_anchor_unresolvable");
   const warnings = [...parse.warnings, ...findings.filter((f) => !blocking.includes(f)).map((f) => f.message)];
   const problems = [...parse.errors, ...blocking.map((f) => f.message)];
-  return problems.length > 0 ? { kind: "problem", problems, warnings } : { kind: "ok", declaration: parse.declaration, warnings };
+  return problems.length > 0 ? { kind: "problem", problems, warnings,
+    ...(canReviewProblems(problems) && blocking.length === 0 && parse.warnings.length === 0 && Object.values(parse.declaration).some(items => items.length > 0) ? { candidate: declarationToWire(parse.declaration) } : {}),
+  } : { kind: "ok", declaration: parse.declaration, warnings };
 }
 
 /** 取响应里的文本；结构化输出偶尔会被 markdown 围栏包住。 */

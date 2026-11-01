@@ -20,11 +20,16 @@ import type { ProjectSession } from "../server/state.js";
 import { ChapterWriteError, foreshadowAllocator } from "../server/chapter-input.js";
 import { countWords } from "../text/measure.js";
 import type { ModelClient } from "../client/model.js";
+import { stableFingerprint } from "../task/revision.js";
+import { parseC5 } from "../chapter/c5-schema.js";
+import { c5OutputIssue } from "../chapter/c5-validation.js";
+import { crossCheckC5 } from "../chapter/c5-crosscheck.js";
+import { correctDeclaration, type StructureCorrection } from "../chapter/c5-correction.js";
 import { declarationOf } from "../store/event-stream.js";
 import { isPlanOrigin } from "../types/events.js";
 import type { C5Declaration, StructuralEvent } from "../types/events.js";
 import type { ChapterNo, ForeshadowId } from "../types/primitives.js";
-import { buildInferenceTask, inferenceSchema, inferChapterStructure, INFER_MAX_TOKENS, SYNOPSIS_WINDOW, type PendingForeshadow } from "./infer.js";
+import { buildInferenceTask, canReviewProblems, inferenceSchema, inferChapterStructure, INFER_MAX_TOKENS, SYNOPSIS_WINDOW, type PendingForeshadow } from "./infer.js";
 import { estimateTokens } from "../context/select-l3.js";
 import type { ModeFacts } from "../credits/estimate.js";
 import { InferenceStore, type InferenceRun } from "./inference-store.js";
@@ -32,6 +37,7 @@ import { InferenceStore, type InferenceRun } from "./inference-store.js";
 export type InferenceState = "written" | "confirmed" | "pending" | "problem" | "failed" | "skipped" | "none";
 
 export interface InferenceChapterView {
+  readonly review?: { readonly token: string; readonly declaration: C5Declaration };
   readonly chapter: ChapterNo;
   readonly words: number;
   readonly state: InferenceState;
@@ -153,6 +159,7 @@ export class InferenceService {
       }
     }
 
+    const basis = this.reviewBasis(chapter);
     const client = this.deps.client();
     const outcome = await inferChapterStructure(client, {
       chapter, chapterText: text, title: this.deps.source.meta.setting.title,
@@ -162,7 +169,8 @@ export class InferenceService {
     const run: InferenceRun = outcome.kind === "ok"
       ? { outcome: "done", problems: [], warnings: outcome.warnings, at }
       : outcome.kind === "problem"
-        ? { outcome: "problem", problems: outcome.problems, warnings: outcome.warnings, at }
+        ? { outcome: "problem", problems: outcome.problems, warnings: outcome.warnings, at,
+          ...(outcome.candidate === undefined ? {} : { candidate: outcome.candidate, candidateBasis: basis }) }
         : { outcome: "failed", problems: [outcome.detail], warnings: [], at };
 
     this.deps.transaction(() => {
@@ -187,6 +195,54 @@ export class InferenceService {
       }
     }
     return { chapter, committed: this.deps.transaction(() => this.deps.source.decideInference(chapter, "committed")) };
+  }
+
+  /** 作者看过排除项后，显式保留有效记录；普通确认/批量确认绝不走此入口。 */
+  confirmValid(raw: unknown): { readonly chapter: ChapterNo; readonly committed: number } {
+    const chapter = parseChapter(raw);
+    const run = this.runs.get(chapter);
+    const current = this.chapterView(chapter, run);
+    const token = (raw as Record<string, unknown>)["reviewToken"];
+    if (current.state !== "problem" || typeof token !== "string" || current.review?.token !== token) throw new ChapterWriteError(409, "复核候选或来源已变化，请重新读取后核对");
+    const blocked = this.blocked();
+    if (blocked !== null) throw new ChapterWriteError(409, blocked);
+    const earlier = this.view().chapters.find(c => c.chapter < chapter && c.state !== "confirmed" && c.state !== "written" && c.state !== "skipped");
+    if (earlier) throw new ChapterWriteError(409, `请先处理第 ${earlier.chapter} 章，再确认当前复核`);
+    const excluded = (raw as Record<string, unknown>)["excludedRecords"] ?? [];
+    const original = current.review!.declaration;
+    if (!Array.isArray(excluded) || excluded.length > Object.values(original).reduce((sum, items) => sum + items.length, 0)) throw new ChapterWriteError(400, "排除记录的选择无效");
+    const changes: StructureCorrection[] = excluded.map(value => {
+      if (value === null || typeof value !== "object" || Array.isArray(value) || Object.keys(value).some(key => key !== "section" && key !== "index") || typeof value.section !== "string" || typeof value.index !== "number") throw new ChapterWriteError(400, "只能选择要排除的记录类别与位置，不能替换记录");
+      return { section: value.section as keyof C5Declaration, index: value.index, value: null };
+    });
+    const declaration = changes.length === 0 ? original : correctDeclaration(original, changes, { ...this.accumulated(chapter).parseContextBase, chapterText: this.deps.source.chapterText(chapter) ?? "" });
+    if (!Object.values(declaration).some(items => items.length > 0)) throw new ChapterWriteError(400, "至少保留一条有效记录；如果没有可保留的内容，请选择跳过这一章");
+    const labels: Record<keyof C5Declaration, string> = { events: "事件", foreshadowPlanted: "埋设伏笔", foreshadowResolved: "兑现记录", relationsChanged: "关系变化", characterStates: "人物状态", characterPresence: "人物出场" };
+    const reviewedExclusions = changes.map(change => ({ section: change.section, index: change.index, record: original[change.section][change.index]! }));
+    const excludedMessages = reviewedExclusions.map(({ section, index, record }) => `作者另行排除：${labels[section]}第 ${index + 1} 项${"foreshadowId" in record ? `（${record.foreshadowId}）` : "summary" in record ? `（${record.summary}）` : ""}`);
+    return this.deps.transaction(() => {
+      this.deps.source.replaceInference(chapter, declaration);
+      const committed = this.deps.source.decideInference(chapter, "committed");
+      this.runs.save(chapter, { outcome: "done", problems: [], warnings: [...run!.warnings, ...run!.problems.map(p => `作者复核后排除：${p}`), ...excludedMessages], reviewedProblems: run!.problems, reviewedExclusions, at: new Date().toISOString() });
+      return { chapter, committed };
+    });
+  }
+
+  private reviewBasis(chapter: ChapterNo): string {
+    return stableFingerprint({ meta: this.deps.source.meta, body: this.deps.source.chapterText(chapter),
+      // 连续反推本来就读取前章的待确认记录；仅确认同一内容不应迫使后章再花一次模型调用。
+      events: this.deps.source.events().filter(e => (e.envelope.chapter < chapter || isPlanOrigin(e.envelope.origin)) && e.envelope.provenance !== "rejected")
+        .map(e => ({ id: e.envelope.id, chapter: e.envelope.chapter, origin: e.envelope.origin,
+          provenance: e.envelope.origin === ORIGIN ? "inference" : e.envelope.provenance, payload: e.payload })) });
+  }
+
+  private reviewCandidate(chapter: ChapterNo, run: InferenceRun | undefined): InferenceChapterView["review"] {
+    if (run?.outcome !== "problem" || !canReviewProblems(run.problems) || run.candidate === undefined || run.candidateBasis !== this.reviewBasis(chapter)) return undefined;
+    if (c5OutputIssue(run.candidate) !== null) return undefined;
+    const parsed = parseC5(run.candidate, { ...this.accumulated(chapter).parseContextBase, chapterText: this.deps.source.chapterText(chapter) ?? "" });
+    if (parsed.errors.length || parsed.warnings.length || !Object.values(parsed.declaration).some(items => items.length)) return undefined;
+    if (crossCheckC5({ declaration: parsed.declaration, chapterText: this.deps.source.chapterText(chapter) ?? "" }).some(f => f.rule === "c5_anchor_unresolvable" && f.level === "block")) return undefined;
+    return { token: stableFingerprint({ candidate: run.candidate, problems: run.problems, basis: run.candidateBasis, at: run.at }), declaration: parsed.declaration };
   }
 
   /** 丢弃一章：待确认的记录作废，这一章记为作者已跳过，不再挡住后面的章。 */
@@ -251,10 +307,12 @@ export class InferenceService {
       : inferred.some((e) => e.envelope.provenance === "committed") ? "confirmed"
         : pending.length > 0 ? "pending"
           : run === undefined || run.outcome === "done" ? "none" : run.outcome;
+    const review = state === "problem" ? this.reviewCandidate(chapter, run) : undefined;
     return {
+      ...(review === undefined ? {} : { review }),
       chapter, words: countWords(text), state,
       problems: state === "problem" || state === "failed" ? run?.problems ?? [] : [],
-      warnings: state === "pending" ? run?.warnings ?? [] : [],
+      warnings: state === "pending" || run?.reviewedProblems !== undefined ? run?.warnings ?? [] : [],
       at: run?.at ?? null,
       declaration: pending.length > 0 ? declarationOf(pending) : null,
     };

@@ -90,23 +90,27 @@ export function HelpTooltip({ title, children }: { title: React.ReactNode; child
   return <Tooltip><TooltipTrigger asChild>{interactive && !element.props.disabled ? element : <span className="tooltip-target" tabIndex={0}>{children}</span>}</TooltipTrigger><TooltipContent>{title}</TooltipContent></Tooltip>;
 }
 /** 这些受控弹层由业务按钮打开，没有隐式 Radix Trigger，需显式归还焦点。 */
-function useReturnFocus() {
+function useReturnFocus(preferred?: React.RefObject<HTMLElement | null>) {
   const target = React.useRef<HTMLElement | null>(null);
   return {
     onOpenAutoFocus: () => { target.current = document.activeElement instanceof HTMLElement ? document.activeElement : null; },
     onCloseAutoFocus: (event: Event) => {
       event.preventDefault();
       // 路线选择器可能直接打开另一层编辑器，不抢走新弹层的焦点。
-      if (!document.querySelector('[data-slot="dialog-content"], [data-slot="sheet-content"], [data-slot="alert-dialog-content"]') && target.current?.isConnected) target.current.focus({ preventScroll: true });
+      if (!document.querySelector('[data-slot="dialog-content"], [data-slot="sheet-content"], [data-slot="alert-dialog-content"]')) {
+        const element = preferred?.current?.isConnected ? preferred.current : target.current;
+        if (element?.isConnected) element.focus({ preventScroll: true });
+      }
     },
   };
 }
-export function DialogFrame({ open, title, children, footer, onCancel, onOk, confirmLoading, okText = "确定", cancelText = "取消", width, className, maskClosable = true }: {
+export function DialogFrame({ open, title, children, footer, onCancel, onOk, confirmLoading, okText = "确定", cancelText = "取消", width, className, maskClosable = true, returnFocusRef }: {
   open: boolean; title: React.ReactNode; children?: React.ReactNode; footer?: React.ReactNode; onCancel: () => void; onOk?: () => void;
   confirmLoading?: boolean; okText?: string; cancelText?: string; width?: number | string; className?: string; maskClosable?: boolean;
+  returnFocusRef?: React.RefObject<HTMLElement | null>;
 }) {
   const locked = confirmLoading || !maskClosable;
-  const focus = useReturnFocus();
+  const focus = useReturnFocus(returnFocusRef);
   return <Dialog open={open} onOpenChange={next => { if (!next && !locked) onCancel(); }}>
     <DialogContent {...focus} className={cn("app-dialog flex max-h-[calc(100dvh-2rem)] flex-col gap-0 p-0",className)} style={width ? { width, maxWidth: "calc(100vw - 24px)" } : undefined}
       showCloseButton={!locked} onPointerDownOutside={event => { if (locked) event.preventDefault(); }} onEscapeKeyDown={event => { if (locked) event.preventDefault(); }} aria-describedby={undefined}>

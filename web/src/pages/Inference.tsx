@@ -13,9 +13,9 @@
  *    仍然一章一次请求 —— 先收后埋的顺序问题由服务端挡，不靠界面自觉。
  */
 
-import { useRef, useState } from "react";
-import { Button, HelpTooltip } from "../components/controls.js";
-import { api, type InferenceChapter, type InferenceView } from "../api.js";
+import { Fragment, useRef, useState } from "react";
+import { Button, CheckField, DialogFrame, HelpTooltip } from "../components/controls.js";
+import { api, type InferenceChapter, type InferenceDeclaration, type InferenceView } from "../api.js";
 import { useFetch, useRouteActive } from "../hooks.js";
 import { Chip } from "../components/Chip.js";
 
@@ -37,7 +37,10 @@ export function Inference({ refresh }: { refresh: () => void }): React.ReactElem
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [open, setOpen] = useState<number | null>(null);
+  const [reviewing, setReviewing] = useState<InferenceChapter | null>(null);
+  const [excludedRecords, setExcludedRecords] = useState<{ section: keyof InferenceDeclaration; index: number }[]>([]);
   const stop = useRef(false);
+  const reviewReturn = useRef<HTMLElement | null>(null);
 
   if (data.data === null) return <div className="empty">{data.error ?? "读取反推进度…"} <Button size="sm" onClick={data.reload}>重试</Button></div>;
   const view = data.data;
@@ -99,6 +102,18 @@ export function Inference({ refresh }: { refresh: () => void }): React.ReactElem
   };
 
   const running = busy === "infer";
+  const confirmValid = async (): Promise<void> => {
+    if (busy !== null || !reviewing?.review) return;
+    setBusy("review"); setError(null);
+    try {
+      const result = await api.confirmValidInference(reviewing.chapter, reviewing.review.token, excludedRecords);
+      // 确认后按钮会消失；先选定仍存在的章节容器，避免迟到刷新再次丢焦点。
+      reviewReturn.current = reviewReturn.current?.closest("article") ?? null;
+      done(`第 ${reviewing.chapter} 章已按你的复核保留 ${result.committed} 条有效记录，排除原因已留档。`);
+      setReviewing(null);
+    } catch (cause) { if (isCurrent()) setError((cause as Error).message); }
+    finally { setBusy(null); }
+  };
   return <>
     <div className="page-head"><h1>从正文反推结构</h1><p>读你已经写好的旧稿，逐章补出事件、伏笔与人物变化。反推出来的是模型的判断，确认之后才成为作品事实。</p></div>
 
@@ -128,7 +143,7 @@ export function Inference({ refresh }: { refresh: () => void }): React.ReactElem
         {view.chapters.map((chapter) => {
           const state = STATES[chapter.state];
           const expanded = open === chapter.chapter;
-          return <article className="prep-beat" key={chapter.chapter} data-state={chapter.state}>
+          return <article className="prep-beat" key={chapter.chapter} data-state={chapter.state} tabIndex={-1}>
             <div className="row">
               <h3>第 {chapter.chapter} 章</h3>
               <HelpTooltip title={state.hint}><Chip color={state.color}>{state.label}</Chip></HelpTooltip>
@@ -137,6 +152,7 @@ export function Inference({ refresh }: { refresh: () => void }): React.ReactElem
                 <a href={`#/chapter/${chapter.chapter}`}>读正文</a>
                 {chapter.declaration !== null && <Button size="sm" variant="ghost" onClick={() => setOpen(expanded ? null : chapter.chapter)}>{expanded ? "收起" : "看这一章反推出什么"}</Button>}
                 {chapter.state === "pending" && <Button size="sm" variant="default" loading={busy === `confirm${chapter.chapter}`} disabled={busy !== null} onClick={() => void act(chapter.chapter, "confirm")}>确认</Button>}
+                {chapter.review && <Button size="sm" disabled={busy !== null} onClick={event => { reviewReturn.current = event.currentTarget; setExcludedRecords([]); setReviewing(chapter); }}>复核有效记录</Button>}
                 {(chapter.state === "pending" || chapter.state === "problem" || chapter.state === "failed") && <>
                   <Button size="sm" loading={busy === `again${chapter.chapter}`} disabled={busy !== null} onClick={() => void act(chapter.chapter, "again")}>重跑</Button>
                   <Button size="sm" variant="ghost" disabled={busy !== null} onClick={() => void act(chapter.chapter, "reject")}>跳过</Button>
@@ -149,20 +165,36 @@ export function Inference({ refresh }: { refresh: () => void }): React.ReactElem
           </article>;
         })}
       </section>}
+    {reviewing?.review && <DialogFrame open className="inference-review-dialog" returnFocusRef={reviewReturn} title={`复核第 ${reviewing.chapter} 章的有效记录`} onCancel={() => { if (busy === null) setReviewing(null); }} confirmLoading={busy === "review"} okText="确认保留，排除问题项" onOk={() => void confirmValid()}>
+      <p>以下重复埋设项将被排除，原文保持不变。请逐项核对后，再决定是否保留其余记录；仍有疑问的条目可取消勾选，排除原因会留档；这里不会替你合并语义相近的伏笔。</p>
+      <h3>将排除的问题</h3><ul>{reviewing.problems.map((problem, i) => <li key={i}>{problem}</li>)}</ul>
+      <h3>将保留的记录</h3><Declaration chapter={{ ...reviewing, declaration: reviewing.review.declaration }} name={name} excludedRecords={excludedRecords} onToggle={(section, index, keep) => setExcludedRecords(old => keep ? old.filter(item => item.section !== section || item.index !== index) : [...old, { section, index }])} />
+      {error && <p role="alert" className="finding" data-level="block">{error}</p>}
+    </DialogFrame>}
   </>;
 }
 
 /** 一章反推出的记录。与草稿结果页同一种读法：一句话摘要 + 原文引文。 */
-function Declaration({ chapter, name }: { chapter: InferenceChapter; name: (id: string) => string }): React.ReactElement {
+function Declaration({ chapter, name, excludedRecords = [], onToggle }: { chapter: InferenceChapter; name: (id: string) => string; excludedRecords?: readonly { section: keyof InferenceDeclaration; index: number }[]; onToggle?: (section: keyof InferenceDeclaration, index: number, keep: boolean) => void }): React.ReactElement {
   const d = chapter.declaration;
   if (d === null) return <p className="muted">没有待确认的记录。</p>;
   const quote = (text: string): React.ReactElement => <blockquote>「{text}」</blockquote>;
+  const labels: Record<keyof InferenceDeclaration, string> = { events: "事件", foreshadowPlanted: "埋设伏笔", foreshadowResolved: "兑现记录", relationsChanged: "关系变化", characterStates: "人物状态", characterPresence: "人物出场" };
+  const presenceRoles: Record<string, string> = { pov: "视角人物", major: "主要出场", minor: "次要出场", mentioned: "仅被提及" };
+  const row = (section: keyof InferenceDeclaration, index: number, content: React.ReactNode): React.ReactElement => {
+    if (onToggle === undefined) return <Fragment key={`${section}-${index}`}>{content}</Fragment>;
+    const excluded = excludedRecords.some(item => item.section === section && item.index === index);
+    return <div key={`${section}-${index}`} className="inference-review-choice" data-excluded={excluded || undefined}>
+      <CheckField aria-label={`保留${labels[section]}第 ${index + 1} 项`} checked={!excluded} onChange={keep => onToggle(section, index, keep)}>保留此项</CheckField>{content}
+    </div>;
+  };
   return <div className="prep-facts">
-    {d.events.map((event, index) => <div className="draft-change" key={`event-${index}`}><div><strong>{event.summary}</strong><p className="muted">{event.participants.map(name).join("、") || "无点名人物"}</p></div>{quote(event.anchor.quote)}</div>)}
-    {d.foreshadowPlanted.map((f, index) => <div className="draft-change" key={`planted-${index}`}><div><strong>埋下 · {f.label}（{f.foreshadowId}）</strong><p>{f.intent}</p><small>预期第 {f.expectedBy} 章前兑现</small></div>{quote(f.anchor.quote)}</div>)}
-    {d.foreshadowResolved.map((f, index) => <div className="draft-change" key={`resolved-${index}`}><div><strong>兑现 · {f.foreshadowId}</strong><p>{f.completeness === "full" ? "完整兑现" : "部分兑现，仍有剩余承诺"}</p></div>{quote(f.anchor.quote)}</div>)}
-    {d.relationsChanged.map((r, index) => <div className="draft-change" key={`relation-${index}`}><div><strong>{name(r.from)} → {name(r.to)}</strong><p>{r.note}（{r.fromKind ?? "未记录"} → {r.toKind}）</p></div>{quote(r.anchor.quote)}</div>)}
-    {d.characterStates.map((s, index) => <div className="draft-change" key={`state-${index}`}><div><strong>{name(s.characterId)}</strong><p>{s.field}：{s.from ?? "未记录"} → {s.to}</p></div>{quote(s.anchor.quote)}</div>)}
+    {d.events.map((event, index) => row("events", index, <div className="draft-change"><div><strong>{event.summary}</strong><p className="muted">{event.participants.map(name).join("、") || "无点名人物"}</p></div>{quote(event.anchor.quote)}</div>))}
+    {d.foreshadowPlanted.map((f, index) => row("foreshadowPlanted", index, <div className="draft-change"><div><strong>埋下 · {f.label}（{f.foreshadowId}）</strong><p>{f.intent}</p><small>预期第 {f.expectedBy} 章前兑现</small></div>{quote(f.anchor.quote)}</div>))}
+    {d.foreshadowResolved.map((f, index) => row("foreshadowResolved", index, <div className="draft-change"><div><strong>兑现 · {f.foreshadowId}</strong><p>{f.completeness === "full" ? "完整兑现" : "部分兑现，仍有剩余承诺"}</p></div>{quote(f.anchor.quote)}</div>))}
+    {d.relationsChanged.map((r, index) => row("relationsChanged", index, <div className="draft-change"><div><strong>{name(r.from)} → {name(r.to)}</strong><p>{r.note}（{r.fromKind ?? "未记录"} → {r.toKind}）</p></div>{quote(r.anchor.quote)}</div>))}
+    {d.characterStates.map((state, index) => row("characterStates", index, <div className="draft-change"><div><strong>{name(state.characterId)}</strong><p>{state.field}：{state.from ?? "未记录"} → {state.to}</p></div>{quote(state.anchor.quote)}</div>))}
+    {onToggle && d.characterPresence.map((presence, index) => row("characterPresence", index, <div className="draft-change"><strong>{name(presence.characterId)}</strong><span>{presenceRoles[presence.role] ?? presence.role}</span></div>))}
     {summarize(chapter) === "" && <p className="muted">这一章只记了出场，没有独立事件或伏笔。</p>}
   </div>;
 }

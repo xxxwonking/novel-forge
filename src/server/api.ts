@@ -145,6 +145,10 @@ export function handle(session: ProjectSession, req: ApiRequest): ApiResponse {
   // 反推的进度、确认与丢弃都不调模型，留在同步入口。
   if (path === "/api/import/inference" && method === "GET") return ok(session.inference.view());
   if (path === "/api/import/inference/estimate" && method === "GET") return ok({ modes: session.inferenceEstimate() });
+  if (path === "/api/import/inference/confirm-valid" && method === "POST") {
+    try { return ok(session.inference.confirmValid(req.body)); }
+    catch (error) { if (error instanceof ChapterWriteError) return { status: error.status, body: { error: error.message } }; throw error; }
+  }
   if (method === "POST" && (path === "/api/import/inference/confirm" || path === "/api/import/inference/reject")) {
     try { return ok(path.endsWith("confirm") ? session.inference.confirm(req.body) : session.inference.reject(req.body)); }
     catch (error) {
