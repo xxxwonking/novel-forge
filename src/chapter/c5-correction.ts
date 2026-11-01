@@ -41,6 +41,13 @@ export function correctionValue(entry: Entry): Record<string, unknown> {
   return value;
 }
 
+/** 领域声明重新进入统一解析器前的格式，不包含生成的事件或伏笔编号。 */
+export function declarationToWire(declaration: C5Declaration): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(sections).map(([section, name]) => [name,
+    declaration[section as Section].map(entry => Object.fromEntries(Object.entries(correctionValue(entry)).map(([key, value]) => [names[key] ?? key, value]))),
+  ]));
+}
+
 export function correctDeclaration(original: C5Declaration, changes: readonly StructureCorrection[], ctx: ParseContext): C5Declaration {
   if (!Array.isArray(changes) || changes.length === 0) throw new ChapterWriteError(400, "请指定要纠正的结构记录");
   const revised = Object.fromEntries(Object.keys(sections).map(key => [key, [...original[key as Section]]])) as Record<Section, (Entry | null)[]>;
@@ -85,9 +92,7 @@ export function correctDeclaration(original: C5Declaration, changes: readonly St
   }
   const declaration = revised as unknown as C5Declaration;
   // 单项有效不代表整稿有效：未改条目也参与重复规划、兑现和出场校验。
-  const raw = Object.fromEntries(Object.entries(sections).map(([section, name]) => [name,
-    declaration[section as Section].map(entry => Object.fromEntries(Object.entries(correctionValue(entry)).map(([key, value]) => [names[key] ?? key, value]))),
-  ]));
+  const raw = declarationToWire(declaration);
   const ids = declaration.foreshadowPlanted.filter(entry => entry.plannedForeshadowId === undefined).map(entry => entry.foreshadowId);
   let nextId = 0;
   const checked = parseC5(raw, { ...ctx, allocateForeshadowId: () => ids[nextId++]! });

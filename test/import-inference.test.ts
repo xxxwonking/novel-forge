@@ -21,6 +21,7 @@ import { EventStream } from "../src/store/event-stream.js";
 import { NO_MODEL_REVIEW, fakeClient, modelText, writingSnapshot } from "./writing-fixtures.js";
 import type { CallResult } from "../src/client/claude.js";
 import { estimateTokens } from "../src/context/select-l3.js";
+import { quoteCatalog } from "../src/chapter/quote-catalog.js";
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
@@ -56,6 +57,66 @@ const INFER1 = modelText(JSON.stringify({
   foreshadow_resolved: [], relations_changed: [], character_states: [],
   character_presence: [{ character_id: "C01", role: "pov" }],
 }));
+
+describe("反推的引用资料目录", () => {
+  it("响应schema区分已埋伏笔与待埋规划，没有规划时不允许认领已埋编号", async () => {
+    const { root } = project([OLD1, OLD2]);
+    const next = modelText(JSON.stringify({ events: [], foreshadow_planted: [], foreshadow_resolved: [], relations_changed: [], character_states: [], character_presence: [{ character_id: "C01", role: "pov" }] }));
+    const run = session(root, [INFER1, next]);
+    await run.session.inference.infer({ chapter: 1 });
+    run.session.inference.confirm({ chapter: 1 });
+    await run.session.inference.infer({ chapter: 2 });
+    const schema = run.calls[1]!.outputSchema as { properties: { foreshadow_planted: { items: { properties: { planned_foreshadow_id: { enum: unknown[] } } } }; foreshadow_resolved: { items: { properties: { foreshadow_id: { enum: unknown[] } } } } } };
+    expect(schema.properties.foreshadow_planted.items.properties).not.toHaveProperty("planned_foreshadow_id");
+    expect(schema.properties.foreshadow_resolved.items.properties.foreshadow_id.enum).toContain("F01");
+    expect(JSON.stringify(run.calls[1]?.messages)).toContain("目前没有待埋设规划");
+  });
+  it("逐章反推选引文编号后由代码复制当前正文，不让模型重抄句子", async () => {
+    const { root } = project([OLD1]);
+    const quoted = JSON.parse((INFER1 as Exclude<CallResult, { kind: "error" }>).message.content.filter(b => b.type === "text").map(b => b.text).join(""));
+    const entry = quoteCatalog(OLD1).entries.find(e => e.text.includes("李长风收起钥匙"))!;
+    quoted.events[0].quote = entry.ref;
+    const run = session(root, [modelText(JSON.stringify(quoted))]);
+    const result = await run.session.inference.infer({ chapter: 1 });
+    expect(result.state).toBe("pending");
+    expect(result.declaration?.events[0]?.anchor.quote).toBe(entry.text);
+    expect(JSON.stringify(run.calls[0]?.messages)).toContain("本次正文引文目录");
+  });
+  it("未知引文编号不变成正式结构，正文也不被替换", async () => {
+    const { root } = project([OLD1]);
+    const run = session(root, [modelText(JSON.stringify({ events: [{ kind: "info", summary: "拿到钥匙", weight: 1, plot_line: "P01", participants: ["C01"], quote: "@quote:999999" }], foreshadow_planted: [], foreshadow_resolved: [], relations_changed: [], character_states: [], character_presence: [{ character_id: "C01", role: "pov" }] }))]);
+    const result = await run.session.inference.infer({ chapter: 1 });
+    expect(result.state).toBe("problem");
+    expect(result.problems.join("")).toContain("引文编号不存在");
+    expect(run.session.chapterText(1)).toBe(OLD1);
+  });
+  it("人物ID附带姓名与别名，情节线附带标签，不能只给一串不可辨认编号", async () => {
+    const { root } = project([OLD1]);
+    const run = session(root, [INFER1]);
+    await run.session.inference.infer({ chapter: 1 });
+    const task = JSON.stringify(run.calls[0]?.messages);
+    expect(task).toContain('人物编号与姓名对照');
+    expect(task).toContain('情节线编号与含义');
+    const text = (run.calls[0]!.messages[0]!.content as { text: string }[])[0]!.text;
+    expect(text).toContain(JSON.stringify({ id: "C01", name: "李长风", aliases: writingSnapshot().characters[0]!.aliases }));
+  });
+  it("schema只允许已确认人物编号，防止给未建档或虚构人物偷偷造ID", async () => {
+    const { root } = project([OLD1]);
+    const run = session(root, [INFER1]);
+    await run.session.inference.infer({ chapter: 1 });
+    const schema = run.calls[0]!.outputSchema as { properties: { character_presence: { items: { properties: { character_id: { enum: string[] } } } }; events: { items: { properties: { participants: { items: { enum: string[] } } } } } } };
+    expect(schema.properties.character_presence.items.properties.character_id.enum).toEqual(["C01", "C02"]);
+    expect(schema.properties.events.items.properties.participants.items.enum).toEqual(["C01", "C02"]);
+  });
+  it("地点库为空时明确省略location字段，不让模型用地点名称冒充ID", async () => {
+    const { root, store } = project([OLD1]);
+    store.save({ ...store.load(), settings: [] });
+    const run = session(root, [INFER1]);
+    await run.session.inference.infer({ chapter: 1 });
+    expect(JSON.stringify(run.calls[0]?.messages)).toContain("没有已确认地点");
+    expect(JSON.stringify(run.calls[0]?.messages)).toContain("不要提交 location 变更");
+  });
+});
 
 /** 第三章兑现第一章埋下的伏笔 —— 跨章引用只有顺序反推才拿得到编号。 */
 const INFER3 = modelText(JSON.stringify({
