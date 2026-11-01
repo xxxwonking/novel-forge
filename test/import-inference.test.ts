@@ -100,6 +100,14 @@ describe("反推的引用资料目录", () => {
     const text = (run.calls[0]!.messages[0]!.content as { text: string }[])[0]!.text;
     expect(text).toContain(JSON.stringify({ id: "C01", name: "李长风", aliases: writingSnapshot().characters[0]!.aliases }));
   });
+  it("schema只允许已确认人物编号，防止给未建档或虚构人物偷偷造ID", async () => {
+    const { root } = project([OLD1]);
+    const run = session(root, [INFER1]);
+    await run.session.inference.infer({ chapter: 1 });
+    const schema = run.calls[0]!.outputSchema as { properties: { character_presence: { items: { properties: { character_id: { enum: string[] } } } }; events: { items: { properties: { participants: { items: { enum: string[] } } } } } } };
+    expect(schema.properties.character_presence.items.properties.character_id.enum).toEqual(["C01", "C02"]);
+    expect(schema.properties.events.items.properties.participants.items.enum).toEqual(["C01", "C02"]);
+  });
   it("地点库为空时明确省略location字段，不让模型用地点名称冒充ID", async () => {
     const { root, store } = project([OLD1]);
     store.save({ ...store.load(), settings: [] });

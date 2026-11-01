@@ -104,6 +104,7 @@ export function buildInferenceTask(input: InferenceInput): string {
     ...idConstraints(input.parseContextBase),
     ...(input.references === undefined ? [] : [
       `人物编号与姓名对照：${JSON.stringify(input.references.characters)}。只按此表对应人物，不从编号猜姓名。`,
+      "未建档人物可在事件摘要按正文原名描述，但人物ID字段只能引用已确认编号，不得造ID或强行映射到另一个已知人物。本步骤不替作者新增人物档案。",
       `地点编号与名称对照：${JSON.stringify(input.references.settings)}`,
       `情节线编号与含义：${JSON.stringify(input.references.plotLines)}`,
     ]),
@@ -135,6 +136,11 @@ export function buildInferenceTask(input: InferenceInput): string {
 export function inferenceSchema(input: InferenceInput): Record<string, unknown> {
   const schema = quoteCatalog(input.chapterText).schema;
   const sections = schema.properties as Record<string, { maxItems?: number; items: { properties: Record<string, Record<string, unknown>> } }>;
+  const characters = [...input.parseContextBase.knownCharacters];
+  for (const [section, fields] of [["character_presence", ["character_id"]], ["character_states", ["character_id"]], ["relations_changed", ["from", "to"]]] as const) {
+    for (const field of fields) sections[section]!.items.properties[field]!.enum = characters;
+  }
+  sections.events!.items.properties.participants!.items = { type: "string", enum: characters };
   if (input.plannedForeshadows.length === 0) delete sections.foreshadow_planted!.items.properties.planned_foreshadow_id;
   else sections.foreshadow_planted!.items.properties.planned_foreshadow_id!.enum = input.plannedForeshadows.map(f => f.id);
   if (input.openForeshadows.length === 0) sections.foreshadow_resolved!.maxItems = 0;
