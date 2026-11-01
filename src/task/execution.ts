@@ -4,7 +4,7 @@ import { countWords } from "../text/measure.js";
 /** 由协调器持有；图和模型包装器仅在边界读取，不把 Promise 写入磁盘。 */
 export interface TaskControl { requested: "pause" | "end" | null }
 
-export const emptyUsage = () => ({ calls: 0, inputTokens: 0, outputTokens: 0, unmeasuredCalls: 0, pendingCalls: 0 });
+export const emptyUsage = (): Required<import("./types.js").TaskUsage> => ({ calls: 0, inputTokens: 0, outputTokens: 0, unmeasuredCalls: 0, pendingCalls: 0, credits: 0, unpricedCalls: 0, acknowledgedUnknownCalls: 0 });
 export function draftStage(draft: ChapterDraft): TaskStage {
   if (draft.status === "writing" || draft.body === "" || draft.error?.step === "C4") return draft.revision?.kind === "automatic" ? "revising" : "writing";
   return draft.declaration === null ? "declaring" : "checking";
@@ -25,6 +25,8 @@ export function taskView(draft: ChapterDraft, active: boolean, isHistory = false
   else if (["running", "pausing", "ending"].includes(status) && !active) status = "interrupted";
   const usage = !active && (execution.usage.pendingCalls ?? 0) > 0 ? { ...execution.usage, pendingCalls: 0, unmeasuredCalls: execution.usage.unmeasuredCalls + execution.usage.pendingCalls! } : execution.usage;
   return { ...execution, usage, usageRecorded: draft.execution !== undefined, isHistory, status, chapter: draft.chapter, draftId: draft.draftId,
+    ...(draft.writeContext?.sceneWriting === undefined ? {} : { sceneWriting: { ...draft.writeContext.sceneWriting, completed: draft.scenes?.completed.length ?? 0, total: draft.scenes?.plan.length ?? 0,
+      unknownUsageNeedsConfirmation: usage.unmeasuredCalls + (usage.unpricedCalls ?? 0) > (usage.acknowledgedUnknownCalls ?? 0) } }),
     autoRevisionLimit: draft.writeContext?.autoRevisionLimit ?? 0, autoRevisionsUsed: draft.autoRevisionsUsed ?? 0,
     automaticResultDraftId: draft.automaticResultDraftId ?? null,
     draftStatus: draft.status, words: countWords(draft.body),

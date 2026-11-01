@@ -19,7 +19,8 @@ import { readProjectFile, writeProjectFile } from "../store/transaction.js";
 import { ChapterWriteError } from "../server/chapter-input.js";
 import { draftRevisionToken } from "../task/revision.js";
 import { REVIEW_UNAVAILABLE_RULES } from "../task/steps.js";
-import type { ChapterDraft } from "../task/types.js";
+import type { ChapterDraft, SceneWritingOptions } from "../task/types.js";
+import { parseSceneWriting } from "../task/generation-budget.js";
 import type { ChapterNo } from "../types/primitives.js";
 
 const FILE = "continuous-run.json";
@@ -45,6 +46,7 @@ export interface RunStop {
 }
 
 interface RunState {
+  readonly sceneWriting?: SceneWritingOptions;
   readonly status: "idle" | "running" | "stopped";
   readonly through: ChapterNo | null;
   readonly startedAt: string | null;
@@ -66,7 +68,7 @@ export interface RunDeps {
   readonly maxBatchChapters: number;
   /** 有稿件在跑、模型没配置时抛 ChapterWriteError。 */
   readonly assertCanStart: () => void;
-  readonly writeChapter: (chapter: ChapterNo, requestId: string) => Promise<ChapterDraft>;
+  readonly writeChapter: (chapter: ChapterNo, requestId: string, sceneWriting?: SceneWritingOptions) => Promise<ChapterDraft>;
   readonly adopt: (chapter: ChapterNo, draft: ChapterDraft) => void;
 }
 
@@ -107,6 +109,12 @@ export class ContinuousRunService {
 
   start(raw: unknown): RunView {
     const through = parseThrough(raw);
+    const option = (raw as Record<string, unknown>)["sceneWriting"];
+    let sceneWriting: SceneWritingOptions | undefined;
+    if (option !== undefined) {
+      try { sceneWriting = parseSceneWriting(option); }
+      catch (error) { throw new ChapterWriteError(400, error instanceof Error ? error.message : String(error)); }
+    }
     const next = this.deps.nextChapter();
     if (through < next) throw new ChapterWriteError(400, `连写的目标章号至少是下一章（第 ${next} 章）`);
     if (through > next + this.deps.maxBatchChapters - 1) throw new ChapterWriteError(400, `一次最多连写 ${this.deps.maxBatchChapters} 章，目标章号不能超过第 ${next + this.deps.maxBatchChapters - 1} 章`);
@@ -114,7 +122,7 @@ export class ContinuousRunService {
     this.deps.assertCanStart();
 
     const now = new Date().toISOString();
-    this.save({ status: "running", through, startedAt: now, updatedAt: now, adopted: [], stopped: null });
+    this.save({ status: "running", through, startedAt: now, updatedAt: now, adopted: [], stopped: null, ...(sceneWriting === undefined ? {} : { sceneWriting }) });
     const handle = { promise: Promise.resolve(), stopRequested: false, current: null as ChapterNo | null };
     this.active = handle;
     handle.promise = this.loop(through, now).finally(() => { if (this.active === handle) this.active = null; });
@@ -143,7 +151,7 @@ export class ContinuousRunService {
       let draft: ChapterDraft;
       try {
         // requestId 只许字母数字：一次授权内每章一个，重启后同一授权不会重复起稿。
-        draft = await this.deps.writeChapter(chapter, `run-${startedAt.replace(/\D/gu, "")}-${chapter}`);
+        draft = await this.deps.writeChapter(chapter, `run-${startedAt.replace(/\D/gu, "")}-${chapter}`, this.load().sceneWriting);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         return this.finish({ chapter, reason: "blocked", detail: message, draftId: null });
@@ -166,6 +174,10 @@ export class ContinuousRunService {
     const { chapter, draftId } = draft;
     if (draft.status === "adopted") return null;
     if (draft.status === "ready" && draft.acceptable) {
+      const usage = draft.execution?.usage;
+      if (draft.writeContext?.sceneWriting && usage && usage.unmeasuredCalls + (usage.unpricedCalls ?? 0) > (usage.acknowledgedUnknownCalls ?? 0)) {
+        return { chapter, draftId, reason: "blocked", detail: "本章仍有未知用量或未计价调用，请核对费用后再决定，不替作者自动采用。" };
+      }
       const changes = keyChanges(draft);
       // 先判审查：它决定「检查通过」这句话本身成不成立。有关键变化的一并说出来，作者只需看一次。
       const skipped = draft.findings.filter((f) => REVIEW_UNAVAILABLE_RULES.includes(f.rule));

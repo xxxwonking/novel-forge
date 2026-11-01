@@ -8,6 +8,7 @@ import { ImportChapters } from "../components/ImportChapters.js";
 import { InferenceChooser } from "../components/InferenceChooser.js";
 import { ReviewSettings } from "../components/ReviewSettings.js";
 import { WorkStatus } from "../components/WorkStatus.js";
+import { SceneWritingSettings, initialSceneWriting, sceneWritingOptions } from "../components/SceneWritingSettings.js";
 import { api, type CharacterRecord, type DraftFocus, type ForeshadowClaim, type PreparationContent, type PreparationPayload, type PreparationProposal, type SettingInput, type PlotLineInput, type VolumeCard } from "../api.js";
 import type { RelationClaim, Removals } from "../preparation-changes.js";
 import { useFetch, useRouteActive } from "../hooks.js";
@@ -30,6 +31,7 @@ export function Preparation({ refresh, proposalId }: { refresh: () => void; prop
   const profilePicker = useRef<HTMLInputElement>(null);
   const [importing, setImporting] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [sceneForm, setSceneForm] = useState(initialSceneWriting);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   if (data.data === null) return <div className="empty">{data.error ?? "读取作品资料…"} <Button size="sm" onClick={data.reload}>重新读取</Button></div>;
@@ -87,6 +89,7 @@ export function Preparation({ refresh, proposalId }: { refresh: () => void; prop
     setBusy(true); setError(null); setNotice(null);
     let confirmed = false;
     try {
+      const sceneWriting = action === "write" || action === "trial" ? sceneWritingOptions(sceneForm) : undefined;
       if (action === "reject") {
         await api.rejectPreparation(proposal.id);
         if (isCurrent()) setNotice("方案已丢弃，保留历史记录。");
@@ -99,7 +102,7 @@ export function Preparation({ refresh, proposalId }: { refresh: () => void; prop
         }
         if (action === "write" || action === "trial") {
           if (isCurrent()) setNotice(`${confirmed ? "方案已确认。" : "保留为建议。"}正在写第 ${view.nextChapter} 章，离开页面后服务会继续处理。`);
-          const draft = await api.writeChapter({ chapter: view.nextChapter, ...(action === "trial" ? { proposalId: proposal.id } : {}) });
+          const draft = await api.writeChapter({ chapter: view.nextChapter, ...(sceneWriting === undefined ? {} : { sceneWriting }), ...(action === "trial" ? { proposalId: proposal.id } : {}) });
           if (isCurrent()) window.location.hash = `/draft/${draft.chapter}/${draft.draftId}`;
         }
       }
@@ -109,6 +112,7 @@ export function Preparation({ refresh, proposalId }: { refresh: () => void; prop
 
   return <>
     <div className="page-head"><h1>作品资料</h1><p>从一句想法到人物、世界与章计划。让 AI 先起草，你只核对与改动 —— 不确定的地方不必自己编。</p></div>
+    <SceneWritingSettings value={sceneForm} onChange={setSceneForm} disabled={busy} />
     <section className="prep-section" aria-label="已导入资料"><div className="section-head"><h2>已导入资料 <small>{view.materials.length}</small></h2><div className="row"><Button disabled={view.materials.length===0} onClick={()=>setDrafting("materials")}>整理人物与剧情资料</Button><Button disabled={view.materials.length===0} onClick={()=>setDrafting("outline")}>从大纲生成剧情节点</Button></div></div>
       {view.materials.length===0?<p className="muted">整项目导入时，大纲、人物档案与设定会保存到这里，也可继续单独导入人物档案。</p>:<ul className="materials-list">{view.materials.map(m=><li key={m.file}><strong>{m.name}</strong><span className="muted"> · {{characters:"人物档案",outline:"大纲／简介",setting:"设定",material:"资料"}[m.kind]??"资料"} · {m.words.toLocaleString()} 字</span></li>)}</ul>}
       {(view.materialWarnings??[]).map(w=><p key={w} role="status" className="finding" data-level="warn">{w}</p>)}

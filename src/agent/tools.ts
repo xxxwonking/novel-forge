@@ -196,7 +196,9 @@ export const MAIN_AGENT_TOOLS: readonly Anthropic.Tool[] = [
     name: "write_next_chapter",
     description:
       "启动下一章后台任务并立即返回任务编号；写完后交付待采用稿。启动不等于写完，需如实转述状态，不自行等待或重复启动。仅当用户明确要求写章时调用。作者只授权先试写时传具体 proposalId，基于该候选方案试写，采用章节时一并确认依赖。相同请求复用原任务或草稿。",
-    input_schema: { type: "object", properties: { proposalId: { type: "string", description: "仅明确要求基于候选方案先试写时传入" } }, required: [] },
+    input_schema: { type: "object", properties: { proposalId: { type: "string", description: "仅明确要求基于候选方案先试写时传入" },
+      sceneWriting: { type: "object", description: "仅作者明确选择分场写章时传入。未指定额度则每章16次、50积分停止线；作者指定时原样传入，不自行提高。", properties: { maxCalls: { type: "integer", minimum: 1, maximum: 100 }, maxCredits: { type: "number", exclusiveMinimum: 0, maximum: 100000 } }, required: ["maxCalls", "maxCredits"], additionalProperties: false },
+    }, required: [] },
   },
   {
     name: "adopt_chapter",

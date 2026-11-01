@@ -233,6 +233,9 @@ a.book-card:hover .book-cta { color: var(--main); }
 .prep-layout { display: grid; grid-template-columns: minmax(0, 1fr) 225px; gap: 28px; align-items: start; }
 .prep-main, .prep-sidebar { min-width: 0; overflow-wrap: anywhere; }
 .prep-section { border-top: 1px solid var(--line); padding: 26px 0; }
+.scene-writing-settings { min-inline-size: 0; margin: 0; border: 0; border-top: 1px solid var(--border); padding: 18px 0; }
+.scene-writing-settings .prep-grid { gap: 14px 18px; margin: 16px 0; }
+.scene-writing-settings label:not(.check-field) { display: block; margin-bottom: 7px; font-size: var(--ui-text-label); color: var(--muted-foreground); }
 .prep-section.draft-editor { border-top: 0; margin: 20px 0; padding: 24px 26px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); box-shadow: none; }
 .prep-section h2, .prep-sidebar h2, .prep-proposal-head h2 { font: 500 18px/1.35 var(--sans); letter-spacing: 0.5px; margin: 0 0 18px; }
 .prep-section h2 small { color: var(--ink-faint); font-size: 12px; }

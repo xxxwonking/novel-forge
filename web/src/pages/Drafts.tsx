@@ -8,6 +8,7 @@ import { StructureEditor } from "../components/StructureEditor.js";
 import { DraftRewriteEditor } from "../components/DraftRewriteEditor.js";
 import { DraftProposals } from "../components/DraftProposals.js";
 import { Chip } from "../components/Chip.js";
+import { SceneWritingSettings, initialSceneWriting, sceneWritingOptions } from "../components/SceneWritingSettings.js";
 
 const states: Record<string, string> = { writing: "正文未完成", pending_check: "待检查", declaring: "结构核对未完成", checking: "检查未完成", failed: "执行未完成", needs_revision: "需要修改", ready: "待采用", adopted: "已采用", stale: "依据已变化，需重新核对", discarded: "已丢弃" };
 
@@ -23,6 +24,7 @@ export function Drafts({ chapter, draftId, refresh, task, reloadTasks }: { chapt
   const [editor, setEditor] = useState<"body" | "structure" | "rewrite" | "continue" | null>(null);
   const [anchor, setAnchor] = useState<TextAnchor | null>(null);
   const [runThrough, setRunThrough] = useState<number | null>(null);
+  const [sceneForm, setSceneForm] = useState(initialSceneWriting);
   const runLimit = useFetch(() => api.run(), [chapter, draftId]);
   /** 采用前先看这一稿会牵连哪些后续章：只读、不调模型。最新章没有下游，自然是空的。 */
   const impact = useFetch(
@@ -53,8 +55,9 @@ export function Drafts({ chapter, draftId, refresh, task, reloadTasks }: { chapt
     setBusy(true); setError(null); setNotice(null);
     let adopted = false;
     try {
+      const sceneWriting = sceneWritingOptions(sceneForm);
       await api.adopt(chapter, draftId, { revisionToken: draft.revisionToken, selectedProposals }); adopted = true;
-      await api.startRun(through);
+      await api.startRun(through, sceneWriting);
       if (isCurrent()) { setRunThrough(null); setNotice(`已采用第 ${chapter} 章，开始连写到第 ${through} 章。每章检查通过且没有关键变化才自动采用，否则停下等你；进度在任务面板。`); }
     } catch (e) { if (isCurrent()) setError(`${adopted ? `第 ${chapter} 章已采用；连写没有开始：` : ""}${(e as Error).message}`); }
     finally { if (isCurrent()) setBusy(false); reload(); }
@@ -64,6 +67,7 @@ export function Drafts({ chapter, draftId, refresh, task, reloadTasks }: { chapt
     setBusy(true); setError(null); setNotice(null);
     let adopted = false;
     try {
+      const sceneWriting = action === "new" || action === "continue" ? sceneWritingOptions(sceneForm) : undefined;
       if (action === "check" || action === "checkAdopt") {
         await api.checkDraft({ chapter, draftId, revisionToken: draft.revisionToken, adoptOnSuccess: action === "checkAdopt", ...(action === "checkAdopt" ? { selectedProposals } : {}) });
         if (isCurrent()) setNotice(action === "checkAdopt" ? "已开始检查；通过后采用这一版，有必须处理的问题时保留结果。" : "已开始检查当前版本。");
@@ -78,9 +82,9 @@ export function Drafts({ chapter, draftId, refresh, task, reloadTasks }: { chapt
         if (isCurrent()) setNotice(restored.status === "stale" ? "草稿已恢复。丢弃期间作品依据变过，这一稿要重新核对才能采用。" : "草稿已恢复到丢弃前的状态。");
       }
       if (action === "resume" || action === "new" || action === "continue") {
-        const next = await api.writeChapter(action === "continue" ? { chapter: chapter + 1 }
+        const next = await api.writeChapter(action === "continue" ? { chapter: chapter + 1, ...(sceneWriting === undefined ? {} : { sceneWriting }) }
           : action === "resume" ? { chapter, draftId }
-            : { chapter, newDraft: true, ...(draft.preparationProposalId === null ? {} : { proposalId: draft.preparationProposalId }) });
+            : { chapter, newDraft: true, ...(sceneWriting === undefined ? {} : { sceneWriting }), ...(draft.preparationProposalId === null ? {} : { proposalId: draft.preparationProposalId }) });
         goDraft(next.chapter, next.draftId);
       }
     } catch (e) { if (isCurrent()) setError(`${adopted ? `第 ${chapter} 章已采用；下一章尚未完成：` : ""}${(e as Error).message}`); }
@@ -127,9 +131,11 @@ export function Drafts({ chapter, draftId, refresh, task, reloadTasks }: { chapt
       {draft.status !== "adopted" && draft.status !== "discarded" && <Button variant="ghost" disabled={busy || taskRunning(task)} onClick={() => void perform("discard")}>丢弃这份草稿</Button>}
       {draft.status === "adopted" && <a href={`#/chapter/${chapter}`}>查看正式正文 →</a>}
     </div>
+    <SceneWritingSettings value={sceneForm} onChange={setSceneForm} disabled={busy || taskRunning(task)} />
     {editor === "body" && <DraftEditor key={draftId} draft={draft} onSaved={saved} onClose={() => setEditor(null)} />}
     {editor === "structure" && <StructureEditor key={draftId} draft={draft} characters={names} onSaved={saved} onClose={() => setEditor(null)} />}
     {runThrough !== null && runLimit.data !== null && <DialogFrame open title={`采用第 ${chapter} 章，然后连写到第几章？`} onCancel={() => { if (!busy) setRunThrough(null); }} okText="采用并开始连写" cancelText="取消" confirmLoading={busy} onOk={() => void adoptAndRun(runThrough)}>
+      <SceneWritingSettings value={sceneForm} onChange={setSceneForm} disabled={busy} />
       <p className="muted">每章写完、检查通过且没有关键变化（人物生死、关系、主线伏笔、新人物或新设定建议）才自动采用；否则停在那一章等你。每一章都要有已确认的计划，可以先在资料页「让 AI 排后面几章」。</p>
       <label>连写到第 <NumberInput min={chapter + 1} max={runLimit.data.maxThrough + 1} value={runThrough} onChange={(value) => { if (typeof value === "number") setRunThrough(value); }} /> 章（最多到第 {runLimit.data.maxThrough + 1} 章）</label>
     </DialogFrame>}

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { ArrowUpRight } from "lucide-react";
 import { Button } from "./ui/button.js";
+import { DialogFrame } from "./controls.js";
 import { api, type ChapterTaskView, type RunStopReason } from "../api.js";
 import { usePolling } from "../hooks.js";
 
@@ -11,11 +12,14 @@ export const taskRunning = (task: ChapterTaskView | undefined): boolean => task 
 export function TaskCard({ task, reload, detailed = false }: { task: ChapterTaskView; reload: () => void; detailed?: boolean }): React.ReactElement {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const act = async (action: "pause" | "end" | "resume"): Promise<void> => {
+  const [confirmUnknown, setConfirmUnknown] = useState(false);
+  const act = async (action: "pause" | "end" | "resume", acknowledged = false): Promise<void> => {
     if (busy) return;
+    if (action === "resume" && task.sceneWriting?.unknownUsageNeedsConfirmation && !acknowledged) { setConfirmUnknown(true); return; }
+    setConfirmUnknown(false);
     setBusy(true); setError(null);
     try {
-      if (action === "resume") await api.writeChapter({ chapter: task.chapter, draftId: task.draftId });
+      if (action === "resume") await api.writeChapter({ chapter: task.chapter, draftId: task.draftId, ...(acknowledged ? { acknowledgeUnknownUsage: true } : {}) });
       else await api.controlTask(task.chapter, task.draftId, action);
       reload();
     } catch (e) { setError((e as Error).message); }
@@ -27,6 +31,7 @@ export function TaskCard({ task, reload, detailed = false }: { task: ChapterTask
     <div className="task-heading"><strong>第 {task.chapter} 章 · {task.draftId}</strong><span role="status">{task.isHistory ? "历史结果" : task.status === "running" ? stages[task.stage] : labels[task.status]}</span></div>
     {live && <p>{task.stage === "writing" ? "正在生成正文，随后核对结构和检查。" : task.stage === "revising" ? "正在根据检查修订，初稿与原检查已保留。" : "正在核对、检查已保存的正文。"}离开页面后服务继续处理。</p>}
     {task.autoRevisionLimit > 0 && <p className="muted">本次一份初稿，自动修订最多 {task.autoRevisionLimit} 次；已使用 {task.autoRevisionsUsed} 次。修订后仍需检查和采用。</p>}
+    {task.sceneWriting && <p className="muted">分场写章：{task.autoRevisionsUsed > 0 && task.sceneWriting.total === 0 ? "分场初稿已保存，当前为自动修订版本" : task.sceneWriting.total === 0 ? "尚未完成场景计划" : `已保存 ${task.sceneWriting.completed}/${task.sceneWriting.total} 场`}。本章累计调用 {task.usage.calls}/{task.sceneWriting.maxCalls} 次，已计价 {(task.usage.credits ?? 0).toFixed(4)} 积分，停止线 {task.sceneWriting.maxCredits} 积分；未知用量仍需另行核对。</p>}
     {task.status === "waiting" && <p>修改已保存。选择检查后才开始核对，尚未调用模型。</p>}
     {task.status === "awaiting_input" && <p>需要你决定修改范围，原文已保留。请查看结果中的建议，再选择范围。</p>}
     {(task.status === "pausing" || task.status === "ending") && <p>正在等待当前模型请求返回，内容会保存，随后停止；不会发起后续模型请求。</p>}
@@ -42,6 +47,9 @@ export function TaskCard({ task, reload, detailed = false }: { task: ChapterTask
     {task.status === "running" && <small className="muted">暂停或结束在当前模型请求返回后生效，已完成内容会保留。</small>}
     {detailed && <p className="task-usage">{task.usageRecorded ? <>模型调用 {task.usage.calls} 次 · 已报告输入 {task.usage.inputTokens.toLocaleString()} / 输出 {task.usage.outputTokens.toLocaleString()} tokens{task.usage.unmeasuredCalls > 0 ? `；另有 ${task.usage.unmeasuredCalls} 次调用未返回用量` : ""}</> : "这份历史结果未记录模型用量。"}</p>}
     {error && <p className="finding" data-level="block" role="alert">{error}</p>}
+    {confirmUnknown && <DialogFrame open title="核对未知费用后继续？" onCancel={() => setConfirmUnknown(false)} okText="已核对，继续剩余任务" onOk={() => void act("resume", true)}>
+      <p>本任务有未返回用量或无法计价的调用。请先核对中转账单；继续表示你接受这部分未知消耗。已用次数和原积分停止线仍保留，已完成场景不会重写。</p>
+    </DialogFrame>}
   </section>;
 }
 
@@ -73,6 +81,7 @@ export function RunCard({ reload }: { reload: () => void }): React.ReactElement 
   return <section className="task-card" data-running={view.status === "running"} aria-label="连写">
     <div className="task-heading"><strong>连写到第 {view.through} 章</strong><span role="status">{view.status === "running" ? (view.stopRequested ? "这一章写完就停" : `正在写第 ${view.current ?? view.nextChapter} 章`) : STOP_REASONS[view.stopped?.reason ?? "interrupted"]}</span></div>
     <p>{adopted}。{view.status === "running" ? "每章检查通过且没有关键变化才自动采用；否则停下等你。" : ""}</p>
+    {view.sceneWriting && <p className="muted">本次使用分场写章；每章最多 {view.sceneWriting.maxCalls} 次模型调用、积分停止线 {view.sceneWriting.maxCredits}。达到授权章号或任一章停下时不再开启后续章节。</p>}
     {view.stopped !== null && <p className="muted">第 {view.stopped.chapter} 章：{view.stopped.detail}</p>}
     <div className="task-actions">
       {view.stopped?.draftId && <a href={`#/draft/${view.stopped.chapter}/${view.stopped.draftId}`}>查看第 {view.stopped.chapter} 章的结果<ArrowUpRight className="size-3.5" aria-hidden="true" /></a>}

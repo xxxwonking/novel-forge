@@ -569,13 +569,18 @@ async function chapterWrite(session: ProjectSession, body: unknown, start = fals
   const maxOutputTokens = body["maxOutputTokens"];
   const proposalId = body["proposalId"];
   const requestId = body["requestId"];
+  const sceneWriting = body["sceneWriting"];
+  const acknowledgeUnknownUsage = body["acknowledgeUnknownUsage"];
   if (draftId !== undefined && typeof draftId !== "string") return bad("draftId 必须是字符串");
   if (newDraft !== undefined && typeof newDraft !== "boolean") return bad("newDraft 必须是布尔值");
   if (maxOutputTokens !== undefined && typeof maxOutputTokens !== "number") return bad("maxOutputTokens 必须是正整数");
   if (proposalId !== undefined && typeof proposalId !== "string") return bad("proposalId 必须是方案编号");
   if (requestId !== undefined && typeof requestId !== "string") return bad("requestId 必须是字符串");
+  if (acknowledgeUnknownUsage !== undefined && typeof acknowledgeUnknownUsage !== "boolean") return bad("acknowledgeUnknownUsage 必须是布尔值");
   const options: ChapterWriteOptions = {
     chapter,
+    ...(sceneWriting === undefined ? {} : { sceneWriting: sceneWriting as NonNullable<ChapterWriteOptions["sceneWriting"]> }),
+    ...(acknowledgeUnknownUsage === undefined ? {} : { acknowledgeUnknownUsage }),
     ...(draftId === undefined ? {} : { draftId }),
     ...(newDraft === undefined ? {} : { newDraft }),
     ...(maxOutputTokens === undefined ? {} : { maxOutputTokens }),

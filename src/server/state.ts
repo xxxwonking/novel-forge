@@ -198,7 +198,7 @@ export class ProjectSession {
       maxBatchChapters: this.rules.task.maxBatchChapters,
       // 改早章留下的硬矛盾没处理完就不开连写：接下来每一章都会建立在错的基准上。
       assertCanStart: () => { this.revise.assertNoConflicts(); this.writer.prepareModelTask(); },
-      writeChapter: (chapter, requestId) => this.writer.write({ chapter, requestId }),
+      writeChapter: (chapter, requestId, sceneWriting) => this.writer.write({ chapter, requestId, ...(sceneWriting === undefined ? {} : { sceneWriting }) }),
       adopt: (chapter, draft) => { this.adopt(chapter, draft.draftId, { revisionToken: adoptionToken(draft) }); },
     });
   }
@@ -1198,9 +1198,9 @@ export class ProjectSession {
         const idea = this.conversation.recordIdea(text, now());
         return { message: `已记为备选：${idea.text}`, effect: { kind: "idea_recorded", id: idea.id, text: idea.text } };
       },
-      writeNextChapter: async (proposalId) => {
+      writeNextChapter: async (proposalId, sceneWriting) => {
         try {
-          const draft = this.startChapter({ chapter: this.nextChapter, authorRequest, ...(proposalId === undefined ? {} : { proposalId }) });
+          const draft = this.startChapter({ chapter: this.nextChapter, authorRequest, ...(sceneWriting === undefined ? {} : { sceneWriting }), ...(proposalId === undefined ? {} : { proposalId }) });
           const running = draft.execution?.status === "running";
           return {
             message: running ? `第 ${draft.chapter} 章任务 ${draft.draftId} 已启动，正在处理，尚未写完。离开页面后服务会继续，作者可查看、暂停或结束。`

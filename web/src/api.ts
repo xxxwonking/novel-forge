@@ -524,7 +524,9 @@ export interface DraftView {
 }
 
 export type RunStopReason = "key_change" | "review_unavailable" | "needs_revision" | "failed" | "blocked" | "author" | "interrupted";
+export interface SceneWritingOptions { maxCalls: number; maxCredits: number }
 export interface RunView {
+  sceneWriting?: SceneWritingOptions;
   status: "idle" | "running" | "stopped";
   through: number | null;
   startedAt: string | null;
@@ -542,9 +544,10 @@ export interface TaskExecution {
   stage: "writing" | "revising" | "declaring" | "checking";
   startedAt: string;
   updatedAt: string;
-  usage: { calls: number; inputTokens: number; outputTokens: number; unmeasuredCalls: number };
+  usage: { calls: number; inputTokens: number; outputTokens: number; unmeasuredCalls: number; credits?: number; unpricedCalls?: number; acknowledgedUnknownCalls?: number };
 }
 export interface ChapterTaskView extends TaskExecution {
+  sceneWriting?: SceneWritingOptions & { completed: number; total: number; unknownUsageNeedsConfirmation: boolean };
   autoRevisionLimit: number;
   autoRevisionsUsed: number;
   automaticResultDraftId: string | null;
@@ -812,10 +815,10 @@ export const api = {
   resolveRevision: (chapter: number) => post<RevisionChapter>("/api/revision/resolve", { chapter }),
   /** 连写：启动登记授权并起后台循环；停下在章与章之间生效；知道了把停下状态清回空闲。 */
   run: () => request<RunView>("/api/run"),
-  startRun: (through: number) => post<RunView>("/api/run/start", { through }),
+  startRun: (through: number, sceneWriting?: SceneWritingOptions) => post<RunView>("/api/run/start", { through, ...(sceneWriting === undefined ? {} : { sceneWriting }) }),
   stopRun: () => post<RunView>("/api/run/stop", {}),
   acknowledgeRun: () => post<RunView>("/api/run/acknowledge", {}),
-  writeChapter: (input: { chapter: number; proposalId?: string; draftId?: string; newDraft?: boolean; requestId?: string }) => post<DraftView>("/api/chapter/start", { ...input, requestId: input.requestId ?? crypto.randomUUID() }),
+  writeChapter: (input: { chapter: number; proposalId?: string; draftId?: string; newDraft?: boolean; requestId?: string; sceneWriting?: SceneWritingOptions; acknowledgeUnknownUsage?: boolean }) => post<DraftView>("/api/chapter/start", { ...input, requestId: input.requestId ?? crypto.randomUUID() }),
   chapterTasks: () => request<ChapterTaskView[]>("/api/tasks"),
   controlTask: (chapter: number, draftId: string, action: "pause" | "end") => post<ChapterTaskView>("/api/chapter/control", { chapter, draftId, action }),
   workspace: () => request<WorkspacePayload>("/api/workspace"),

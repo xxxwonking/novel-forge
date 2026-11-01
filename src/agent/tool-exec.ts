@@ -18,6 +18,8 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { appendTurn, type CallOptions } from "../client/claude.js";
 import type { ModelClient } from "../client/model.js";
+import type { SceneWritingOptions } from "../task/types.js";
+import { parseSceneWriting } from "../task/generation-budget.js";
 import type { ChapterExcerpt, ForeshadowFilter } from "../task/tool-exec.js";
 import type { AgentEffect, ConversationMode, ConversationObserver } from "./types.js";
 import { PLANNING_ALLOWED_TOOLS } from "./tools.js";
@@ -74,7 +76,7 @@ export interface MainAgentToolContext {
   readonly rescheduleForeshadow: (foreshadowId: string, expectedBy: number) => Promise<AgentActionOutcome>;
   readonly abandonForeshadow: (foreshadowId: string, reason: string) => Promise<AgentActionOutcome>;
   readonly recordIdea: (text: string) => Promise<AgentActionOutcome>;
-  readonly writeNextChapter: (proposalId?: string) => Promise<AgentActionOutcome>;
+  readonly writeNextChapter: (proposalId?: string, sceneWriting?: SceneWritingOptions) => Promise<AgentActionOutcome>;
   readonly adoptChapter: (draftId: string, options?: DraftAdoptOptions) => Promise<AgentActionOutcome>;
 }
 
@@ -231,8 +233,13 @@ export async function executeMainTool(
     }
 
     // ── 任务类：走受控入口 ──────────────────────────────────────────────
-    case "write_next_chapter":
-      return action(readStr("proposalId") === "" ? await ctx.writeNextChapter() : await ctx.writeNextChapter(readStr("proposalId")));
+    case "write_next_chapter": {
+      if (input["sceneWriting"] === undefined) return action(readStr("proposalId") === "" ? await ctx.writeNextChapter() : await ctx.writeNextChapter(readStr("proposalId")));
+      let sceneWriting: SceneWritingOptions;
+      try { sceneWriting = parseSceneWriting(input["sceneWriting"]); }
+      catch (error) { return { result: err(error instanceof Error ? error.message : String(error)) }; }
+      return action(await ctx.writeNextChapter(readStr("proposalId") || undefined, sceneWriting));
+    }
     case "adopt_chapter": {
       const draftId = readStr("draftId");
       if (draftId === "") return { result: err("缺少 draftId；先用 list_chapter_drafts 确认要采用哪一版") };
