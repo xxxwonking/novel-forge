@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Button, StatusTag } from "./controls.js";
+import { Button, HelpTooltip, StatusTag } from "./controls.js";
 import {
   Check as CheckOutlined,
   X as CloseOutlined,
@@ -98,46 +98,64 @@ export function Message({
         <div className="msg-body">{turn.text}</div>
         <div className="msg-actions">
           {onRecover && (
-            <Button
-              size="sm"
-              variant="outline"
-              icon={<RotateCcw />}
-              disabled={disabled}
-              onClick={onRecover}
-            >
-              编辑后重试
-            </Button>
+            <HelpTooltip title="编辑后重试">
+              <Button
+                size="icon-sm"
+                variant="ghost"
+                className="text-muted-foreground hover:text-foreground max-[720px]:min-w-11"
+                icon={<RotateCcw aria-hidden="true" />}
+                aria-label="编辑后重试"
+                disabled={disabled}
+                onClick={onRecover}
+              />
+            </HelpTooltip>
           )}
-          <Button
-            size="sm"
-            variant="ghost"
-            icon={copied ? <CheckOutlined /> : <Copy />}
-            aria-label="复制消息"
-            onClick={() => void copy()}
-          >
-            {copied ? "已复制" : "复制"}
-          </Button>
-          {onEdit && (
+          <HelpTooltip title={copied ? "已复制" : "复制消息"}>
             <Button
-              size="sm"
+              size="icon-sm"
               variant="ghost"
-              icon={<Pencil />}
-              disabled={disabled}
-              onClick={onEdit}
-            >
-              编辑后发送
-            </Button>
+              className="text-muted-foreground hover:text-foreground max-[720px]:min-w-11"
+              icon={
+                copied ? (
+                  <CheckOutlined aria-hidden="true" />
+                ) : (
+                  <Copy aria-hidden="true" />
+                )
+              }
+              aria-label="复制消息"
+              onClick={() => void copy()}
+            />
+          </HelpTooltip>
+          {copied && (
+            <span className="sr-only" role="status">
+              消息已复制
+            </span>
+          )}
+          {onEdit && (
+            <HelpTooltip title="编辑后发送">
+              <Button
+                size="icon-sm"
+                variant="ghost"
+                className="text-muted-foreground hover:text-foreground max-[720px]:min-w-11"
+                icon={<Pencil aria-hidden="true" />}
+                aria-label="编辑后发送"
+                disabled={disabled}
+                onClick={onEdit}
+              />
+            </HelpTooltip>
           )}
           {onRetry && (
-            <Button
-              size="sm"
-              variant="outline"
-              icon={<RotateCcw />}
-              disabled={disabled}
-              onClick={onRetry}
-            >
-              重新发送
-            </Button>
+            <HelpTooltip title="重新发送">
+              <Button
+                size="icon-sm"
+                variant="ghost"
+                className="text-muted-foreground hover:text-foreground max-[720px]:min-w-11"
+                icon={<RotateCcw aria-hidden="true" />}
+                aria-label="重新发送"
+                disabled={disabled}
+                onClick={onRetry}
+              />
+            </HelpTooltip>
           )}
           {turn.status && (
             <span className="muted">
