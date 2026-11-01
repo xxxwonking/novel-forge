@@ -15,6 +15,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type Anthropic from "@anthropic-ai/sdk";
 import { ProjectStore } from "../src/store/persist.js";
+import { MaterialStore } from "../src/import/materials.js";
 import { ProjectSession } from "../src/server/state.js";
 import { EXPECTED_PREPARATION_DRAFT_TOOL_ORDER } from "../src/agent/tools.js";
 import type { CallResult } from "../src/client/claude.js";
@@ -68,6 +69,82 @@ const proposedInput = (session: ProjectSession, characters: unknown[]) => ({
 });
 
 describe("资料页的 AI 起草", () => {
+  it("整项目资料整理归并人物与大纲节点，只保存候选且不能夹带正文/设定变更",async()=>{
+    const setup=fresh([]);new MaterialStore(setup.root).save("大纲.md","林舟发现旧账。");
+    const baseFingerprint=setup.session.preparation.fingerprint();
+    const model=fakeClient([
+      toolUse("propose_preparation",{summary:"越界",baseFingerprint,changes:{setting:{premise:"另一本书"}}}),
+      toolUse("propose_preparation",{summary:"归并人物",baseFingerprint,changes:{characters:[drafted("C_Lin","林舟")]}}),modelText("人物已汇总。"),
+      toolUse("propose_preparation",{summary:"整理大纲",baseFingerprint,changes:{plotLines:[{id:"P_Main",label:"查账",weight:"main"}],outlineNodes:[{id:"N_First",plotLine:"P_Main",chapter:null,order:1,summary:"林舟发现旧账",kind:"info",characters:[],source:{file:"大纲.md",quote:"林舟发现旧账。"}}]}}),modelText("剧情已汇总。")]);
+    const session=new ProjectSession(setup.root,undefined,{client:model.client});
+    const result=await session.draftPreparation({focus:"materials",apply:true});
+    expect(session.preparation.get(result.proposalId!).changes.outlineNodes).toHaveLength(1);
+    expect(session.preparation.get(result.proposalId!).changes.outlineNodes?.[0]?.characters).toEqual(["C_Lin"]);
+    expect(session.preparation.view().proposals).toHaveLength(1);
+    expect(session.preparation.view().confirmed.characters).toEqual([]);expect(session.events()).toEqual([]);
+    expect(JSON.stringify(model.calls[1]?.messages)).toContain("只能整理人物");
+  });
+  it("大纲整理只读上传资料，不把正文抽样混成资料出处",async()=>{
+    const {root,session,calls}=fresh([]);new MaterialStore(root).save("大纲.md","主角沿旧案追查真相。");
+    session.imports.apply({files:[{name:"第一章.txt",text:"第一章 雨夜\n这是只能出现在正文抽样的细节：青铜钟裂开了。"}]});
+    await session.draftPreparation({focus:"outline",apply:true}).catch(()=>{});
+    const ask=String(calls[0]?.messages[0]?.content);expect(ask).toContain("主角沿旧案追查真相");expect(ask).not.toContain("青铜钟裂开了");
+  });
+  it("人物表中的命名条目必须归并或说明排除原因，不能静默漏掉",async()=>{
+    const setup=fresh([]);new MaterialStore(setup.root).save("人物档案.md","| 角色名称 | 身份 |\n|---|---|\n| 林舟 | 记者 |\n| 茶铺老者 | 老人 |\n");
+    const baseFingerprint=setup.session.preparation.fingerprint();
+    const model=fakeClient([toolUse("propose_preparation",{summary:"归并人物",baseFingerprint,changes:{characters:[drafted("C_Lin","林舟")]}}),toolUse("propose_preparation",{summary:"归并两位人物",baseFingerprint,changes:{characters:[drafted("C_Lin","林舟"),drafted("C_Elder","茶铺老者")]}}),modelText("已归并全部条目。")]);
+    const session=new ProjectSession(setup.root,undefined,{client:model.client});const result=await session.draftPreparation({focus:"materials",apply:false});
+    expect(session.preparation.view().proposals).toHaveLength(0);expect(result.characters).toHaveLength(2);
+    expect(JSON.stringify(model.calls[1]?.messages)).toContain("尚未交代：茶铺老者");
+  });
+  it("第二步大纲整理失败时不确认或写入第一步人物，原资料和正文保留",async()=>{
+    const setup=fresh([]);new MaterialStore(setup.root).save("大纲.md","林舟发现旧账。");const baseFingerprint=setup.session.preparation.fingerprint();
+    const model=fakeClient([toolUse("propose_preparation",{summary:"人物",baseFingerprint,changes:{characters:[drafted("C_Lin","林舟")]}}),modelText("人物已整理。")]);
+    const session=new ProjectSession(setup.root,undefined,{client:model.client});await expect(session.draftPreparation({focus:"materials",apply:true})).rejects.toThrow();
+    expect(session.preparation.view().proposals).toHaveLength(0);expect(session.meta.characters).toEqual([]);expect(new MaterialStore(setup.root).read("大纲.md")).toBe("林舟发现旧账。");
+  });
+  it("人物覆盖清单遵守资料上下文上限，不要求模型编写未读取的人物",async()=>{
+    const setup=fresh([]);new MaterialStore(setup.root).save("人物档案.md","字".repeat(60000)+"\n| 角色名称 | 身份 |\n|---|---|\n| 未读取人物 | 记者 |\n");
+    const baseFingerprint=setup.session.preparation.fingerprint();
+    const model=fakeClient([toolUse("propose_preparation",{summary:"本次资料有截断，未读取部分需分批整理",baseFingerprint,changes:{characters:[]}}),modelText("已整理可读取部分。")]);
+    const session=new ProjectSession(setup.root,undefined,{client:model.client});
+    await expect(session.draftPreparation({focus:"materials",apply:false})).resolves.toMatchObject({characters:[]});
+    expect(JSON.stringify(model.calls[0]?.messages)).not.toContain("未读取人物");
+  });
+  it("模型即使伪造未提供的确认工具，也不能在起草时确认候选",async()=>{
+    const setup=fresh([]);const p=setup.session.preparation.propose({summary:"等待作者确认",baseFingerprint:setup.session.preparation.fingerprint(),changes:{characters:[drafted("C_Lin","林舟")]}});
+    const model=fakeClient([toolUse("confirm_preparation",{proposalId:p.id}),modelText("已处理。")]);const session=new ProjectSession(setup.root,undefined,{client:model.client});
+    await session.draftPreparation({focus:"characters",apply:true}).catch(()=>{});
+    expect(session.preparation.get(p.id).status).toBe("proposed");expect(session.meta.characters).toEqual([]);
+  });
+  it("分步整理期间资料换版时不保存混合来源方案",async()=>{
+    const setup=fresh([]);const store=new MaterialStore(setup.root);store.save("大纲.md","林舟发现旧账。");
+    const baseFingerprint=setup.session.preparation.fingerprint();
+    const model=fakeClient([
+      toolUse("propose_preparation",{summary:"人物",baseFingerprint,changes:{characters:[]}}),modelText("人物完成。"),
+      toolUse("propose_preparation",{summary:"剧情",baseFingerprint,changes:{plotLines:[]}}),modelText("剧情完成。"),
+    ]);
+    const client=Object.create(model.client) as typeof model.client;
+    client.call=async options=>{const result=await model.client.call(options);if(model.calls.length===2)store.save("大纲.md","作者在两步之间修订了资料。");return result;};
+    const session=new ProjectSession(setup.root,undefined,{client});
+    await expect(session.draftPreparation({focus:"materials",apply:true})).rejects.toThrow(/资料发生变化/u);
+    expect(session.preparation.view().proposals).toEqual([]);expect(session.meta.characters).toEqual([]);
+  });
+  it("没有上传资料时，大纲整理在模型调用前说明缺项",async()=>{
+    const {session,calls}=fresh([]);await expect(session.draftPreparation({focus:"outline",apply:true})).rejects.toThrow(/上传.*资料/u);expect(calls).toHaveLength(0);
+  });
+  it("分章大纲有具体内容时不能静默漏掉终章，标题目录则不强制编满节点",async()=>{
+    const setup=fresh([]);new MaterialStore(setup.root).save("分章大纲.md","第一章 雨夜\n林舟收到当票。\n第5000章 归还\n林舟归还当票，结束调查。");
+    const baseFingerprint=setup.session.preparation.fingerprint();
+    const first={id:"N_First",plotLine:null,chapter:1,order:1,summary:"林舟收到当票",kind:"info",characters:[],source:{file:"分章大纲.md",quote:"第一章 雨夜\n林舟收到当票。"}};
+    const last={...first,id:"N_Last",chapter:5000,order:2,summary:"林舟结束调查",source:{file:"分章大纲.md",quote:"第5000章 归还\n林舟归还当票，结束调查。"}};
+    const model=fakeClient([toolUse("propose_preparation",{summary:"只提交开篇",baseFingerprint,changes:{outlineNodes:[first]}}),toolUse("propose_preparation",{summary:"完整覆盖",baseFingerprint,changes:{outlineNodes:[first,last]}}),modelText("已补齐。")]);
+    const session=new ProjectSession(setup.root,undefined,{client:model.client});const result=await session.draftPreparation({focus:"outline",apply:true});
+    expect(session.preparation.get(result.proposalId!).changes.outlineNodes).toHaveLength(2);
+    expect(JSON.stringify(model.calls[1]?.messages)).toContain("第5000章 归还");expect(session.chapterNumbers()).toEqual([]);
+  });
+
   it("起草参数缺少根级摘要时明确返回完整根对象示例，不把卷纲摘要当成提案摘要", async () => {
     const setup = fresh([]);
     const baseFingerprint = setup.session.preparation.fingerprint();

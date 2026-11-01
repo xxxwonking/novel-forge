@@ -278,6 +278,8 @@ export async function runAgentLoop(
   maxRounds: number,
   observe?: ConversationObserver,
   mode: ConversationMode = "normal",
+  /** 无人值守起草只允许本轮声明的工具；交互对话保留已有工具别名兼容与模式校验。 */
+  restrictTools = false,
 ): Promise<AgentLoopResult> {
   let messages: readonly Anthropic.MessageParam[] = callOpts.messages;
   const quotes = new ConversationQuotes(ctx.getChapterText, messages, ctx.getChapterDraft);
@@ -327,7 +329,12 @@ export async function runAgentLoop(
     for (const b of result.message.content) {
       if (b.type !== "tool_use") continue;
       observe?.({ type: "tool", name: b.name, status: "started", ok: true });
-      const { result: tr, effect } = await executeMainTool(b, ctx, mode, quotes);
+      const allowed = !restrictTools || callOpts.tools?.some(tool => tool.name === b.name) === true;
+      const message = `本次任务不允许调用工具 ${b.name}，请只使用本轮提供的工具。`;
+      const { result: tr, effect } = allowed ? await executeMainTool(b,ctx,mode,quotes) : {
+        result:{type:"tool_result" as const,tool_use_id:b.id,content:message,is_error:true},
+        effect:{kind:"action_failed" as const,tool:b.name,message},
+      };
       observe?.({ type: "tool", name: b.name, status: "finished", ok: tr.is_error !== true });
       toolResults.push(tr);
       if (effect !== undefined) effects.push(effect);

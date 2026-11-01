@@ -55,6 +55,13 @@ const plan = object({
   plants: array(object({ label: nonempty, weight })), characters: array(id("C"), 1), locations: array(id("S"), 1),
 });
 
+const outlineNodes = array(object({
+  id: id("N"), plotLine: nullableId("P"), chapter: {type:["integer","null"], minimum:1}, order:integer(1),
+  summary: nonempty, kind:enumeration("action","info","relation","resource","decision"), characters:array(id("C")),
+  source:object({file:nonempty,quote:nonempty}),
+}));
+export function validateOutlineNodes(value:unknown):void { validate(value,outlineNodes,"大纲剧情节点"); }
+
 export const PREPARATION_CHANGES_SCHEMA = object({
   setting: object({
     title: nonempty, genre, platform, premise: nonempty, centralConflict: text,
@@ -65,6 +72,7 @@ export const PREPARATION_CHANGES_SCHEMA = object({
   profile: object({ genre, platform, targetWords: integer(1) }, true),
   writingRules: strings, characters: array(character),
   settings: array(object({ id: id("S"), name: nonempty, kind: enumeration("location", "organization"), description: nonempty, facts: strings })),
+  outlineNodes,
   plotLines: array(object({ id: id("P"), label: nonempty, weight })),
   volumes: array(object({ volume: integer(1), title: nonempty, summary: text })),
   beats: array(object({ chapter: integer(1), volume: integer(1), plan })),
@@ -84,7 +92,7 @@ export const PREPARATION_CHANGES_SCHEMA = object({
    */
   foreshadows: array(object({ label: nonempty, intent: nonempty, weight, expectedBy: integer(1) })),
   removals: object({
-    characters: array(id("C")), settings: array(id("S")), plotLines: array(id("P")),
+    outlineNodes: array(id("N")), characters: array(id("C")), settings: array(id("S")), plotLines: array(id("P")),
     volumes: array(integer(1)), beats: array(integer(1)),
   }, true),
 }, true);

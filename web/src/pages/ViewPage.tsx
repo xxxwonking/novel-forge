@@ -6,6 +6,7 @@
  * intent 决定了什么算"收" —— 它必须能看到。
  */
 
+import { OutlineNodes } from "../components/OutlineNodes.js";
 import { api, type Views } from "../api.js";
 import { Chip } from "../components/Chip.js";
 import { useFetch } from "../hooks.js";
@@ -148,10 +149,12 @@ function ForeshadowBody({ views, onJump, highlight }: BodyProps): React.ReactEle
 }
 
 function PlotBody({ views, onJump, highlight }: BodyProps): React.ReactElement {
-  if (views.plotTracks.length === 0) return <div className="empty">还没有情节线。</div>;
+  if (views.plotTracks.length === 0 && !(views.outlineNodes?.length)) return <div className="empty">还没有剧情内容。<a href="#/preparation">导入大纲并整理剧情节点</a>，或从已有正文逐章反推。</div>;
 
   return (
     <>
+      {views.plotTracks.every(t=>t.nodes.length===0) && <p className="muted">尚未从正文确认剧情事件。大纲节点属于资料推断，可在下方浏览并在白板查看。</p>}
+      <OutlineNodes nodes={views.outlineNodes??[]} lines={views.plotTracks}/>
       <PlotTracks axis={views.axis} tracks={views.plotTracks} onJump={onJump} highlight={highlight} />
 
       <div className="table-panel">

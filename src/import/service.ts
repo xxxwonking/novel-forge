@@ -17,11 +17,12 @@
  *     现有正文，换掉正文等于让整条事件流指向不存在的原文；要改走稿件修订。
  */
 
+import { IMPORT_FILE_KINDS } from "./file-kind.js";
 import { ChapterWriteError } from "../server/chapter-input.js";
 import { countWords } from "../text/measure.js";
 import type { ProjectSession } from "../server/state.js";
 import { joinChapterFiles, splitChapters, type ImportFile, type SplitResult } from "./split.js";
-import { MATERIAL_MAX_CHARS, MaterialStore } from "./materials.js";
+import { MaterialStore, materialIssue } from "./materials.js";
 
 type Source = Pick<ProjectSession, "chapterText" | "chapterNumbers" | "events" | "allDrafts" | "putChapters">;
 
@@ -47,9 +48,7 @@ export interface ImportConflict {
 
 /** 资料文件的体检：过大的与名字不合法的要在预览里说清楚，不能等到导入才发现。 */
 function materialNotes(materials: readonly ImportFile[]): readonly string[] {
-  const tooBig = materials.filter((m) => m.text.length > MATERIAL_MAX_CHARS).map((m) => m.name);
-  if (tooBig.length === 0) return [];
-  return [`${tooBig.length} 份资料过大（超过 ${Math.round(MATERIAL_MAX_CHARS / 10000)} 万字），不收进作品资料：${tooBig.join("、")}。如果它是正文，请确认每章都有章节标记。`];
+  return materials.flatMap(m=>{const reason=materialIssue(m.name,m.text);return reason===null?[]:[`资料「${m.name}」未收下：${reason}。`];});
 }
 
 export interface ImportPreview extends SplitResult {
@@ -104,7 +103,9 @@ function parseFiles(raw: unknown): readonly ImportFile[] {
     if (item === null || typeof item !== "object" || typeof (item as Record<string, unknown>)["name"] !== "string" || typeof (item as Record<string, unknown>)["text"] !== "string") {
       throw new ChapterWriteError(400, `files[${index}] 需要 name 与 text 两个字符串字段`);
     }
-    return { name: (item as { name: string }).name, text: (item as { text: string }).text };
+    const value = item as { name: string; text: string; kind?: unknown };
+    if (value.kind !== undefined && (typeof value.kind !== "string" || !IMPORT_FILE_KINDS.includes(value.kind))) throw new ChapterWriteError(400, `files[${index}] 的分类无效`);
+    return { name: value.name, text: value.text, ...(value.kind === undefined ? {} : {kind: value.kind as Exclude<ImportFile["kind"],undefined>}) };
   });
 }
 
@@ -114,7 +115,7 @@ export class ImportService {
 
   preview(raw: unknown): ImportPreview {
     const { text, joinNotes, materials } = parseRequest(raw);
-    const split = splitChapters(text);
+    const split = text.trim() === "" && materials.length > 0 ? { marker: null, chapters: [], preface: null, problems: [], notes: [] } : splitChapters(text);
     const conflicts = split.chapters.flatMap((chapter) => {
       const existing = this.source.chapterText(chapter.chapter);
       if (existing === undefined) return [];
@@ -130,7 +131,7 @@ export class ImportService {
             : `第 ${chapter.chapter} 章已有 ${countWords(existing)} 字正文，勾选覆盖后才会被替换。`,
       }];
     });
-    const usable = split.problems.length === 0 && split.chapters.length > 0;
+    const usable = split.problems.length === 0 && (split.chapters.length > 0 || materials.some(m => materialIssue(m.name,m.text) === null));
     return {
       ...split,
       notes: [...joinNotes, ...materialNotes(materials), ...split.notes, ...this.holes(split.chapters.map((c) => c.chapter))],
@@ -139,7 +140,7 @@ export class ImportService {
       ready: usable && conflicts.every((c) => c.identical),
       readyWithOverwrite: usable && conflicts.every((c) => !c.locked),
       // 过大的那几份 materialNotes 已经点名说不收，这里就不该再算进「会收下」。
-      materials: materials.filter((m) => m.text.length <= MATERIAL_MAX_CHARS).map((m) => m.name),
+      materials: materials.filter((m) => materialIssue(m.name,m.text) === null).map((m) => m.name),
     };
   }
 
@@ -147,6 +148,7 @@ export class ImportService {
     const { overwrite, materials } = parseRequest(raw);
     const preview = this.preview(raw);
     if (preview.problems.length > 0) throw new ChapterWriteError(400, preview.problems.join("；"));
+    if(preview.chapters.length===0 && preview.materials.length===0) throw new ChapterWriteError(400,"没有可导入的正文或资料，请核对预览中的文件说明");
     const blocked = preview.conflicts.filter((c) => c.locked);
     if (blocked.length > 0) throw new ChapterWriteError(409, blocked.map((c) => c.reason).join("；"));
     const replacing = preview.conflicts.filter((c) => !c.identical);

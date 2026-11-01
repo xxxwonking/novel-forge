@@ -6,6 +6,8 @@
  * 在这里重新声明一遍是诚实的：它描述的是报文，不是内存里的对象。
  */
 
+import type { ImportFileInput, ImportResult, ImportSource } from "./import-types.js";
+export type { ImportFileInput, ImportResult, ImportSource } from "./import-types.js";
 import type { CharacterInput, CharacterRecord, ForeshadowClaim, PlotLineInput, RelationClaim, Removals, SettingInput } from "./preparation-changes.js";
 
 export type ForeshadowWeight = "main" | "sub" | "detail";
@@ -81,17 +83,24 @@ export interface TextAnchor {
   occurrence: number;
 }
 
+export interface OutlineNode {
+  id:string;plotLine:string|null;chapter:number|null;order:number;summary:string;kind:"action"|"info"|"relation"|"resource"|"decision";
+  characters:string[];source:{file:string;quote:string};
+}
+
 export interface PlotBoardNode {
   id: string;
   groupId: string;
-  chapter: number;
+  chapter: number | null;
   volume: number | null;
   summary: string;
   kind: "action" | "info" | "relation" | "resource" | "decision";
-  status: "written" | "planned";
+  status: "written" | "planned" | "outlined";
   source: string;
   characters: { id: string; name: string }[];
   point: AnchorPoint | null;
+  materialSource?: {file:string;quote:string};
+  outlineOrder?:number;
 }
 export interface PlotBoard {
   groups: { id: string; label: string; weight: ForeshadowWeight | null }[];
@@ -331,6 +340,7 @@ export interface RelationGraph {
 }
 
 export interface Views {
+  outlineNodes?: OutlineNode[];
   axis: { from: number; to: number; current: number };
   foreshadows: ForeshadowLane[];
   plotTracks: PlotTrack[];
@@ -568,6 +578,7 @@ export interface VolumeCard {
 }
 
 export interface PreparationContent {
+  outlineNodes?: OutlineNode[];
   setting: { title: string; genre: string; platform: string; premise: string; centralConflict: string; openingSituation: string; pov: string; tense: string; protagonistTraits: string[]; protagonistForbidden: string[]; specialAbility: string; abilityLimits: string[]; worldRules: string[]; styleKeywords: string[]; romanceLine: string; taboos: string[] };
   profile: { genre: string; platform: string; targetWords: number };
   discipline: { version: string; rules: string[] };
@@ -604,7 +615,7 @@ export interface ReviewSettings {
 }
 
 /** 起草的范围：人物 / 情节线 / 整份资料 / 后面几章的章计划。 */
-export type DraftFocus = "characters" | "plotlines" | "foreshadows" | "full" | "chapters";
+export type DraftFocus = "characters" | "plotlines" | "foreshadows" | "full" | "chapters" | "materials" | "outline";
 
 export interface PreparationDraftResult {
   /** 起草回合的说明：补了什么、哪里还需要作者拿主意。 */
@@ -617,6 +628,8 @@ export interface PreparationDraftResult {
 }
 
 export interface PreparationPayload {
+  materialWarnings?: string[];
+  materials: {name:string;file:string;words:number;kind:string}[];
   plannedForeshadows: { id: string; label: string; intent: string; weight: string; expectedBy: number }[];
   taskPolicy: { autoRevisionLimit: number };
   fingerprint: string; confirmed: PreparationContent; nextChapter: number;
@@ -626,9 +639,6 @@ export interface PreparationPayload {
 }
 
 // ── 请求 ────────────────────────────────────────────────────────────────
-
-/** 正文来源二选一：粘贴/单文件的整本，或每章一个文件。 */
-export type ImportSource = { text: string } | { files: { name: string; text: string }[] };
 
 export type ExportSelection = { scope: "all" } | { scope: "range"; from: number; to: number } | { scope: "volume"; volume: number };
 export type ExportKind = "manuscript" | "bible";
@@ -701,12 +711,6 @@ export interface InferenceEstimate {
   samples: number;
 }
 
-export interface ImportResult {
-  imported: number[]; replaced: number[]; unchanged: number[];
-  totalWords: number; nextChapter: number;
-  /** 随正文一并收下的资料文件名（角色档案、大纲这类）。 */
-  materials: string[];
-}
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   // 地址属于当前页面，每次请求捕获自己的作品；另一个标签页切换不会改变它。
@@ -829,7 +833,7 @@ export const api = {
   health: (n: number) => request<HealthPayload>(`/api/health?n=${n}`),
   credits: () => request<CreditSummary>("/api/credits"),
   materials: () => request<{ materials: { name: string; file: string; words: number }[] }>("/api/materials"),
-  uploadMaterials: (files: { name: string; text: string }[]) => post<{ saved: string[]; skipped: { name: string; reason: string }[] }>("/api/materials", { files }),
+  uploadMaterials: (files: ImportFileInput[]) => post<{ saved: string[]; skipped: { name: string; reason: string }[] }>("/api/materials", { files }),
   search: (q: string) => request<SearchResult>(`/api/search?q=${encodeURIComponent(q)}`),
   anchor: (a: TextAnchor) =>
     request<AnchorPayload>(

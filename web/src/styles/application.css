@@ -1,4 +1,9 @@
 @layer components {
+  .import-file-kinds { display:grid;gap:12px;max-height:280px;overflow:auto;margin-block:12px; }
+  .import-file-kind { display:grid;grid-template-columns:minmax(0,1fr) minmax(140px,220px);align-items:center;gap:12px;overflow-wrap:anywhere; }
+  .materials-list { padding-left:20px;overflow-wrap:anywhere; }
+  .outline-nodes details { margin-top:12px;font-size:13px; }
+  .outline-nodes blockquote { margin:12px 0;white-space:pre-wrap;border-left:2px solid var(--border);padding-left:12px; }
   h1,h2,h3,h4 { font-family: var(--ui-font); letter-spacing: -0.015em; }
   .page-head h1 { font-size: 24px; font-weight: 600; }
   .page-head p { max-width: 75ch; }

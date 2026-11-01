@@ -13,6 +13,7 @@
  *    唯一不进正文的是章节标记行本身 —— 它是目录信息，不是作者写的句子。
  */
 
+import { materialKind, type ImportFileKind } from "./file-kind.js";
 import { countWords } from "../text/measure.js";
 
 export interface ImportChapter {
@@ -51,10 +52,10 @@ export interface SplitResult {
 const NUMBER = "[0-9０-９〇零一二三四五六七八九十百千两]{1,8}";
 const TAIL = "(?![^\\s:：.．、\\-－—])\\s*(?:[:：.．、\\-－—]\\s*)?(.*)$";
 const MARKERS: readonly { readonly name: string; readonly pattern: RegExp }[] = [
-  { name: "章", pattern: new RegExp(`^[ \t　]*第\\s*(${NUMBER})\\s*章${TAIL}`, "u") },
-  { name: "回", pattern: new RegExp(`^[ \t　]*第\\s*(${NUMBER})\\s*回${TAIL}`, "u") },
-  { name: "节", pattern: new RegExp(`^[ \t　]*第\\s*(${NUMBER})\\s*节${TAIL}`, "u") },
-  { name: "Chapter", pattern: /^[ \t]*chapter\s+([0-9]{1,6})(?![^\s:.\-])\s*(?:[:.\-]\s*)?(.*)$/iu },
+  { name: "章", pattern: new RegExp(`^[ \t　]*(?:#{1,6}[ \t]+)?第\\s*(${NUMBER})\\s*章${TAIL}`, "u") },
+  { name: "回", pattern: new RegExp(`^[ \t　]*(?:#{1,6}[ \t]+)?第\\s*(${NUMBER})\\s*回${TAIL}`, "u") },
+  { name: "节", pattern: new RegExp(`^[ \t　]*(?:#{1,6}[ \t]+)?第\\s*(${NUMBER})\\s*节${TAIL}`, "u") },
+  { name: "Chapter", pattern: /^[ \t]*(?:#{1,6}[ \t]+)?chapter\s+([0-9]{1,6})(?![^\s:.\-])\s*(?:[:.\-]\s*)?(.*)$/iu },
 ];
 
 /**
@@ -188,6 +189,7 @@ export function splitChapters(input: string): SplitResult {
 // ── 多文件 ──────────────────────────────────────────────────────────────
 
 export interface ImportFile {
+  readonly kind?: ImportFileKind;
   readonly name: string;
   readonly text: string;
 }
@@ -253,11 +255,10 @@ export function joinChapterFiles(files: readonly ImportFile[]): JoinResult {
   const collator = new Intl.Collator("zh", { numeric: true });
   const ordered = files.map((file) => ({ ...file, key: fileChapterKey(file.name) }))
     .sort((a, b) => (a.key ?? Number.POSITIVE_INFINITY) - (b.key ?? Number.POSITIVE_INFINITY) || collator.compare(a.name, b.name));
-  const normalized = ordered.map((file) => ({ name: file.name, lines: normalize(file.text).split("\n") }));
-  const marker = MARKERS.find(({ pattern }) => normalized.some((file) => firstMarkerLine(file.lines, pattern) >= 0));
-  // 一个标记都没有：原样拼上交给 splitChapters，由它报那条标准的「没有识别到章节标记」。
-  // 这时没有哪份文件能算正文，全部交给调用方当资料收下。
-  if (marker === undefined) return { text: normalized.map((file) => file.lines.join("\n")).join("\n\n"), order: ordered.map((file) => file.name), notes: [], materials: files };
+  const normalized = ordered.map((file) => ({ name: file.name, lines: normalize(file.text).split("\n"), material: file.kind === "chapter" ? false : file.kind !== undefined && file.kind !== "auto" || materialKind(file.name,file.text) !== null }));
+  const marker = MARKERS.find(({ pattern }) => normalized.some((file) => !file.material && firstMarkerLine(file.lines, pattern) >= 0));
+  // 没有正文标记时，允许纯资料项目；预览仍逐份校验是否可以保存。
+  if (marker === undefined) return { text: "", order: [], notes: [], materials: files };
 
   const skipped: string[] = [];
   const contents: string[] = [];
@@ -266,7 +267,7 @@ export function joinChapterFiles(files: readonly ImportFile[]): JoinResult {
   const parts: string[] = [];
   for (const file of normalized) {
     const at = firstMarkerLine(file.lines, marker.pattern);
-    if (at < 0) { skipped.push(file.name); materials.push({ name: file.name, text: file.lines.join("\n") }); continue; }
+    if (file.material || at < 0) { skipped.push(file.name); materials.push({ name: file.name, text: file.lines.join("\n") }); continue; }
     if (looksLikeContents(file.lines, marker.pattern)) { contents.push(file.name); materials.push({ name: file.name, text: file.lines.join("\n") }); continue; }
     const before = trimBody(file.lines.slice(0, at));
     if (before !== "") prefaced.push({ name: file.name, words: countWords(before) });
@@ -274,7 +275,7 @@ export function joinChapterFiles(files: readonly ImportFile[]): JoinResult {
   }
 
   const notes: string[] = [];
-  if (skipped.length > 0) notes.push(`${skipped.length} 个文件里没有章节标记，不作为正文导入，会收进作品资料：${skipped.join("、")}。`);
+  if (skipped.length > 0) notes.push(`${skipped.length} 个文件识别为附属资料，不作为正文导入，会收进作品资料：${skipped.join("、")}。`);
   if (contents.length > 0) notes.push(`${contents.join("、")} 看起来是目录（有章节标题但没有正文），不作为正文导入，会收进作品资料。`);
   if (prefaced.length > 0) {
     const named = prefaced.slice(0, 3).map((f) => `${f.name}（${f.words} 字）`).join("、");

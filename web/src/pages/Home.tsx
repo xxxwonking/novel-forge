@@ -108,7 +108,8 @@ export function Home({ overview, onAction, onIgnore, refresh }: HomeProps): Reac
         setImporting(false);
         const done = [result.imported.length > 0 ? `新增 ${result.imported.length} 章` : "", result.replaced.length > 0 ? `覆盖 ${result.replaced.length} 章` : "", result.unchanged.length > 0 ? `${result.unchanged.length} 章内容未变` : ""].filter(Boolean).join("、");
         const kept = result.materials.length > 0 ? `另外收下 ${result.materials.length} 份资料：${result.materials.join("、")}，识别人物时会用上。` : "";
-        setNotice(`已导入正文：${done}${result.totalWords > 0 ? `，共 ${result.totalWords} 字` : ""}，下一章是第 ${result.nextChapter} 章。${kept}`);
+        setNotice(`导入完成：${done || "未新增正文"}${result.totalWords > 0 ? `，共 ${result.totalWords} 字` : ""}。${kept}${result.analysis?.error?`资料已保存，自动整理未完成：${result.analysis.error}。请到作品资料重试。`:result.analysis?.proposalId?"已生成待确认资料方案。":""}`);
+        if(result.analysis?.proposalId) window.location.hash=`/preparation?proposal=${encodeURIComponent(result.analysis.proposalId)}`;
         refresh();
       }} />}
 

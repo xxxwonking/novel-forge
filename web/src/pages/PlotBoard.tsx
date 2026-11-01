@@ -15,7 +15,7 @@ const StoryCard = memo(function StoryCard({ data, selected }: NodeProps<StoryNod
   const event = data.card.type === "event" ? data.card.members[0] : undefined;
   return <article className="board-card" data-status={event?.status ?? "folded"} data-selected={selected}>
     <Handle type="target" position={Position.Left} isConnectable={false} />
-    <div className="board-card-meta"><span>{data.card.type === "group" ? "情节线" : data.card.title}</span><Chip className="board-badge">{event ? event.status === "written" ? "已写" : "计划" : "已收起"}</Chip></div>
+    <div className="board-card-meta"><span>{data.card.type === "group" ? "情节线" : data.card.title}</span><Chip className="board-badge">{event ? event.status === "written" ? "已写" : event.status === "outlined" ? "资料" : "计划" : "已收起"}</Chip></div>
     <div className="board-card-line">{data.groupLabel}</div>
     <p>{data.card.summary}</p>
     <div className="board-card-foot">{event ? <><span>{KIND[event.kind]}</span><span>{event.characters.map(c => c.name).join("、") || "未标注人物"}</span></>
@@ -98,7 +98,7 @@ function BoardCanvas({ board, projectId, onJump, reload }: { board: BoardData; p
       const source = visible.get(edge.source), target = visible.get(edge.target);
       if (!source || !target || source === target || unique.has(`${source}:${target}`)) return [];
       unique.add(`${source}:${target}`);
-      const planned = board.nodes.find(n => n.id === edge.target)?.status === "planned";
+      const planned = board.nodes.find(n => n.id === edge.target)?.status !== "written";
       return [{ id: `sequence:${source}:${target}`, source, target, type: "smoothstep", selectable: false, focusable: false,
         ariaLabel: "同线事件的先后顺序", style: { strokeDasharray: planned ? "5 5" : undefined } }];
     });
@@ -121,11 +121,12 @@ function BoardCanvas({ board, projectId, onJump, reload }: { board: BoardData; p
   const selected = cards.find(c => c.id === selectedId);
   const selectedEvent = selected?.type === "event" ? selected.members[0] : undefined;
   const written = board.nodes.filter(n => n.status === "written").length;
+  const outlined = board.nodes.filter(n=>n.status === "outlined").length;
   const search = query.trim().toLocaleLowerCase();
-  const found = search ? board.nodes.filter(n => `${n.chapter} ${n.summary} ${n.characters.map(c => c.name).join(" ")}`.toLocaleLowerCase().includes(search)) : [];
+  const found = search ? board.nodes.filter(n => `${n.chapter ?? ""} ${n.summary} ${n.characters.map(c => c.name).join(" ")}`.toLocaleLowerCase().includes(search)) : [];
 
   return <section className="plot-board" aria-label="剧情白板">
-    <header className="board-header"><div><h1>剧情白板</h1><p>{written} 个已写事件 · {board.nodes.length - written} 个未来计划</p></div><div className="board-actions"><Button className="board-button board-directory-toggle" aria-expanded={directoryOpen} aria-controls="board-directory" onClick={() => setDirectoryOpen(!directoryOpen)}>情节目录</Button><a className="board-button" href="#/plotlines">章节轨道</a><Button className="board-button" onClick={reload}>刷新数据</Button></div></header>
+    <header className="board-header"><div><h1>剧情白板</h1><p>{written} 个已写事件 · {board.nodes.length - written - outlined} 个未来计划 · {outlined} 个资料节点</p></div><div className="board-actions"><Button className="board-button board-directory-toggle" aria-expanded={directoryOpen} aria-controls="board-directory" onClick={() => setDirectoryOpen(!directoryOpen)}>情节目录</Button><a className="board-button" href="#/plotlines">章节轨道</a><Button className="board-button" onClick={reload}>刷新数据</Button></div></header>
     <div className="board-toolbar" role="group" aria-label="画布操作">
       <Button className="board-button" onClick={() => void flow.current?.zoomOut()}>缩小</Button><output aria-label="画布缩放">{zoom < 0.01 ? (zoom * 100).toFixed(2) : Math.round(zoom * 100)}%</output><Button className="board-button" onClick={() => void flow.current?.zoomIn()}>放大</Button>
       <Button className="board-button" onClick={() => void flow.current?.fitView({ padding: 0.12, minZoom, maxZoom: 0.85 })}>适配全部</Button>
@@ -137,14 +138,14 @@ function BoardCanvas({ board, projectId, onJump, reload }: { board: BoardData; p
     <div className="board-workspace" data-details={selected !== undefined}>
       <aside className="board-directory" id="board-directory" data-open={directoryOpen} aria-label="情节目录">
         <h2>情节线</h2><label className="board-search">查找剧情或章号<Input value={query} onChange={e => setQuery(e.target.value)} placeholder="摘要、人物、章号" type="search" /></label>
-        {search ? <div className="board-search-results"><p>{found.length} 个匹配事件</p>{found.map(event => <Button key={event.id} className="board-result block h-auto w-full whitespace-normal text-left" onClick={() => { setLayout(old => ({ ...old, collapsed: old.collapsed.filter(id => id !== groupKey(event.groupId) && id !== chapterKey(event.groupId, event.chapter)) })); setPendingFocus(event.id); }}>第 {event.chapter} 章 · {event.summary}</Button>)}</div>
+        {search ? <div className="board-search-results"><p>{found.length} 个匹配事件</p>{found.map(event => <Button key={event.id} className="board-result block h-auto w-full whitespace-normal text-left" onClick={() => { setLayout(old => ({ ...old, collapsed: old.collapsed.filter(id => id !== groupKey(event.groupId) && id !== chapterKey(event.groupId, event.chapter)) })); setPendingFocus(event.id); }}>{event.chapter===null?"资料未标注章号":`第 ${event.chapter} 章`} · {event.summary}</Button>)}</div>
           : board.groups.map(group => {
             const members = board.nodes.filter(n => n.groupId === group.id);
             const folded = layout.collapsed.includes(groupKey(group.id));
-            const chapters = [...new Set(members.map(n => n.chapter))].sort((a, b) => a - b);
+            const chapters = [...new Set(members.map(n => n.chapter))].sort((a, b) => (a ?? Infinity) - (b ?? Infinity));
             return <section className="board-line" key={group.id}><div className="board-line-title"><Chip className="board-badge">{group.weight === null ? "未分线" : WEIGHT[group.weight]}</Chip><span>{members.length}</span></div><h3>{group.label}</h3>
               <div className="board-actions"><Button className="board-button" aria-expanded={!folded} onClick={() => toggle(groupKey(group.id))}>{folded ? "展开" : "收起"}</Button><Button className="board-button" disabled={members.length === 0} onClick={() => { const card = cards.find(c => c.groupId === group.id); if (card) focus(card); }}>定位</Button></div>
-              {!folded && chapters.length > 0 && <details><summary>按章节浏览 · {chapters.length} 章</summary><div className="board-chapters">{chapters.map(chapter => <div key={chapter}><Button className="board-chapter-link" onClick={() => { const card = cards.find(c => c.groupId === group.id && c.members.some(n => n.chapter === chapter)); if (card) focus(card); }}>第 {chapter} 章</Button><Button className="board-button" aria-label={`${layout.collapsed.includes(chapterKey(group.id, chapter)) ? "展开" : "收起"}${group.label}第 ${chapter} 章`} aria-expanded={!layout.collapsed.includes(chapterKey(group.id, chapter))} onClick={() => toggle(chapterKey(group.id, chapter))}>{layout.collapsed.includes(chapterKey(group.id, chapter)) ? "展开" : "收起"}</Button></div>)}</div></details>}
+              {!folded && chapters.length > 0 && <details><summary>按章节与资料浏览 · {chapters.filter(c=>c!==null).length} 章{chapters.includes(null)?" + 未标章号资料":""}</summary><div className="board-chapters">{chapters.map(chapter => <div key={chapter??"unassigned"}><Button className="board-chapter-link" onClick={() => { const card = cards.find(c => c.groupId === group.id && c.members.some(n => n.chapter === chapter)); if (card) focus(card); }}>{chapter===null?"未标注章号的资料":`第 ${chapter} 章`}</Button><Button className="board-button" aria-label={`${layout.collapsed.includes(chapterKey(group.id, chapter)) ? "展开" : "收起"}${group.label}${chapter===null?"未标章号资料":`第 ${chapter} 章`}`} aria-expanded={!layout.collapsed.includes(chapterKey(group.id, chapter))} onClick={() => toggle(chapterKey(group.id, chapter))}>{layout.collapsed.includes(chapterKey(group.id, chapter)) ? "展开" : "收起"}</Button></div>)}</div></details>}
             </section>;
           })}
       </aside>
@@ -168,10 +169,11 @@ function BoardCanvas({ board, projectId, onJump, reload }: { board: BoardData; p
 export function PlotBoardDetails({ node, groupLabel, onJump, onClose }: { node: PlotBoardNode; groupLabel: string; onJump: (chapter: number, quote: string) => void; onClose: () => void }): React.ReactElement {
   const point = node.status === "written" ? node.point : null;
   return <aside className="board-details" aria-label="剧情节点详情"><div className="board-detail-head"><h2>节点详情</h2><Button className="board-button" onClick={onClose}>关闭</Button></div>
-    <div className="board-actions"><Chip className="board-badge" data-status={node.status}>{node.status === "written" ? "已写事实" : "未来计划"}</Chip><Chip className="board-badge">{KIND[node.kind]}</Chip></div>
-    <h3>第 {node.chapter} 章</h3><p className="board-detail-summary">{node.summary}</p>
+    <div className="board-actions"><Chip className="board-badge" data-status={node.status}>{node.status === "written" ? "已写事实" : node.status === "outlined" ? "资料推断" : "未来计划"}</Chip><Chip className="board-badge">{KIND[node.kind]}</Chip></div>
+    <h3>{node.chapter===null?"资料未标注章号":`第 ${node.chapter} 章`}</h3><p className="board-detail-summary">{node.summary}</p>
     <dl><dt>情节线</dt><dd>{groupLabel}</dd><dt>来源</dt><dd>{node.source}</dd>{node.volume !== null && <><dt>卷</dt><dd>第 {node.volume} 卷</dd></>}<dt>关联人物</dt><dd>{node.characters.map(c => c.name).join("、") || "未标注人物"}</dd></dl>
+    {node.materialSource && <section><h3>资料出处 · {node.materialSource.file}</h3><blockquote>{node.materialSource.quote}</blockquote><p className="board-source-note">来自大纲资料，尚未核对正文；不是正文原文定位。</p></section>}
     {point !== null ? <><h3>原文出处</h3><blockquote>{point.anchor.quote}</blockquote>{point.resolution.status === "stale" ? <p role="status">原文已变动或章节不存在，暂时无法定位。请在章节轨道核对。</p> : <Button className="board-button board-primary" onClick={() => onJump(point.chapter, point.anchor.quote)}>打开原文</Button>}</>
-      : <p className="board-source-note">{node.status === "planned" ? "来自已确认章计划，尚未写入正文。规划调整请前往作品资料。" : "这条事件没有可定位的原文出处。"}</p>}
+      : <p className="board-source-note">{node.status === "outlined" ? "作者已确认这份资料整理结果；正文事件仍需逐章核实。" : node.status === "planned" ? "来自已确认章计划，尚未写入正文。规划调整请前往作品资料。" : "这条事件没有可定位的原文出处。"}</p>}
   </aside>;
 }

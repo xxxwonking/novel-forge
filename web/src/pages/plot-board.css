@@ -85,3 +85,6 @@
   .board-chapter-link { min-height: 40px; }
 }
 @media (prefers-reduced-motion: reduce) { .plot-board * { transition: none; } }
+
+.board-card[data-status="outlined"] { border-style:dashed; border-color:var(--info); }
+.board-badge[data-status="outlined"] { color:var(--info); }

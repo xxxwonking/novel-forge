@@ -1,9 +1,8 @@
 /**
  * 导入旧作（差距盘点第 2 项·第一批）。
  *
- * **只入正文，不反推结构。** 逐章反推事件与伏笔是下一批的事，所以这里的文案
- * 必须把话说清楚：导入完成后伏笔时间线仍是空的，接着要走「让 AI 起草资料」。
- * 让作者以为导进来就什么都有了，比不做这个功能更糟。
+ * 正文与资料分开保存；可自动整理人物与大纲为候选，不做逐章正文反推，
+ * 也不替作者确认。导入成功与模型整理失败必须分别反馈。
  *
  * 两处值得留意的实现取舍：
  *
@@ -17,8 +16,9 @@
  */
 
 import { useRef, useState } from "react";
-import { Button, CheckField, Input, DialogFrame, Textarea } from "./controls.js";
-import { api, type ImportPreview, type ImportResult } from "../api.js";
+import { importProject, type CompletedImport, type ImportStage } from "../import-project.js";
+import { Button, CheckField, ChoiceSelect, Input, DialogFrame, Textarea } from "./controls.js";
+import { api, type ImportPreview, type ImportFileInput } from "../api.js";
 import { readTextFile } from "../files.js";
 
 /**
@@ -48,39 +48,43 @@ const tooLarge = (payload: unknown): string | null => {
 };
 
 export function ImportChapters({ onImported, onClose }: {
-  onImported: (result: ImportResult) => void; onClose: () => void;
+  onImported: (result: CompletedImport) => void; onClose: () => void;
 }): React.ReactElement {
   const [text, setText] = useState("");
-  const [files, setFiles] = useState<{ name: string; text: string }[]>([]);
+  const [files, setFiles] = useState<ImportFileInput[]>([]);
+  const [ignoredFiles,setIgnoredFiles]=useState<string[]>([]);
   const [filename, setFilename] = useState<string | null>(null);
   const [preview, setPreview] = useState<ImportPreview | null>(null);
   const [overwrite, setOverwrite] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [stage,setStage]=useState<ImportStage>("importing");
+  const [autoAnalyze,setAutoAnalyze]=useState(true);
   const [error, setError] = useState<string | null>(null);
   const picker = useRef<HTMLInputElement>(null);
   const folderPicker = useRef<HTMLInputElement>(null);
 
   // 内容一变，上一次的预览和覆盖勾选就不再代表这份内容了。粘贴与选文件互斥。
   const replace = (value: string, name: string | null): void => {
-    setText(value); setFiles([]); setFilename(name); setPreview(null); setOverwrite(false); setError(null);
+    setIgnoredFiles([]); setText(value); setFiles([]); setFilename(name); setPreview(null); setOverwrite(false); setError(null);
   };
 
   const pick = async (list: FileList | null): Promise<void> => {
     // 选文件夹时浏览器会把里面所有东西都给过来（含子目录、图片、zip）；只留文本，
     // 剩下的交给服务端按「有没有章节标记」再筛一遍。
-    const chosen = (list === null ? [] : [...list]).filter((f) => /\.txt$/iu.test(f.name) || f.type === "text/plain");
-    if (chosen.length === 0) { setError("选中的内容里没有 .txt 文件。"); return; }
+    const candidates = list === null ? [] : [...list];
+    const chosen = candidates.filter((f) => /\.(txt|md|markdown|json)$/iu.test(f.name) || f.type.startsWith("text/"));
+    if (chosen.length === 0) { setFiles([]);setText("");setPreview(null);setFilename(null);setIgnoredFiles(candidates.map(f=>f.webkitRelativePath||f.name));setError("选中的内容里没有可读取的 TXT、Markdown 或 JSON 文件。"); return; }
     setBusy(true); setError(null);
     try {
-      const read = await Promise.all(chosen.map(async (file) => ({ name: file.name, text: await readTextFile(file) })));
-      // 只有一个文件时沿用整本文本那条路，粘贴框里能看到内容；多个才按文件提交。
-      if (read.length === 1) replace(read[0]!.text, read[0]!.name);
-      else { setText(""); setFiles(read); setFilename(`${read.length} 个文件`); setPreview(null); setOverwrite(false); }
+      const read = await Promise.all(chosen.map(async (file) => ({ name: file.webkitRelativePath || file.name, text: await readTextFile(file) })));
+      setText(""); setFiles(read); setFilename(`${read.length} 个文件`); setPreview(null); setOverwrite(false);
+      const skipped=candidates.filter(f=>!chosen.includes(f));
+      setIgnoredFiles(skipped.map(f=>f.webkitRelativePath||f.name));
     } catch (e) { setError((e as Error).message); }
     finally { setBusy(false); }
   };
 
-  const source = (): { text: string } | { files: { name: string; text: string }[] } => files.length > 0 ? { files } : { text };
+  const source = (): { text: string } | { files: ImportFileInput[] } => files.length > 0 ? { files } : { text };
   const total = files.length > 0 ? files.reduce((sum, f) => sum + f.text.length, 0) : text.length;
   const hasContent = files.length > 0 || text.trim() !== "";
 
@@ -91,7 +95,7 @@ export function ImportChapters({ onImported, onClose }: {
     setBusy(true); setError(null);
     try {
       if (action === "preview") setPreview(await api.importPreview(source()));
-      else onImported(await api.importApply({ ...source(), ...(overwrite ? { overwrite: true } : {}) }));
+      else onImported(await importProject({ ...source(), ...(overwrite ? { overwrite: true } : {}) },api,setStage,autoAnalyze));
     } catch (e) { setError((e as Error).message); setPreview(null); }
     finally { setBusy(false); }
   };
@@ -114,32 +118,34 @@ export function ImportChapters({ onImported, onClose }: {
     : { label: incoming > 0 ? `导入 ${incoming} 章` : preview.materials.length > 0 ? `收下 ${preview.materials.length} 份资料` : "确认导入",
       disabled: !canImport, action: "apply" as const };
 
-  return <DialogFrame open className="prep-editor" title="导入已有正文" width={720}
+  return <DialogFrame open className="prep-editor" title="导入正文与项目资料" width={720}
     onCancel={() => { if (!busy) onClose(); }} maskClosable={!busy}
     footer={[
       <Button key="cancel" disabled={busy} onClick={onClose}>取消</Button>,
       <Button key="ok" variant="default" loading={busy} disabled={primary.disabled} onClick={() => void run(primary.action)}>
-        {primary.label}
+        {busy && stage === "analyzing" ? "正文和资料已保存，正在整理…" : primary.label}
       </Button>,
     ]}>
     <p className="muted">
-      把已经写好的稿子放进来，接着往下写。<strong>正文之外的文件会被收进作品资料</strong>（角色档案、大纲、设定这类），
-      识别人物时会用上；人物、伏笔、情节线仍不会自动生效，要走「让 AI 起草资料」并逐条核对。
-      章号取自文件里的标记，不会重新编号。
+      导入整部作品或文件夹，预览会区分正文、大纲、人物档案与设定。正文保持原样；附属资料保存后可自动汇总人物、关系、情节线与剧情节点，<strong>只生成待确认方案</strong>，不会自动确认或写章。
     </p>
     {error !== null && <div className="finding" role="alert" data-level="block">{error}</div>}
 
     <div className="import-source">
-      <input type="file" accept=".txt,text/plain" multiple ref={picker} style={{ display: "none" }}
+      <input type="file" accept=".txt,.md,.markdown,.json,text/plain,text/markdown,application/json" multiple ref={picker} style={{ display: "none" }}
         onChange={(e) => { void pick(e.target.files); e.target.value = ""; }} />
       {/* webkitdirectory 不在 React 的属性表里，用 ref 挂；每章一个文件的作者手上就是一个文件夹，
           让他进去 ⌘A 全选是把系统对话框的限制推给了作者。 */}
       <input type="file" ref={(el) => { folderPicker.current = el; if (el !== null) el.setAttribute("webkitdirectory", ""); }} style={{ display: "none" }}
         onChange={(e) => { void pick(e.target.files); e.target.value = ""; }} />
-      <Button onClick={() => picker.current?.click()} disabled={busy}>选择 .txt 文件</Button>
+      <Button onClick={() => picker.current?.click()} disabled={busy}>选择正文与资料文件</Button>
       <Button onClick={() => folderPicker.current?.click()} disabled={busy}>选择整个文件夹</Button>
       {filename !== null && <span className="muted">已读取 {filename}（{total.toLocaleString()} 字符）</span>}
     </div>
+    {ignoredFiles.length>0 && <p role="status" className="finding" data-level="warn">未读取 {ignoredFiles.length} 个不支持的文件：{ignoredFiles.join("、")}。支持TXT、Markdown与JSON，这些文件不会被静默计作已导入。</p>}
+    {files.length>0 && <details><summary>查看或纠正文件分类（{files.length}）</summary><div className="import-file-kinds">{files.map((file,index)=><label key={`${file.name}:${index}`} className="import-file-kind"><span>{file.name}</span><ChoiceSelect aria-label={`${file.name}的分类`} value={file.kind??"auto"} disabled={busy} options={[{value:"auto",label:"自动识别"},{value:"chapter",label:"正文"},{value:"outline",label:"大纲／简介／目录"},{value:"characters",label:"人物档案"},{value:"setting",label:"设定"},{value:"material",label:"其他资料"}]} onChange={kind=>{setFiles(files.map((f,i)=>i===index?{...f,kind}:f));setPreview(null);setOverwrite(false);}}/></label>)}</div></details>}
+    <CheckField checked={autoAnalyze} disabled={busy} onChange={setAutoAnalyze}>导入资料后自动整理人物与剧情（会调用AI，结果等我确认）</CheckField>
+    {busy && stage === "analyzing" && <p role="status">正文与资料已保存，正在先归并人物、再整理大纲剧情，两步完成后交付待确认方案。模型失败不会撤销导入，不会自动重试。</p>}
     <label className="import-paste">直接粘贴正文
       <Textarea rows={6} value={text} disabled={busy} onChange={(e) => replace(e.target.value, null)}
         placeholder={"第一章 破庙\n少年在破庙里醒来……\n\n第二章 断剑\n……"} />
@@ -170,7 +176,7 @@ export function ImportChapters({ onImported, onClose }: {
       </>}
 
       {!blocked && preview.materials.length > 0 && <p className="muted">
-        这些文件没有章节标记，会收进作品资料（识别人物、认情节线时用得上）：{preview.materials.join("、")}。
+        识别为附属资料，将保存并用于人物汇总与大纲剧情整理：{preview.materials.join("、")}。
       </p>}
 
       {replacing.length > 0 && <CheckField checked={overwrite} disabled={busy} onChange={(e) => setOverwrite(e)}>

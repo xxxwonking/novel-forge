@@ -1,4 +1,5 @@
 /** 白板只读模型。确认状态、出处与时序由数据决定，不在这里设置章数或画布尺寸。 */
+import type { OutlineNode } from "../preparation/outline.js";
 import { createHash } from "node:crypto";
 import { resolveAnchor, type ChapterTextSource } from "../anchor/resolve.js";
 import { isPlanOrigin, type StructuralEvent, type ForeshadowWeight, type EventKind } from "../types/events.js";
@@ -7,6 +8,7 @@ import type { AnchorRules } from "../rules/schema.js";
 import type { AnchorPoint } from "./models.js";
 
 export interface PlotBoardInput {
+  readonly outlineNodes?: readonly OutlineNode[];
   readonly events: readonly StructuralEvent[];
   readonly beats: readonly ChapterBeat[];
   readonly currentChapter: number;
@@ -17,14 +19,16 @@ export interface PlotBoardInput {
 export interface BoardNode {
   readonly id: string;
   readonly groupId: string;
-  readonly chapter: number;
+  readonly chapter: number | null;
   readonly volume: number | null;
   readonly summary: string;
   readonly kind: EventKind;
-  readonly status: "written" | "planned";
+  readonly status: "written" | "planned" | "outlined";
   readonly source: string;
   readonly characters: readonly { readonly id: string; readonly name: string }[];
   readonly point: AnchorPoint | null;
+  readonly materialSource?: OutlineNode["source"];
+  readonly outlineOrder?: number;
 }
 export interface PlotBoard {
   readonly groups: readonly { readonly id: string; readonly label: string; readonly weight: ForeshadowWeight | null }[];
@@ -62,13 +66,20 @@ export function buildPlotBoard(input: PlotBoardInput, rules: AnchorRules): PlotB
       chapter: beat.chapter, volume: beat.volume, summary: event.summary, kind: event.kind, status: "planned", source: "章计划",
       characters: characters(plan.characters), point: null }));
   }
-  nodes.sort((a, b) => a.chapter - b.chapter);
+  for(const node of [...(input.outlineNodes ?? [])].sort((a,b)=>a.order-b.order)) nodes.push({
+    id:`outline:${node.id}:${createHash("sha256").update(JSON.stringify(node)).digest("hex").slice(0,16)}`,
+    groupId:group(node.plotLine),chapter:node.chapter,volume:null,summary:node.summary,kind:node.kind,status:"outlined",
+    source:"大纲资料 · 尚未核对正文",characters:characters(node.characters),point:null,materialSource:node.source,outlineOrder:node.order,
+  });
+  nodes.sort((a,b)=>a.status === "outlined" && b.status === "outlined" ? (a.outlineOrder??0)-(b.outlineOrder??0) : a.status === "outlined" ? 1 : b.status === "outlined" ? -1 : (a.chapter??0)-(b.chapter??0));
   if (nodes.some(n => n.groupId === "unassigned")) groups.push({ id: "unassigned", label: "未分线", weight: null });
   const edges: PlotBoard["edges"][number][] = [];
   for (const g of groups) {
     // 未分线不代表同一故事线，不自动把无关联的事件串起来。
     if (g.id === "unassigned") continue;
-    const line = nodes.filter(n => n.groupId === g.id);
+    const line = nodes.filter(n => n.groupId === g.id && n.status !== "outlined");
+    const outlined = nodes.filter(n => n.groupId === g.id && n.status === "outlined");
+    outlined.forEach((node,i)=>{const previous=outlined[i-1];if(previous) edges.push({id:`sequence:${previous.id}:${node.id}`,source:previous.id,target:node.id,kind:"sequence"});});
     line.forEach((node, i) => {
       const previous = line[i - 1];
       if (previous) edges.push({ id: `sequence:${previous.id}:${node.id}`, source: previous.id, target: node.id, kind: "sequence" });

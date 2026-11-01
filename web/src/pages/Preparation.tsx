@@ -1,3 +1,4 @@
+import { OutlineNodes } from "../components/OutlineNodes.js";
 import { useRef, useState } from "react";
 import { Button, Input, Textarea } from "../components/controls.js";
 import { readTextFile } from "../files.js";
@@ -108,6 +109,10 @@ export function Preparation({ refresh, proposalId }: { refresh: () => void; prop
 
   return <>
     <div className="page-head"><h1>作品资料</h1><p>从一句想法到人物、世界与章计划。让 AI 先起草，你只核对与改动 —— 不确定的地方不必自己编。</p></div>
+    <section className="prep-section" aria-label="已导入资料"><div className="section-head"><h2>已导入资料 <small>{view.materials.length}</small></h2><div className="row"><Button disabled={view.materials.length===0} onClick={()=>setDrafting("materials")}>整理人物与剧情资料</Button><Button disabled={view.materials.length===0} onClick={()=>setDrafting("outline")}>从大纲生成剧情节点</Button></div></div>
+      {view.materials.length===0?<p className="muted">整项目导入时，大纲、人物档案与设定会保存到这里，也可继续单独导入人物档案。</p>:<ul className="materials-list">{view.materials.map(m=><li key={m.file}><strong>{m.name}</strong><span className="muted"> · {{characters:"人物档案",outline:"大纲／简介",setting:"设定",material:"资料"}[m.kind]??"资料"} · {m.words.toLocaleString()} 字</span></li>)}</ul>}
+      {(view.materialWarnings??[]).map(w=><p key={w} role="status" className="finding" data-level="warn">{w}</p>)}
+    </section>
     <div className="prep-readiness">
       <div><strong>{view.readiness.ready ? `第 ${view.nextChapter} 章资料已就绪` : "继续准备你的故事"}</strong><p>{view.readiness.ready ? "可以按当前计划创作，结果将作为待采用稿交付。" : `还需要：${view.readiness.missing.join("、")}。`}</p></div>
       <a className="prep-link" href={discuss(planPrompt)}>到对话整理方案 →</a>
@@ -165,8 +170,9 @@ export function Preparation({ refresh, proposalId }: { refresh: () => void; prop
       setImporting(false); setEntity(null); setEditing(false); setSelected(null);
       const done = [result.imported.length > 0 ? `新增 ${result.imported.length} 章` : "", result.replaced.length > 0 ? `覆盖 ${result.replaced.length} 章` : "", result.unchanged.length > 0 ? `${result.unchanged.length} 章内容未变` : ""].filter(Boolean).join("、");
       const kept = result.materials.length > 0 ? `另外收下 ${result.materials.length} 份资料：${result.materials.join("、")}。` : "";
-      // 明确说出"结构还没有" —— 让作者以为导进来就什么都有了，比不做这个功能更糟。
-      setNotice(`已导入正文：${done}${result.totalWords > 0 ? `，共 ${result.totalWords} 字` : ""}，下一章是第 ${result.nextChapter} 章。${kept}接着用「让 AI 起草资料」补出人物（它会读这些资料）。结构有两条路：「从资料反推伏笔」一次调用读你的大纲，便宜，只认资料里写明的安排；「从正文反推结构」逐章读正文，贵得多，但能认出正文里实际埋的事件与伏笔 —— 两条都没走过之前，伏笔时间线是空的。`);
+      if(result.analysis?.proposalId) setSelected(result.analysis.proposalId);
+      const analysis=result.analysis?.error?`资料已保存，但自动整理未完成：${result.analysis.error}。可以在「整理人物与剧情资料」重试。`:result.analysis?.proposalId?"已自动整理为待确认方案，请核对人物和大纲节点后确认；正式事实尚未变更。":result.materials.length>0?"资料已保存，可以在本页整理人物与剧情。":"尚未从正文反推结构，可在需要时逐章核实。";
+      setNotice(`导入完成：${done || "未新增正文"}${result.totalWords>0?`，共 ${result.totalWords} 字`:""}。${kept}${analysis}`);
       data.reload(); refresh();
     }} />}
     {entity?.kind === "beat" && <BeatEditor base={entity.base as never} chapter={nextPlanChapter(view.nextChapter, view.confirmed.beats)} characters={view.confirmed.characters} settings={view.confirmed.settings} plotLines={view.confirmed.plotLines} fingerprint={view.fingerprint} onSaved={saved} onClose={() => setEntity(null)} />}
@@ -258,6 +264,7 @@ function Content({ content, onEdit, onDraft, onImport, importing, expanded }: { 
     <section className="prep-section"><div className="section-head"><h2>人物档案 <small>{content.characters.length}</small></h2><div className="row">{onImport === undefined ? null : <Button size="sm" loading={importing === true} onClick={onImport}>导入人物档案</Button>}{draft("让 AI 起草人物", "characters")}{add("character", "手工补一个")}</div></div>{content.characters.length === 0 && <p className="muted">还没有人物档案。有现成的角色档案就导进来 —— 上传后会读它并整理出人物供你核对；也可以让 Agent 从正文起草，或直接手填。</p>}<div className="prep-card-grid">{content.characters.map((c) => <article className="prep-character" key={c.id}><div className="row"><h3>{c.name}</h3><Chip>{c.provenance === "proposed" ? "建议" : c.tier === "protagonist" ? "主角" : "已确认"}</Chip></div><p>{c.profile.role}</p><p className="muted">{c.profile.traits.join(" · ")}</p><dl className="prep-facts"><div><dt>想要什么</dt><dd>{c.profile.wants || "尚未指定"}</dd></div><div><dt>害怕什么</dt><dd>{c.profile.fears || "尚未指定"}</dd></div><div><dt>背景</dt><dd>{c.profile.background || "尚未指定"}</dd></div></dl><details open={expanded === true}><summary>外貌与说话方式</summary><p>{c.profile.appearance.map((a) => `${a.key}：${a.value}`).join("；")}</p>{c.speech.exemplars.map((line, i) => <blockquote key={i}>{line}</blockquote>)}{c.speech.forbiddenLexicon.length > 0 && <p>不使用：{c.speech.forbiddenLexicon.join("、")}</p>}</details>{edit("character", c, `「${c.name}」`)}</article>)}</div></section>
     <section className="prep-section"><div className="section-head"><h2>地点与组织</h2>{add("setting", "新增地点／组织")}</div>{content.settings.length === 0 && <p className="muted">还没有地点或组织设定。</p>}{content.settings.map((place) => <article className="prep-place" key={place.id}><div className="row"><h3>{place.name} <span className="muted">{place.kind === "organization" ? "组织" : "地点"}</span></h3>{edit("setting", place, "设定")}</div><p>{place.description}</p>{place.facts.length > 0 && <ul>{place.facts.map((fact, i) => <li key={i}>{fact}</li>)}</ul>}</article>)}</section>
     <section className="prep-section"><div className="section-head"><h2>情节方向</h2><div className="row">{draft("从资料识别情节线", "plotlines")}{add("plotLine", "新增情节线")}</div></div>{content.plotLines.length === 0 ? <p className="muted">还没有情节线规划。有大纲或简介，就让 AI 从里面认出主线与支线供你核对；也可以直接手填。</p> : <ul>{content.plotLines.map((line) => <li key={line.id}><Chip>{line.weight === "main" ? "主线" : line.weight === "sub" ? "支线" : "细节"}</Chip> {line.label}{edit("plotLine", line, "情节线")}</li>)}</ul>}</section>
+    <OutlineNodes nodes={content.outlineNodes??[]} lines={content.plotLines}/>
     <section className="prep-section"><div className="section-head"><h2>卷</h2>{add("volume", "新增一卷")}</div>
       <p className="muted">卷纲会顶替这几章的逐章梗概进入模型上下文 —— 章数一多，它是唯一能把远处的篇幅压下去的东西。哪几章属于哪一卷由下面章节计划的卷号决定。</p>
       {(() => {
