@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
-import { Button, Collapse, Form, Input, InputNumber, Modal, Popconfirm, Select, Space } from "antd";
-import { ArrowRightOutlined, DeleteOutlined, DownloadOutlined, ImportOutlined, ReloadOutlined, UndoOutlined } from "@ant-design/icons";
+import { Button, Disclosure, Input, NumberInput, DialogFrame, ConfirmAction, ChoiceSelect, InlineGroup, Textarea } from "../components/controls.js";
+import { ArrowRight as ArrowRightOutlined, Trash2 as DeleteOutlined, Download as DownloadOutlined, Import as ImportOutlined, RefreshCw as ReloadOutlined, Undo2 as UndoOutlined } from "lucide-react";
 import { api, workUrl, type RemovedWork, type WorkSummary } from "../api.js";
 import { useFetch } from "../hooks.js";
 import { GENRE_LABELS, PLATFORM_LABELS, genreLabel, toOptions } from "../labels.js";
@@ -15,7 +15,7 @@ interface NewWorkForm {
 
 export function Works(): React.ReactElement {
   const workspace = useFetch(() => api.workspace(), []);
-  const [form] = Form.useForm<NewWorkForm>();
+  const [values, setValues] = useState<Omit<NewWorkForm, "targetWords"> & { targetWords: number | null }>({ title: "", idea: "", genre: "xuanhuan", platform: "unpublished", targetWords: 300000 });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [shelfError, setShelfError] = useState<string | null>(null);
@@ -29,7 +29,7 @@ export function Works(): React.ReactElement {
   const lastRequest = useRef<{ content: string; id: string } | null>(null);
 
   // 想法留空是合法起点：建好后直接进谋篇模式，由对话把书想出来，而不是把作者拦在门外。
-  const idea = (Form.useWatch("idea", form) ?? "").trim();
+  const idea = values.idea.trim();
   const undecided = idea === "";
 
   const create = async (values: NewWorkForm): Promise<void> => {
@@ -106,16 +106,16 @@ export function Works(): React.ReactElement {
       <div className="library-columns">
         <section className="library-books" aria-label="我的作品">
           <header className="library-intro">
-            <span className="eyebrow">创作工作区</span>
+
             <h1>每个故事，<em>从一个想法</em>开始。</h1>
             <p>与 Agent 一起搭建世界、推敲人物、逐章创作。每一次采用，都由你决定。</p>
           </header>
           <div className="section-head">
             <h2>我的作品 <span>{String(count).padStart(2, "0")}</span></h2>
-            <Space size="small">
-              <Button type="text" size="small" icon={<ImportOutlined />} disabled={pending !== null || importing} onClick={() => { setImportError(null); setShelfError(null); setImportOpen(true); }}>导入备份</Button>
-              <Button type="text" size="small" icon={<ReloadOutlined />} loading={workspace.loading && workspace.data !== null} onClick={workspace.reload}>刷新</Button>
-            </Space>
+            <InlineGroup>
+              <Button variant="ghost" size="sm" icon={<ImportOutlined />} disabled={pending !== null || importing} onClick={() => { setImportError(null); setShelfError(null); setImportOpen(true); }}>导入备份</Button>
+              <Button variant="ghost" size="sm" icon={<ReloadOutlined />} loading={workspace.loading && workspace.data !== null} onClick={workspace.reload}>刷新</Button>
+            </InlineGroup>
           </div>
           {workspace.error !== null && <p role="alert" className="finding" data-level="block">{workspace.error}</p>}
           {workspace.loading && workspace.data === null && <div className="empty">载入作品…</div>}
@@ -139,7 +139,7 @@ export function Works(): React.ReactElement {
             />
           ))}</div>
           {removed.length > 0 && (
-            <Collapse ghost size="small" className="trash" items={[{
+            <Disclosure className="trash" items={[{
               key: "trash", label: `回收站 ${removed.length}`, children: (
                 <ul className="trash-list">
                   {removed.map((work) => (
@@ -148,10 +148,10 @@ export function Works(): React.ReactElement {
                         <strong>{work.title}</strong>
                         <p>{new Date(work.deletedAt).toLocaleString("zh-CN")} 删除 · 归档在 data/.trash/{work.archive}</p>
                       </div>
-                      <Space size="small">
-                        <Button size="small" icon={<DownloadOutlined />} loading={pending === `backup:${work.archive}`} disabled={pending !== null || importing} onClick={() => void backup(work.archive, { archive: work.archive }, work.title)}>备份</Button>
-                        <Button size="small" icon={<UndoOutlined />} loading={pending === `restore:${work.archive}`} disabled={pending !== null || importing} onClick={() => void restore(work)}>恢复</Button>
-                      </Space>
+                      <InlineGroup>
+                        <Button size="sm" icon={<DownloadOutlined />} loading={pending === `backup:${work.archive}`} disabled={pending !== null || importing} onClick={() => void backup(work.archive, { archive: work.archive }, work.title)}>备份</Button>
+                        <Button size="sm" icon={<UndoOutlined />} loading={pending === `restore:${work.archive}`} disabled={pending !== null || importing} onClick={() => void restore(work)}>恢复</Button>
+                      </InlineGroup>
                     </li>
                   ))}
                 </ul>
@@ -161,48 +161,40 @@ export function Works(): React.ReactElement {
         </section>
 
         <section className="new-work" aria-labelledby="new-work-title">
-          <span className="eyebrow">一个新的开始</span>
+
           <h2 id="new-work-title">新建作品</h2>
           <p className="new-work-lead">写一句想法就能开始；还没想好也没关系，留空建好后我们先陪你把书想出来。</p>
-          <Form<NewWorkForm>
-            form={form}
-            layout="vertical"
-            requiredMark={false}
-            disabled={busy}
-            initialValues={{ title: "", idea: "", genre: "xuanhuan", platform: "unpublished", targetWords: 300000 }}
-            onFinish={(values) => { void create(values); }}
-          >
-            <Form.Item name="idea" label={<>你想讲一个怎样的故事？ <span className="label-hint">选填</span></>}>
-              <Input.TextArea autoSize={{ minRows: 4, maxRows: 10 }} maxLength={10000} placeholder="一个人物、一场意外，或一个你放不下的念头… 没有也可以，先聊聊再定。" />
-            </Form.Item>
+          <form noValidate onSubmit={event => { event.preventDefault(); const targetWords = values.targetWords;
+            if (targetWords === null || !Number.isSafeInteger(targetWords) || targetWords < 1 || targetWords > 10000000) { setError("请填 1–10,000,000 之间的整数目标字数"); return; }
+            void create({ ...values, targetWords });
+          }}>
+            <fieldset disabled={busy} className="work-form-fields">
+            <label className="work-field">你想讲一个怎样的故事？ <span className="label-hint">选填</span>
+              <Textarea rows={4} value={values.idea} onChange={e => setValues({ ...values, idea: e.target.value })} maxLength={10000} placeholder="一个人物、一场意外，或一个你放不下的念头… 没有也可以，先聊聊再定。" />
+            </label>
             {error !== null && <p role="alert" className="finding" data-level="block">{error}</p>}
-            <Button className="create-work" type="primary" size="large" htmlType="submit" block loading={busy} icon={<ArrowRightOutlined />} iconPlacement="end">
+            <Button className="create-work" variant="default" size="lg" type="submit" block loading={busy} icon={<ArrowRightOutlined />} iconPlacement="end">
               {busy ? "正在保存" : undecided ? "先聊聊再定" : "创建作品"}
             </Button>
             <p className="new-work-hint">{undecided ? "会建一本空白作品并进入谋篇模式：只讨论、不改动，谈拢后再落资料。" : "建好后进入对话，可以直接下达任务，也可以先聊聊。"}</p>
             {/* 书名、题材、平台、字数都有默认值，折起来让首屏只剩「想法 → 创建」；要改的人点开就是。 */}
-            <Collapse ghost size="small" className="new-work-more" items={[{
-              key: "more", label: "更多设置：书名、题材、平台、字数", forceRender: true, children: <>
-                <Form.Item name="title" label={<>暂定书名 <span className="label-hint">选填</span></>}>
-                  <Input maxLength={100} placeholder="给故事起个名字" />
-                </Form.Item>
+            <Disclosure className="new-work-more" items={[{
+              key: "more", label: "更多设置：书名、题材、平台、字数", children: <>
+                <label className="work-field">暂定书名 <span className="label-hint">选填</span>
+                  <Input value={values.title} onChange={e => setValues({ ...values, title: e.target.value })} maxLength={100} placeholder="给故事起个名字" />
+                </label>
                 <div className="form-pair">
-                  <Form.Item name="genre" label="题材">
-                    <Select options={toOptions(GENRE_LABELS)} />
-                  </Form.Item>
-                  <Form.Item name="platform" label="发布平台">
-                    <Select options={toOptions(PLATFORM_LABELS)} />
-                  </Form.Item>
+                  <label className="work-field">题材<ChoiceSelect value={values.genre} onChange={genre => setValues({ ...values, genre })} options={toOptions(GENRE_LABELS)} /></label>
+                  <label className="work-field">发布平台<ChoiceSelect value={values.platform} onChange={platform => setValues({ ...values, platform })} options={toOptions(PLATFORM_LABELS)} /></label>
                 </div>
-                <Form.Item name="targetWords" label="全书目标字数" rules={[{ required: true, type: "integer", min: 1, max: 10000000, message: "请填 1–10,000,000 之间的整数" }]}>
-                  <InputNumber<number> style={{ width: "100%" }} min={1} max={10000000} step={10000} formatter={(value) => (value === undefined || value === null ? "" : String(value).replace(/\B(?=(\d{3})+(?!\d))/gu, ","))} parser={(value) => Number((value ?? "").replace(/[^\d]/gu, ""))} addonAfter="字" />
-                </Form.Item>
+                <label className="work-field">全书目标字数<NumberInput value={values.targetWords} onChange={targetWords => setValues({ ...values, targetWords })} min={1} max={10000000} step={1} /></label>
               </>,
             }]} />
-          </Form>
+            </fieldset>
+          </form>
         </section>
       </div>
-      <Modal
+      <DialogFrame
         title="导入作品备份"
         open={importOpen}
         okText="校验并导入"
@@ -212,7 +204,7 @@ export function Works(): React.ReactElement {
         onCancel={() => {
           if (!importing) { setImportOpen(false); setImportFile(null); setImportTarget(""); setImportError(null); }
         }}
-        destroyOnHidden
+
       >
         <div className="backup-import-form">
           <label>
@@ -226,7 +218,7 @@ export function Works(): React.ReactElement {
           {importError !== null && <p role="alert" className="finding" data-level="block">{importError}</p>}
           <p>导入前会完整校验；若 ID 已存在会拒绝，不会覆盖或留下半本作品。</p>
         </div>
-      </Modal>
+      </DialogFrame>
     </main>
   );
 }
@@ -265,15 +257,15 @@ function Book({ work, index, removeBusy, backupBusy, disabled, onRemove, onBacku
         ? <a className="book-card" href={workUrl(work.id)}>{content}</a>
         : <div className="book-card" data-error="true">{content}</div>}
       <div className="book-tools">
-        <Button type="text" size="small" icon={<DownloadOutlined />} loading={backupBusy} disabled={disabled} onClick={onBackup} aria-label={`备份《${work.title}》`} />
-        <Popconfirm
+        <Button variant="ghost" size="sm" icon={<DownloadOutlined />} loading={backupBusy} disabled={disabled} onClick={onBackup} aria-label={`备份《${work.title}》`} />
+        <ConfirmAction
           title={`删除《${work.title}》`}
           description="会移入回收站，随时可以恢复，磁盘上的文件一字不改。"
-          okText="移入回收站" cancelText="取消" placement="bottomRight"
+          okText="移入回收站" cancelText="取消"
           onConfirm={onRemove}
         >
-          <Button type="text" size="small" icon={<DeleteOutlined />} loading={removeBusy} disabled={disabled} aria-label={`删除《${work.title}》`} />
-        </Popconfirm>
+          <Button variant="ghost" size="sm" icon={<DeleteOutlined />} loading={removeBusy} disabled={disabled} aria-label={`删除《${work.title}》`} />
+        </ConfirmAction>
       </div>
     </div>
   );

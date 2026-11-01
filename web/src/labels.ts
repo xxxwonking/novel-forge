@@ -16,6 +16,6 @@ export const PLATFORM_LABELS: Readonly<Record<string, string>> = {
 export const genreLabel = (value: string): string => GENRE_LABELS[value] ?? value;
 export const platformLabel = (value: string): string => PLATFORM_LABELS[value] ?? value;
 
-/** antd Select 的 options，顺序与映射表一致。 */
+/** 选项列表，顺序与映射表一致。 */
 export const toOptions = (labels: Readonly<Record<string, string>>): { value: string; label: string }[] =>
   Object.entries(labels).map(([value, label]) => ({ value, label }));

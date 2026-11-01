@@ -696,7 +696,7 @@ export class ProjectSession {
    */
   private preparationAsk(options: PreparationDraftOptions, chapters: { readonly from: number; readonly to: number } | null): string {
       // 人物、情节线、伏笔读同一批材料：作者的大纲与简介里写着这三样，正文抽样只作核对。
-      const sources = options.focus === "characters" || options.focus === "plotlines" || options.focus === "foreshadows" ? this.characterSources() : null;
+      const sources = this.characterSources();
       const focus = options.focus === "characters"
         ? `这次**只**起草人物档案（changes.characters）。地点、情节线、章节计划一律不要动。把这本书里**已经出现过的人物**尽量都建出来，一人一张卡，并按出场权重分档：protagonist（主角）、major（主要）、minor（次要）、extra（龙套）；身份与定位写进 profile.role，关系与来历写进 profile.background。${sources !== null && sources.from.length > 0 ? "人物以作者提供的资料文件为准，正文抽样只用来核对谁真的出过场。资料里如果写了人物之间的关系（搭档、亲属、师徒、仇敌…），一并填进 changes.relations —— 每条一个方向，双向关系填两条，note 用一句话说清是什么关系；**只填资料里写明的，不要自己推测**。" : ""}`
         : options.focus === "plotlines"
@@ -716,18 +716,23 @@ export class ProjectSession {
             ].join("\n")
           : chapters !== null
           ? `这次**只**排章计划（changes.beats）：为第 ${chapters.from} 章到第 ${chapters.to} 章各起草一份，章号连续、volume 沿用最近一章的卷号（没有就填 1）。人物、地点、情节线一律不动，只能引用已确认的 ID。每章必须有具体的核心事件、阶段反馈与章末钩子，不要写「继续铺垫」「更大的风暴」这类空话；要收的伏笔只能是当前 open 的编号，埋设与兑现要跨章衔接，不要把所有兑现堆在最后一章。`
-          : "起草这份作品现在还缺的资料：人物档案、必要的地点/组织、情节线，以及下一章的章计划。已经确认的内容不要重复提交。";
+          : `起草这份作品现在还缺的资料：基本设定、人物档案、必要的地点/组织、情节线${this.workCompleted ? "。作品已经完结，只整理原有内容，不擅自追加章节" : `，以及第 ${this.nextChapter} 章的章计划`}。已经确认的内容不要重复提交。已有正文与作者资料优先，禁止把已有作品改成另一本新书、编造替代主角或重演开篇。`;
       const brief = (options.brief ?? "").trim();
       // 提示词仍然写明边界，与受限工具集互补：工具集管"做不到"，提示词管"该怎么用"。
       return [
         "（这条请求来自资料页的「让 AI 起草」按钮，不是作者在对话里打的字，请直接执行，不要反问。）",
         "先 get_preparation 读取作者已指定的想法与现有正式资料，再据此推断并补齐：",
         focus,
+        ...(options.focus === "full" ? ["整份起草是补齐：只提交空白的设定字段与尚未建立的资料，已有 premise、书名、写作规则都不能重新表述或覆盖。已有想法即使不够详细，也要原样尊重。"] : []),
+        ...(this.chapterNumbers().length === 0 ? [] : [`作品已有 ${this.chapterNumbers().length} 章正文；如需安排后续，从第 ${this.nextChapter} 章接续，不要重置为开篇。`]),
         ...(sources === null || sources.text === "" ? [] : ["以下是这本书已有的材料：", sources.text]),
+        ...(options.focus !== "full" && options.focus !== "chapters" || this.chapterNumbers().length === 0 ? [] : [`最近正式章节的结尾（延续现状，不重演已完成动作）：\n${this.chapterText(this.nextChapter - 1)?.slice(-8000) ?? ""}`]),
         ...(sources === null || sources.sampled.length === 0 ? [] : [`注意：正文只抽样了上面那 ${sources.sampled.length} 章的开头，全书共 ${this.chapterNumbers().length} 章。${options.focus === "plotlines" ? "资料文件里写了、抽样里没见到的线，也照样认出来" : options.focus === "foreshadows" ? "以资料文件为主：伏笔要靠通读全书才看得准，抽样的章首读不出中段埋的东西 —— 资料里没写明的，不要靠六段抽样去猜" : "没有抽到的章里的人物如果资料文件提到了，也照样建卡"}；不要声称你读过全书。`]),
         // 人物卡的完整性要求只对建人物的两档说 —— 排章计划与认情节线都不碰人物卡。
         ...(options.focus === "characters" || options.focus === "full" ? ["人物 profile 与 speech 必须是完整的：定位、外貌、性格标签、想要什么、害怕什么、背景，以及说话方式（语域、情绪表达、句长区间、句式偏好、至少一条正例台词）。作者的设定常常只有一句想法 —— 人物具体是什么样由你判断，不要回过头去问作者。"] : []),
         "用 propose_preparation 保存为一份方案供作者审阅。不要确认方案，不要写章，不要采用任何稿件。",
+        'propose_preparation 的根对象必须包含 summary（本次方案的一句话摘要）、baseFingerprint、changes，例如 {"summary":"识别已有情节线","baseFingerprint":"沿用 get_preparation 的指纹","changes":{"plotLines":[{"id":"P_Main","label":"已有主线","weight":"main"}]}}。summary 必须放在根对象，不能用 changes.volumes 中的卷纲 summary 代替；不要提交 proposalId 或根级 volume。示例只说明封装，changes 内容按本次范围填写。',
+        "人物关系只连接资料明确支持的两个人物。地点、规则位置或未建卡对象不可强行映射为另一位人物；关系说明必须具体，不能用破折号占位。",
         ...(brief === "" ? [] : [`作者这次的补充要求：${brief}`]),
         chapters !== null ? "最后用一段话说明每章推进了什么、哪几章收了哪些伏笔，以及哪里还需要作者拿主意。"
           : options.focus === "plotlines" ? "最后用一段话说明你认出了哪几条线、各自贯穿到哪里，以及哪里还需要作者拿主意。"
@@ -751,13 +756,42 @@ export class ProjectSession {
    * `proposePreparation` 捕获输入实现 —— 校验照常发生（错误仍回喂），只是不保存。
    */
   async draftPreparation(options: PreparationDraftOptions, observe?: ConversationObserver): Promise<PreparationDraftResult> {
+    if (options.focus === "chapters") {
+      const missing = [
+        ...(this.characters.some(c => c.provenance === "committed" || c.provenance === "authored") ? [] : ["已确认的人物档案"]),
+        ...(this.settings.length > 0 ? [] : ["地点／组织"]),
+      ];
+      if (missing.length > 0) throw new ChapterWriteError(400, `排章前请先补齐${missing.join("和")}：在作品资料页起草并确认人物，再新增地点／组织。本次尚未调用模型。`);
+    }
     const client = this.getModelClient();
     const chapters = options.focus === "chapters" ? this.batchRange(options.count) : null;
     const ask = this.preparationAsk(options, chapters);
 
     let captured: PreparationInput | null = null;
     const base = this.buildAgentContext(ask);
-    const ctx: MainAgentToolContext = options.apply ? base : {
+    const ctx: MainAgentToolContext = options.apply ? {
+      ...base,
+      proposePreparation: async (raw: unknown, author: boolean): Promise<AgentActionOutcome> => {
+        try {
+          const input = parsePreparationInput(raw);
+          if (options.focus === "full") {
+            const current = this.preparation.view().confirmed;
+            const populated = (value: unknown) => Array.isArray(value) ? value.length > 0 : typeof value === "string" ? value.trim() !== "" : value != null;
+            const changed = Object.entries(input.changes.setting ?? {}).filter(([key, value]) => {
+              const previous = current.setting[key as keyof typeof current.setting];
+              return populated(previous) && JSON.stringify(value) !== JSON.stringify(previous);
+            }).map(([key]) => key);
+            if (input.changes.writingRules !== undefined && JSON.stringify(input.changes.writingRules) !== JSON.stringify(current.discipline.rules)) changed.push("writingRules");
+            if (changed.length > 0) throw new Error(`整份起草只能补齐空白，不可改写作者已有 ${changed.join("、")}。请保留这些字段，只提交尚缺的资料；不要把被拒的改动重新提交。`);
+          }
+        } catch (error) {
+          const detail = error instanceof Error ? error.message : String(error);
+          const message = `${detail}。参数须为 {summary, baseFingerprint, changes}；summary 必须放在根对象，填写本次方案的一句话摘要，不能用卷纲摘要代替。`;
+          return { message, effect: { kind: "action_failed", tool: "propose_preparation", message } };
+        }
+        return base.proposePreparation(raw, author);
+      },
+    } : {
       ...base,
       proposePreparation: async (input: unknown): Promise<AgentActionOutcome> => {
         try {

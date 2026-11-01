@@ -68,6 +68,51 @@ const proposedInput = (session: ProjectSession, characters: unknown[]) => ({
 });
 
 describe("资料页的 AI 起草", () => {
+  it("起草参数缺少根级摘要时明确返回完整根对象示例，不把卷纲摘要当成提案摘要", async () => {
+    const setup = fresh([]);
+    const baseFingerprint = setup.session.preparation.fingerprint();
+    const changes = { plotLines: [{ id: "P_Investigation", label: "旧案调查", weight: "main" }] };
+    const model = fakeClient([
+      toolUse("propose_preparation", { baseFingerprint, changes, volume: { summary: "卷纲" } }),
+      toolUse("propose_preparation", { summary: "识别旧案主线", baseFingerprint, changes }),
+      modelText("已保存主线方案。"),
+    ]);
+    const session = new ProjectSession(setup.root, undefined, { client: model.client });
+    const result = await session.draftPreparation({ focus: "plotlines", apply: true });
+    expect(result.proposalId).toBeTruthy();
+    expect(JSON.stringify(model.calls[1]?.messages)).toContain("summary 必须放在根对象");
+    expect(session.preparation.view().confirmed.plotLines).toEqual([]);
+  });
+  it("整份补齐不能重写作者已有想法，错误回喂后只保存缺失资料", async () => {
+    const setup = fresh([]);
+    const bad = { summary: "改写已有想法", baseFingerprint: setup.session.preparation.fingerprint(), changes: { setting: { premise: "另一部作品的开篇" } } };
+    const good = { summary: "补录空白冲突", baseFingerprint: bad.baseFingerprint, changes: { setting: { centralConflict: "记者追查旧票据" } } };
+    const model = fakeClient([toolUse("propose_preparation",bad),toolUse("propose_preparation",good),modelText("已补齐缺失项。")]);
+    const session = new ProjectSession(setup.root,undefined,{client:model.client});
+    const result = await session.draftPreparation({focus:"full",apply:true});
+    expect(session.preparation.view().proposals).toHaveLength(1);
+    expect(session.preparation.get(result.proposalId!).changes).toEqual(good.changes);
+    expect(JSON.stringify(model.calls[1]?.messages)).toContain("只能补齐空白");
+  });
+  it("整份起草也读取导入材料与末章正文，不凭书名另造主角", async () => {
+    const { session, calls } = fresh([]);
+    session.imports.apply({ files: [
+      { name: "角色档案.txt", text: "唯一主角许临川，拒绝被认入第七。" },
+      { name: "1章.txt", text: "第一章 雨夜\n许临川交出当票。" },
+      { name: "2章.txt", text: "第二章 停雨\n顾以南在井口收起最后一截黑线。" },
+    ] });
+    await session.draftPreparation({ focus: "full", apply: true }).catch(() => undefined);
+    const ask = JSON.stringify(calls[0]?.messages);
+    expect(ask).toContain("唯一主角许临川");
+    expect(ask).toContain("最后一截黑线");
+    expect(ask).toContain("第 3 章");
+  });
+
+  it("缺少正式人物和地点时排章先说明前置条件，不产生模型费用", async () => {
+    const { session, calls } = fresh([]);
+    await expect(session.draftPreparation({ focus: "chapters", count: 3, apply: true })).rejects.toThrow(/人物.*地点|地点.*人物/u);
+    expect(calls).toHaveLength(0);
+  });
   it("起草的工具集只读与提案，拿不到确认、写章与采用", () => {
     // 起草无人盯着，拿到这三类工具就是越权：替作者拍板，或动用他并没要求的创作产能。
     for (const forbidden of ["confirm_preparation", "record_author_details", "write_next_chapter", "adopt_chapter", "revise_chapter_draft"]) {

@@ -12,6 +12,7 @@ import { DraftStore } from "../src/task/draft-store.js";
 import { deriveBudget } from "../src/beat/derive.js";
 import { loadRules } from "../src/rules/load.js";
 import { countWords } from "../src/text/measure.js";
+import { createHash } from "node:crypto";
 import { handle } from "../src/server/api.js";
 
 const roots: string[] = [];
@@ -38,6 +39,39 @@ function propose(session: ProjectSession, changes: PreparationChanges = firstCha
 }
 
 describe("作品资料与章节方案", () => {
+  it("升级前按磁盘字典序保存的有效方案仍可以确认", () => {
+    const { root, session } = fresh();
+    session.imports.apply({ files: Array.from({ length: 12 }, (_, i) => ({ name: `${i + 1}章.txt`, text: `第${i + 1}章 雨夜\n核对编号。` })) });
+    const p = propose(session, { writingRules: ["保持原作。"] });
+    const snapshot = new ProjectStore(root).load();
+    const { setting, discipline, profile, characters, settings, plotLines, volumes, beats } = snapshot;
+    const legacy = createHash("sha256").update(JSON.stringify({setting,discipline,profile,characters,settings,plotLines,volumes,beats,events:snapshot.events,chapters:[...snapshot.chapters],rulesVersion:NO_MODEL_REVIEW.version})).digest("hex");
+    writeFileSync(join(root,"preparation",`${p.id}.json`),JSON.stringify({...p,baseFingerprint:legacy}));
+    const reopened = new ProjectSession(root, NO_MODEL_REVIEW);
+    expect(reopened.preparation.view().proposals.find(v=>v.id===p.id)?.stale).toBe(false);
+    expect(reopened.preparation.confirm(p.id).changed).toBe(true);
+  });
+  it("导入12章后生成的候选在重开服务时保持有效", () => {
+    const { root, session } = fresh();
+    session.imports.apply({ files: Array.from({ length: 12 }, (_, i) => ({ name: `${i + 1}章.txt`, text: `第${i + 1}章 雨夜\n他核对纸上的编号。` })) });
+    const proposal = propose(session, { writingRules: ["保持克制。"] });
+    const reopened = new ProjectSession(root, NO_MODEL_REVIEW);
+    expect(reopened.preparation.fingerprint()).toBe(session.preparation.fingerprint());
+    expect(reopened.preparation.view().proposals.find(p => p.id === proposal.id)?.stale).toBe(false);
+    expect(reopened.preparation.confirm(proposal.id).changed).toBe(true);
+  });
+
+  it("旧作首次补录空白核心设定可以审阅确认，已有非空设定改写仍阻断", () => {
+    const { session } = fresh();
+    session.imports.apply({ files: [{ name: "1章.txt", text: "第一章 雨夜\n他核对纸上的编号。" }] });
+    const first = propose(session, { setting: { centralConflict: "记者查证旧当票的真相。", openingSituation: "记者在雨夜收到当票。" } });
+    expect(first.status).toBe("proposed");
+    expect(first.impacts).toEqual([]);
+    session.preparation.confirm(first.id);
+    const changed = propose(session, { setting: { centralConflict: "记者成为当铺的主人。" } });
+    expect(changed.impacts[0]?.chapters).toEqual([1]);
+    expect(() => session.preparation.confirm(changed.id)).toThrow(/已采用正文/u);
+  });
   it("提出建议不改变正式资料，重开保留方案，确认后首章可装配且不产生故事事实", () => {
     const { root, store, session } = fresh();
     const before = store.load();

@@ -13,7 +13,7 @@
  */
 
 import { useRef, useState } from "react";
-import { Button, Input, InputNumber, Modal, Popconfirm, Select } from "antd";
+import { Button, Input, NumberInput, DialogFrame, ConfirmAction, ChoiceSelect, Textarea } from "./controls.js";
 import { api, type CharacterRecord, type DraftFocus, type PreparationProposal, type ChapterBeat } from "../api.js";
 import {
   beatInput, characterInput, plotLineInput, settingInput, volumeInput, emptyCharacter, emptySetting, emptyPlotLine, emptyBeat, emptyVolume,
@@ -62,20 +62,20 @@ function Frame({ title, hint, busy, error, disabled, remove, onSubmit, onClose, 
   remove?: { label: string; note: string; onConfirm: () => void };
   onSubmit: () => void; onClose: () => void; children: React.ReactNode;
 }): React.ReactElement {
-  return <Modal open className="prep-editor" title={title} width={720} onCancel={() => { if (!busy) onClose(); }} maskClosable={!busy}
+  return <DialogFrame open className="prep-editor" title={title} width={720} onCancel={() => { if (!busy) onClose(); }} maskClosable={!busy}
     footer={<div className="prep-editor-footer">
-      {remove === undefined ? <span /> : <Popconfirm title={remove.label} description={remove.note} okText="删除" cancelText="取消" okButtonProps={{ danger: true }} placement="topLeft" onConfirm={remove.onConfirm}>
-        <Button type="text" danger disabled={busy}>{remove.label}</Button>
-      </Popconfirm>}
+      {remove === undefined ? <span /> : <ConfirmAction title={remove.label} description={remove.note} okText="删除" cancelText="取消" danger onConfirm={remove.onConfirm}>
+        <Button variant="ghost" danger disabled={busy}>{remove.label}</Button>
+      </ConfirmAction>}
       <span className="row">
         <Button disabled={busy} onClick={onClose}>取消</Button>
-        <Button type="primary" loading={busy} disabled={disabled} onClick={onSubmit}>保存</Button>
+        <Button variant="default" loading={busy} disabled={disabled} onClick={onSubmit}>保存</Button>
       </span>
     </div>}>
     {hint !== undefined && <p className="muted">{hint}</p>}
     {error !== null && <div className="finding" role="alert" data-level="block">{error}</div>}
     <div className="prep-editor-body">{children}</div>
-  </Modal>;
+  </DialogFrame>;
 }
 
 function Field({ label, children, wide }: { label: string; children: React.ReactNode; wide?: boolean }): React.ReactElement {
@@ -124,17 +124,17 @@ export function DraftDialog({ focus, onProposed, onClose }: {
     } catch (e) { setError((e as Error).message); }
     finally { setBusy(false); }
   };
-  return <Modal open className="prep-editor" title={copy.title} width={620}
+  return <DialogFrame open className="prep-editor" title={copy.title} width={620}
     onCancel={() => { if (!busy) onClose(); }} maskClosable={!busy}
     footer={[<Button key="cancel" disabled={busy} onClick={onClose}>取消</Button>,
-      <Button key="ok" type="primary" loading={busy} onClick={() => void submit()}>{busy ? "正在起草…" : "开始起草"}</Button>]}>
+      <Button key="ok" variant="default" loading={busy} onClick={() => void submit()}>{busy ? "正在起草…" : "开始起草"}</Button>]}>
     <p className="muted">{copy.intro}它不会确认方案，也不会开始写章。</p>
-    {chapters && <Field label="排几章"><Select value={count} disabled={busy} onChange={(value: number) => setCount(value)} options={[3, 5, 8].map((n) => ({ value: n, label: `${n} 章` }))} /></Field>}
+    {chapters && <Field label="排几章"><ChoiceSelect value={count} disabled={busy} onChange={(value: number) => setCount(value)} options={[3, 5, 8].map((n) => ({ value: n, label: `${n} 章` }))} /></Field>}
     {error !== null && <div className="finding" role="alert" data-level="block">{error}</div>}
-    <Field label="补充要求（可留空）" wide><Input.TextArea rows={3} value={brief} disabled={busy}
+    <Field label="补充要求（可留空）" wide><Textarea rows={3} value={brief} disabled={busy}
       onChange={(e) => setBrief(e.target.value)} placeholder={copy.sample} /></Field>
     {busy && <p className="muted" role="status">正在起草，读完作品资料再写……这一步可能要几十秒。</p>}
-  </Modal>;
+  </DialogFrame>;
 }
 
 // ── 人物 ────────────────────────────────────────────────────────────────
@@ -224,31 +224,31 @@ export function CharacterEditor({ base, characters, fingerprint, onSaved, onClos
     {...(base === null ? {} : { remove: { label: `删除人物「${base.name}」`, note: "删掉后还能再建一条；如果它还被章节计划、称谓或正式事件引用，会先告诉你要改哪里。", onConfirm: () => void save(`作者删除人物「${base.name}」`, { removals: { characters: [base.id] } }) } })}
     hint="这里是你审阅 AI 的推断的地方：只改你不同意的，拿不准的可以留着让 AI 定。" busy={busy} error={error} disabled={busy} onSubmit={submit} onClose={onClose}>
     <div className="prep-ai-bar">
-      <Button size="small" loading={drafting} disabled={busy} onClick={() => void aiFill()}>让 AI 起草这位人物</Button>
+      <Button size="sm" loading={drafting} disabled={busy} onClick={() => void aiFill()}>让 AI 起草这位人物</Button>
       <span className="muted">填个姓名或一句话，AI 会把性格、动机与说话方式一并补上，你再改。</span>
     </div>
     <div className="prep-grid">
       <Field label="编号"><Input value={id} disabled={base !== null} onChange={(e) => setId(e.target.value)} placeholder="C_LinYu" /></Field>
       <Field label="姓名"><Input value={name} onChange={(e) => setName(e.target.value)} /></Field>
-      <Field label="别名（一行一个）"><Input.TextArea rows={2} value={aliases} onChange={(e) => setAliases(e.target.value)} /></Field>
-      <Field label="出场权重"><Select value={tier} onChange={setTier} options={options(CHAR_TIER)} /></Field>
+      <Field label="别名（一行一个）"><Textarea rows={2} value={aliases} onChange={(e) => setAliases(e.target.value)} /></Field>
+      <Field label="出场权重"><ChoiceSelect value={tier} onChange={setTier} options={options(CHAR_TIER)} /></Field>
       <Field label="一句话定位" wide><Input value={role} onChange={(e) => setRole(e.target.value)} /></Field>
       <Field label="想要什么" wide><Input value={wants} onChange={(e) => setWants(e.target.value)} /></Field>
       <Field label="害怕什么" wide><Input value={fears} onChange={(e) => setFears(e.target.value)} /></Field>
-      <Field label="背景" wide><Input.TextArea rows={3} value={background} onChange={(e) => setBackground(e.target.value)} /></Field>
-      <Field label="性格标签（一行一个）"><Input.TextArea rows={2} value={traits} onChange={(e) => setTraits(e.target.value)} /></Field>
-      <Field label="禁止行为（一行一个）"><Input.TextArea rows={2} value={forbidden} onChange={(e) => setForbidden(e.target.value)} /></Field>
+      <Field label="背景" wide><Textarea rows={3} value={background} onChange={(e) => setBackground(e.target.value)} /></Field>
+      <Field label="性格标签（一行一个）"><Textarea rows={2} value={traits} onChange={(e) => setTraits(e.target.value)} /></Field>
+      <Field label="禁止行为（一行一个）"><Textarea rows={2} value={forbidden} onChange={(e) => setForbidden(e.target.value)} /></Field>
     </div>
 
     <h4 className="prep-editor-head">说话方式</h4>
     <p className="muted">这几项直接决定声音一致性检查，写空等于关掉对应的检查项。</p>
     <div className="prep-grid">
-      <Field label="语域"><Select value={speech.register} onChange={(v) => setSpeech({ ...speech, register: v as typeof speech.register })} options={options(REGISTERS)} /></Field>
-      <Field label="情绪表达"><Select value={speech.emotionalExpression} onChange={(v) => setSpeech({ ...speech, emotionalExpression: v as typeof speech.emotionalExpression })} options={options(EMOTIONS)} /></Field>
-      <Field label="口头禅（一行一个）"><Input.TextArea rows={2} value={speechLines.verbalTics} onChange={(e) => setSpeechLines({ ...speechLines, verbalTics: e.target.value })} /></Field>
-      <Field label="禁用词（一行一个，命中即拦截）"><Input.TextArea rows={2} value={speechLines.forbiddenLexicon} onChange={(e) => setSpeechLines({ ...speechLines, forbiddenLexicon: e.target.value })} /></Field>
+      <Field label="语域"><ChoiceSelect value={speech.register} onChange={(v) => setSpeech({ ...speech, register: v as typeof speech.register })} options={options(REGISTERS)} /></Field>
+      <Field label="情绪表达"><ChoiceSelect value={speech.emotionalExpression} onChange={(v) => setSpeech({ ...speech, emotionalExpression: v as typeof speech.emotionalExpression })} options={options(EMOTIONS)} /></Field>
+      <Field label="口头禅（一行一个）"><Textarea rows={2} value={speechLines.verbalTics} onChange={(e) => setSpeechLines({ ...speechLines, verbalTics: e.target.value })} /></Field>
+      <Field label="禁用词（一行一个，命中即拦截）"><Textarea rows={2} value={speechLines.forbiddenLexicon} onChange={(e) => setSpeechLines({ ...speechLines, forbiddenLexicon: e.target.value })} /></Field>
     </div>
-    <Field label="正例台词（一行一句，至少一条）" wide><Input.TextArea rows={4} value={speechLines.exemplars} onChange={(e) => setSpeechLines({ ...speechLines, exemplars: e.target.value })} /></Field>
+    <Field label="正例台词（一行一句，至少一条）" wide><Textarea rows={4} value={speechLines.exemplars} onChange={(e) => setSpeechLines({ ...speechLines, exemplars: e.target.value })} /></Field>
 
     <details className="prep-advanced"><summary>高级 · AI 的机械参数与外貌</summary>
       <p className="muted">这些是喂给检查算法的参数，通常由 AI 起草，你不用逐项核对；只有发现模型写偏了才需要动。</p>
@@ -257,30 +257,30 @@ export function CharacterEditor({ base, characters, fingerprint, onSaved, onClos
       {appearance.map((row, n) => <div className="prep-row" key={n}>
         <Input value={row.key} placeholder="属性名，如 眼睛颜色" onChange={(e) => setAppearance(setRow(appearance, n, { ...row, key: e.target.value }))} />
         <Input value={row.value} placeholder="值，如 浅褐" onChange={(e) => setAppearance(setRow(appearance, n, { ...row, value: e.target.value }))} />
-        <InputNumber value={row.establishedAt} min={0} placeholder="确立章" onChange={(v) => setAppearance(setRow(appearance, n, { ...row, establishedAt: num(v, 0) }))} />
-        <Select value={row.immutable ? "yes" : "no"} options={[{ value: "yes", label: "不可变" }, { value: "no", label: "可变" }]} onChange={(v) => setAppearance(setRow(appearance, n, { ...row, immutable: v === "yes" }))} />
-        <Button type="text" onClick={() => setAppearance(appearance.filter((_, i) => i !== n))}>删除</Button>
+        <NumberInput value={row.establishedAt} min={0} placeholder="确立章" onChange={(v) => setAppearance(setRow(appearance, n, { ...row, establishedAt: num(v, 0) }))} />
+        <ChoiceSelect value={row.immutable ? "yes" : "no"} options={[{ value: "yes", label: "不可变" }, { value: "no", label: "可变" }]} onChange={(v) => setAppearance(setRow(appearance, n, { ...row, immutable: v === "yes" }))} />
+        <Button variant="ghost" onClick={() => setAppearance(appearance.filter((_, i) => i !== n))}>删除</Button>
       </div>)}
       <Button onClick={() => setAppearance([...appearance, { key: "", value: "", establishedAt: 0, immutable: false }])}>添加外貌属性</Button>
 
       <div className="prep-grid">
-        <Field label="台词句长下限（字）"><InputNumber value={speech.sentenceLength.min} min={0} onChange={(v) => setSpeech({ ...speech, sentenceLength: { ...speech.sentenceLength, min: num(v, 0) } })} /></Field>
-        <Field label="台词句长上限（字，至少 1）"><InputNumber value={speech.sentenceLength.max} min={1} onChange={(v) => setSpeech({ ...speech, sentenceLength: { ...speech.sentenceLength, max: num(v, 1) } })} /></Field>
-        <Field label="疑问句占比目标（0–1）"><InputNumber value={speech.syntaxBias.question} min={0} max={1} step={0.05} onChange={(v) => setSpeech({ ...speech, syntaxBias: { ...speech.syntaxBias, question: num(v, 0) } })} /></Field>
-        <Field label="祈使句占比目标（0–1）"><InputNumber value={speech.syntaxBias.imperative} min={0} max={1} step={0.05} onChange={(v) => setSpeech({ ...speech, syntaxBias: { ...speech.syntaxBias, imperative: num(v, 0) } })} /></Field>
-        <Field label="省略句占比目标（0–1）"><InputNumber value={speech.syntaxBias.elliptical} min={0} max={1} step={0.05} onChange={(v) => setSpeech({ ...speech, syntaxBias: { ...speech.syntaxBias, elliptical: num(v, 0) } })} /></Field>
-        <Field label="专属词汇（一行一个）"><Input.TextArea rows={2} value={speechLines.signatureLexicon} onChange={(e) => setSpeechLines({ ...speechLines, signatureLexicon: e.target.value })} /></Field>
+        <Field label="台词句长下限（字）"><NumberInput value={speech.sentenceLength.min} min={0} onChange={(v) => setSpeech({ ...speech, sentenceLength: { ...speech.sentenceLength, min: num(v, 0) } })} /></Field>
+        <Field label="台词句长上限（字，至少 1）"><NumberInput value={speech.sentenceLength.max} min={1} onChange={(v) => setSpeech({ ...speech, sentenceLength: { ...speech.sentenceLength, max: num(v, 1) } })} /></Field>
+        <Field label="疑问句占比目标（0–1）"><NumberInput value={speech.syntaxBias.question} min={0} max={1} step={0.05} onChange={(v) => setSpeech({ ...speech, syntaxBias: { ...speech.syntaxBias, question: num(v, 0) } })} /></Field>
+        <Field label="祈使句占比目标（0–1）"><NumberInput value={speech.syntaxBias.imperative} min={0} max={1} step={0.05} onChange={(v) => setSpeech({ ...speech, syntaxBias: { ...speech.syntaxBias, imperative: num(v, 0) } })} /></Field>
+        <Field label="省略句占比目标（0–1）"><NumberInput value={speech.syntaxBias.elliptical} min={0} max={1} step={0.05} onChange={(v) => setSpeech({ ...speech, syntaxBias: { ...speech.syntaxBias, elliptical: num(v, 0) } })} /></Field>
+        <Field label="专属词汇（一行一个）"><Textarea rows={2} value={speechLines.signatureLexicon} onChange={(e) => setSpeechLines({ ...speechLines, signatureLexicon: e.target.value })} /></Field>
       </div>
-      <Field label="反例台词（一行一句，模型写崩的句子可以粘这里）" wide><Input.TextArea rows={3} value={speechLines.counterExemplars} onChange={(e) => setSpeechLines({ ...speechLines, counterExemplars: e.target.value })} /></Field>
+      <Field label="反例台词（一行一句，模型写崩的句子可以粘这里）" wide><Textarea rows={3} value={speechLines.counterExemplars} onChange={(e) => setSpeechLines({ ...speechLines, counterExemplars: e.target.value })} /></Field>
 
       <h4 className="prep-editor-head">称谓表</h4>
       <p className="muted">这个人提到谁时该怎么称呼。留空条件表示任何时候都这么叫。</p>
       {addresses.map((row, n) => <div className="prep-row" key={n}>
-        <Select value={row.target ?? ""} onChange={(v) => setAddresses(setRow(addresses, n, { ...row, target: v === "" ? null : v }))}
+        <ChoiceSelect value={row.target ?? ""} onChange={(v) => setAddresses(setRow(addresses, n, { ...row, target: v === "" ? null : v }))}
           options={[{ value: "", label: "对所有人" }, ...characters.filter((c) => c.id !== id).map((c) => ({ value: c.id, label: c.name }))]} />
         <Input value={row.form} placeholder="称呼，如 苏姑娘" onChange={(e) => setAddresses(setRow(addresses, n, { ...row, form: e.target.value }))} />
         <Input value={row.condition} placeholder="限定情境，可空" onChange={(e) => setAddresses(setRow(addresses, n, { ...row, condition: e.target.value }))} />
-        <Button type="text" onClick={() => setAddresses(addresses.filter((_, i) => i !== n))}>删除</Button>
+        <Button variant="ghost" onClick={() => setAddresses(addresses.filter((_, i) => i !== n))}>删除</Button>
       </div>)}
       <Button onClick={() => setAddresses([...addresses, { target: null, form: "", condition: "" }])}>添加称谓</Button>
     </details>
@@ -306,10 +306,10 @@ export function SettingEditor({ base, fingerprint, onSaved, onClose }: {
     <div className="prep-grid">
       <Field label="编号"><Input value={id} disabled={base !== null} onChange={(e) => setId(e.target.value)} placeholder="S_OldArchive" /></Field>
       <Field label="名称"><Input value={name} onChange={(e) => setName(e.target.value)} /></Field>
-      <Field label="类型"><Select value={kind} onChange={setKind} options={options(KINDS)} /></Field>
+      <Field label="类型"><ChoiceSelect value={kind} onChange={setKind} options={options(KINDS)} /></Field>
     </div>
-    <Field label="描述" wide><Input.TextArea rows={4} value={description} onChange={(e) => setDescription(e.target.value)} /></Field>
-    <Field label="要点（一行一条）" wide><Input.TextArea rows={4} value={facts} onChange={(e) => setFacts(e.target.value)} /></Field>
+    <Field label="描述" wide><Textarea rows={4} value={description} onChange={(e) => setDescription(e.target.value)} /></Field>
+    <Field label="要点（一行一条）" wide><Textarea rows={4} value={facts} onChange={(e) => setFacts(e.target.value)} /></Field>
   </Frame>;
 }
 
@@ -330,7 +330,7 @@ export function PlotLineEditor({ base, fingerprint, onSaved, onClose }: {
     <div className="prep-grid">
       <Field label="编号"><Input value={id} disabled={base !== null} onChange={(e) => setId(e.target.value)} placeholder="P_MainLine" /></Field>
       <Field label="名称"><Input value={label} onChange={(e) => setLabel(e.target.value)} /></Field>
-      <Field label="权重"><Select value={weight} onChange={setWeight} options={options(WEIGHTS)} /></Field>
+      <Field label="权重"><ChoiceSelect value={weight} onChange={setWeight} options={options(WEIGHTS)} /></Field>
     </div>
   </Frame>;
 }
@@ -361,12 +361,12 @@ export function VolumeEditor({ base, volume, span, written, fingerprint, onSaved
     busy={busy} error={error} disabled={busy} onClose={onClose}
     onSubmit={() => void save(base === null ? `作者新增卷 ${volume}「${title}」` : `作者修改卷 ${volume}「${title}」`, { volumes: [volumeInput({ volume, title, summary })] })}>
     <div className="prep-grid">
-      <Field label="卷号"><InputNumber value={volume} disabled /></Field>
+      <Field label="卷号"><NumberInput value={volume} disabled /></Field>
       <Field label="卷名"><Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="风起青州" /></Field>
     </div>
     <Field label="覆盖章节（由章节计划的卷号决定，改卷界请去改那几章的计划）" wide><Input value={range} disabled /></Field>
     <Field label="卷纲（一到三句，写这一卷实际发生了什么）" wide>
-      <Input.TextArea rows={4} value={summary} onChange={(e) => setSummary(e.target.value)}
+      <Textarea rows={4} value={summary} onChange={(e) => setSummary(e.target.value)}
         placeholder="被逐出师门到查明师父死于内应之手。" />
     </Field>
     {!written && summary.trim() !== "" && <p className="finding" data-level="warn">这一卷还没有写完的章节。卷纲只写已经发生的事 —— 现在保存会被退回。</p>}
@@ -397,24 +397,24 @@ export function BeatEditor({ base, chapter, characters, settings, plotLines, fin
     {...(base === null ? {} : { remove: { label: `删除第 ${base.chapter} 章计划`, note: "已经写出正文的章节不能删掉计划 —— 那是这一章的依据。", onConfirm: () => void save(`作者删除第 ${base.chapter} 章计划`, { removals: { beats: [base.chapter] } }) } })}
     hint="核心事件、阶段反馈、章末钩子都不能是「继续铺垫」这类推迟的说法，也不要用「更大的风暴」这类空钩。" busy={busy} error={error} disabled={busy} onSubmit={submit} onClose={onClose}>
     <div className="prep-grid">
-      <Field label="卷号"><InputNumber value={volume} min={1} onChange={(v) => setVolume(num(v, 1))} /></Field>
-      <Field label="章节类型"><Select value={plan.chapterType} onChange={(v) => patch({ chapterType: v as typeof plan.chapterType })} options={options(CHAPTER_TYPES)} /></Field>
-      <Field label="出场人物（至少一个）" wide><Select mode="multiple" value={[...plan.characters]} onChange={(v) => patch({ characters: v })} options={characterOptions} /></Field>
-      <Field label="地点／组织（至少一个）" wide><Select mode="multiple" value={[...plan.locations]} onChange={(v) => patch({ locations: v })} options={settingOptions} /></Field>
+      <Field label="卷号"><NumberInput value={volume} min={1} onChange={(v) => setVolume(num(v, 1))} /></Field>
+      <Field label="章节类型"><ChoiceSelect value={plan.chapterType} onChange={(v) => patch({ chapterType: v as typeof plan.chapterType })} options={options(CHAPTER_TYPES)} /></Field>
+      <Field label="出场人物（至少一个）" wide><ChoiceSelect mode="multiple" value={[...plan.characters]} onChange={(v) => patch({ characters: v })} options={characterOptions} /></Field>
+      <Field label="地点／组织（至少一个）" wide><ChoiceSelect mode="multiple" value={[...plan.locations]} onChange={(v) => patch({ locations: v })} options={settingOptions} /></Field>
       <Field label="核心事件" wide><Input value={plan.coreEvent} onChange={(e) => patch({ coreEvent: e.target.value })} /></Field>
-      <Field label="阶段反馈（本章给读者的实际兑现）" wide><Input.TextArea rows={2} value={plan.stageFeedback} onChange={(e) => patch({ stageFeedback: e.target.value })} /></Field>
-      <Field label="章末钩子" wide><Input.TextArea rows={2} value={plan.hook} onChange={(e) => patch({ hook: e.target.value })} /></Field>
+      <Field label="阶段反馈（本章给读者的实际兑现）" wide><Textarea rows={2} value={plan.stageFeedback} onChange={(e) => patch({ stageFeedback: e.target.value })} /></Field>
+      <Field label="章末钩子" wide><Textarea rows={2} value={plan.hook} onChange={(e) => patch({ hook: e.target.value })} /></Field>
       <Field label="次级推进（可空）" wide><Input value={plan.secondaryThread ?? ""} onChange={(e) => patch({ secondaryThread: e.target.value === "" ? null : e.target.value })} /></Field>
     </div>
 
     <h4 className="prep-editor-head">计划事件</h4>
     <p className="muted">权重直接决定本章字数预算：「事件章」及以上至少要有一件事发生。</p>
     {plan.events.map((row, n) => <div className="prep-row" key={n}>
-      <Select value={row.kind} options={options(EVENT_KINDS)} onChange={(v) => patch({ events: setRow([...plan.events], n, { ...row, kind: v as EventKind }) })} />
+      <ChoiceSelect value={row.kind} options={options(EVENT_KINDS)} onChange={(v) => patch({ events: setRow([...plan.events], n, { ...row, kind: v as EventKind }) })} />
       <Input value={row.summary} placeholder="一句话说清发生了什么" onChange={(e) => patch({ events: setRow([...plan.events], n, { ...row, summary: e.target.value }) })} />
-      <InputNumber value={row.weight} min={1} max={3} onChange={(v) => patch({ events: setRow([...plan.events], n, { ...row, weight: num(v, 1) as 1 | 2 | 3 }) })} />
-      <Select value={row.plotLine ?? ""} options={plotLineOptions} onChange={(v) => patch({ events: setRow([...plan.events], n, { ...row, plotLine: v === "" ? null : v }) })} />
-      <Button type="text" onClick={() => patch({ events: plan.events.filter((_, i) => i !== n) })}>删除</Button>
+      <NumberInput value={row.weight} min={1} max={3} onChange={(v) => patch({ events: setRow([...plan.events], n, { ...row, weight: num(v, 1) as 1 | 2 | 3 }) })} />
+      <ChoiceSelect value={row.plotLine ?? ""} options={plotLineOptions} onChange={(v) => patch({ events: setRow([...plan.events], n, { ...row, plotLine: v === "" ? null : v }) })} />
+      <Button variant="ghost" onClick={() => patch({ events: plan.events.filter((_, i) => i !== n) })}>删除</Button>
     </div>)}
     <Button onClick={() => patch({ events: [...plan.events, { kind: "action", summary: "", weight: 1, plotLine: null }] })}>添加事件</Button>
 
@@ -422,8 +422,8 @@ export function BeatEditor({ base, chapter, characters, settings, plotLines, fin
     <p className="muted">这里只写名称与权重；意图由模型在写作时给出。兑现要留到后面的章节。</p>
     {plan.plants.map((row, n) => <div className="prep-row" key={n}>
       <Input value={row.label} placeholder="伏笔名称" onChange={(e) => patch({ plants: setRow([...plan.plants], n, { ...row, label: e.target.value }) })} />
-      <Select value={row.weight} options={options(WEIGHTS)} onChange={(v) => patch({ plants: setRow([...plan.plants], n, { ...row, weight: v as Weight }) })} />
-      <Button type="text" onClick={() => patch({ plants: plan.plants.filter((_, i) => i !== n) })}>删除</Button>
+      <ChoiceSelect value={row.weight} options={options(WEIGHTS)} onChange={(v) => patch({ plants: setRow([...plan.plants], n, { ...row, weight: v as Weight }) })} />
+      <Button variant="ghost" onClick={() => patch({ plants: plan.plants.filter((_, i) => i !== n) })}>删除</Button>
     </div>)}
     <Button onClick={() => patch({ plants: [...plan.plants, { label: "", weight: "sub" }] })}>添加伏笔</Button>
 
@@ -431,9 +431,9 @@ export function BeatEditor({ base, chapter, characters, settings, plotLines, fin
     <p className="muted">只能收束已经正式埋设、且尚未结束的伏笔，权重必须与该伏笔一致；填错会在保存时被打回。</p>
     {plan.resolves.map((row, n) => <div className="prep-row" key={n}>
       <Input value={row.foreshadowId} placeholder="伏笔编号，如 F02" onChange={(e) => patch({ resolves: setRow([...plan.resolves], n, { ...row, foreshadowId: e.target.value }) })} />
-      <Select value={row.weight} options={options(WEIGHTS)} onChange={(v) => patch({ resolves: setRow([...plan.resolves], n, { ...row, weight: v as Weight }) })} />
-      <Select value={row.completeness} options={options(COMPLETENESS)} onChange={(v) => patch({ resolves: setRow([...plan.resolves], n, { ...row, completeness: v as "full" | "partial" }) })} />
-      <Button type="text" onClick={() => patch({ resolves: plan.resolves.filter((_, i) => i !== n) })}>删除</Button>
+      <ChoiceSelect value={row.weight} options={options(WEIGHTS)} onChange={(v) => patch({ resolves: setRow([...plan.resolves], n, { ...row, weight: v as Weight }) })} />
+      <ChoiceSelect value={row.completeness} options={options(COMPLETENESS)} onChange={(v) => patch({ resolves: setRow([...plan.resolves], n, { ...row, completeness: v as "full" | "partial" }) })} />
+      <Button variant="ghost" onClick={() => patch({ resolves: plan.resolves.filter((_, i) => i !== n) })}>删除</Button>
     </div>)}
     <Button onClick={() => patch({ resolves: [...plan.resolves, { foreshadowId: "", weight: "sub", completeness: "partial" }] })}>添加兑现</Button>
   </Frame>;

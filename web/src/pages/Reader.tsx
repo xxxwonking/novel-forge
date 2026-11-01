@@ -9,8 +9,8 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import { Button, Select, Tooltip } from "antd";
-import { LeftOutlined, RightOutlined } from "@ant-design/icons";
+import { Button, ChoiceSelect, HelpTooltip } from "../components/controls.js";
+import { ChevronLeft as LeftOutlined, ChevronRight as RightOutlined } from "lucide-react";
 import { api, type GateFinding, type HealthPayload } from "../api.js";
 import { useFetch } from "../hooks.js";
 
@@ -80,11 +80,11 @@ export function Reader({ chapter, quote }: ReaderProps): React.ReactElement {
       <div className="reader-bar">
         <div className="reader-bar-main">
           <h1>第 {chapter} 章</h1>
-          <Select
+          <ChoiceSelect
             aria-label="选择章节"
             value={chapter}
             className="reader-picker"
-            popupMatchSelectWidth={false}
+
             onChange={go}
             options={chapters.map((c) => ({
               value: c.chapter,
@@ -93,12 +93,12 @@ export function Reader({ chapter, quote }: ReaderProps): React.ReactElement {
           />
         </div>
         <div className="reader-bar-side">
-          <Tooltip title={prev === undefined ? "已是最前一章" : `第 ${prev.chapter} 章`}>
-            <Button type="text" icon={<LeftOutlined />} disabled={prev === undefined} onClick={() => prev && go(prev.chapter)} aria-label="上一章" />
-          </Tooltip>
-          <Tooltip title={next === undefined ? "已是最后一章" : `第 ${next.chapter} 章`}>
-            <Button type="text" icon={<RightOutlined />} disabled={next === undefined} onClick={() => next && go(next.chapter)} aria-label="下一章" />
-          </Tooltip>
+          <HelpTooltip title={prev === undefined ? "已是最前一章" : `第 ${prev.chapter} 章`}>
+            <Button variant="ghost" icon={<LeftOutlined />} disabled={prev === undefined} onClick={() => prev && go(prev.chapter)} aria-label="上一章" />
+          </HelpTooltip>
+          <HelpTooltip title={next === undefined ? "已是最后一章" : `第 ${next.chapter} 章`}>
+            <Button variant="ghost" icon={<RightOutlined />} disabled={next === undefined} onClick={() => next && go(next.chapter)} aria-label="下一章" />
+          </HelpTooltip>
           <a className="export-link" href="#/export">导出作品</a>
         </div>
         <div className="reader-progress" aria-hidden="true"><i style={{ transform: `scaleX(${progress})` }} /></div>

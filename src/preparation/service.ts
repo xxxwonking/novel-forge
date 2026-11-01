@@ -47,7 +47,18 @@ export class PreparationService {
 
   fingerprint(): string {
     const snapshot = this.deps.snapshot();
-    return hash({ ...preparationContent(snapshot), events: snapshot.events, chapters: [...snapshot.chapters], rulesVersion: this.deps.rules.version });
+    return hash({ ...preparationContent(snapshot), events: snapshot.events, chapters: [...snapshot.chapters].sort(([a], [b]) => a - b), rulesVersion: this.deps.rules.version });
+  }
+
+  /** 兼容旧版本按 ch1.txt/ch10.txt 字典序计算的有效候选，不放行真实资料变更。 */
+  private matchesFingerprint(value: string, canonical = this.fingerprint()): boolean {
+    if (value === canonical) return true;
+    const snapshot = this.deps.snapshot();
+    const chapters = [...snapshot.chapters].sort(([a], [b]) => {
+      const left = `ch${a}.txt`, right = `ch${b}.txt`;
+      return left < right ? -1 : left > right ? 1 : 0;
+    });
+    return value === hash({ ...preparationContent(snapshot), events: snapshot.events, chapters, rulesVersion: this.deps.rules.version });
   }
 
   view(): PreparationView {
@@ -68,12 +79,12 @@ export class PreparationService {
         characterProfiles: [], plotLineDefs: [], plotLineGap: this.deps.rules.crossChapter.plotLineGap,
       }).foreshadows.filter(item => item.status === "planned").map(({ id, label, intent, expectedBy, weight }) => ({ id, label, intent, expectedBy, weight })),
       taskPolicy: { autoRevisionLimit: automaticRevisionLimit(this.deps.rules.task.maxAutoRevisions) },
-      proposals: this.list().map((proposal) => ({ ...proposal, stale: proposal.status === "proposed" && proposal.baseFingerprint !== fingerprint })) };
+      proposals: this.list().map((proposal) => ({ ...proposal, stale: proposal.status === "proposed" && !this.matchesFingerprint(proposal.baseFingerprint, fingerprint) })) };
   }
 
   propose(raw: unknown, source: "author" | "assistant" = "assistant"): PreparationProposal {
     const input = parsePreparationInput(raw);
-    if (input.baseFingerprint !== this.fingerprint()) throw new ChapterWriteError(409, "方案来源版本发生变化，请先重新读取作品资料");
+    if (!this.matchesFingerprint(input.baseFingerprint)) throw new ChapterWriteError(409, "方案来源版本发生变化，请先重新读取作品资料");
     const existing = this.list().find((p) => p.status === "proposed" && p.source === source && p.baseFingerprint === input.baseFingerprint && same(p.changes, input.changes));
     if (existing !== undefined) return existing;
     const now = new Date().toISOString();
@@ -126,7 +137,7 @@ export class PreparationService {
     const proposal = this.get(id);
     if (proposal.status === "confirmed") return preparationContent(this.deps.snapshot());
     if (proposal.status === "rejected") throw new ChapterWriteError(409, "该方案已丢弃");
-    if (proposal.baseFingerprint !== this.fingerprint()) throw new ChapterWriteError(409, "方案基于较早版本，作品资料或已采用正文发生变化，请先重新整理方案");
+    if (!this.matchesFingerprint(proposal.baseFingerprint)) throw new ChapterWriteError(409, "方案基于较早版本，作品资料或已采用正文发生变化，请先重新整理方案");
     const built = build(this.deps.snapshot(), proposal.changes, proposal.createdAt, this.deps.rules, this.deps.completed());
     if (built.impacts.length > 0) throw new ChapterWriteError(409, `方案影响已采用正文，先处理相关章节：${built.impacts.map((i) => i.message).join("；")}`);
     const changedCharacters = new Set(proposal.changes.characters?.map((c) => c.id));
@@ -359,7 +370,10 @@ function impacts(snapshot: ProjectSnapshot, changes: PreparationChanges): Prepar
   const impacts: { message: string; chapters: readonly number[] }[] = [];
   if (all.length === 0) return impacts;
   const pastSetting = ["premise", "centralConflict", "protagonistTraits", "protagonistForbidden", "specialAbility", "abilityLimits", "worldRules", "openingSituation", "romanceLine"] as const;
-  if (pastSetting.some((key) => changes.setting?.[key] !== undefined && !same(changes.setting[key], snapshot.setting[key]))) impacts.push({ message: "核心设定变化需要核对既有章节", chapters: all });
+  // 导入正文不会同时补齐结构资料。首次记录空白项不是推翻已有设定；
+  // 仍作为可审阅方案保存，只有已有非空依据被改写时才要求处理历史正文。
+  const established = (value: unknown): boolean => Array.isArray(value) ? value.length > 0 : typeof value === "string" ? value.trim() !== "" : value !== undefined && value !== null;
+  if (pastSetting.some((key) => established(snapshot.setting[key]) && changes.setting?.[key] !== undefined && !same(changes.setting[key], snapshot.setting[key]))) impacts.push({ message: "核心设定变化需要核对既有章节", chapters: all });
   for (const c of changes.characters ?? []) {
     const before = snapshot.characters.find((old) => old.id === c.id);
     if (before === undefined || (before.name === c.name && same(before.profile, c.profile))) continue;

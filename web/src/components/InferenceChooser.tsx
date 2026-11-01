@@ -13,7 +13,7 @@
  *   - 次数区间照原样显示，不取一端。取哪端都是在替作者猜。
  */
 
-import { Button, Modal } from "antd";
+import { Button, DialogFrame } from "./controls.js";
 import { api, type InferenceEstimate } from "../api.js";
 import { Chip } from "./Chip.js";
 import { useFetch } from "../hooks.js";
@@ -55,7 +55,7 @@ export function InferenceChooser({ onMaterials, onChapters, onClose }: Inference
   const { data, error, loading } = useFetch(() => api.inferenceEstimate(), []);
   const pick = { materials: onMaterials, chapters: onChapters };
 
-  return <Modal open className="prep-editor" title="反推故事结构" width={760} onCancel={onClose} footer={[<Button key="cancel" onClick={onClose}>先不反推</Button>]}>
+  return <DialogFrame open className="prep-editor" title="反推故事结构" width={760} onCancel={onClose} footer={[<Button key="cancel" onClick={onClose}>先不反推</Button>]}>
     <p className="muted">
       导进来的正文只有字，没有结构 —— 伏笔时间线、情节线、关系图都要靠反推才长出来。
       两条路做的是同一件事，区别在读什么、产出什么形态、花多少。
@@ -73,7 +73,7 @@ export function InferenceChooser({ onMaterials, onChapters, onClose }: Inference
             <div><dt>产出</dt><dd>{copy.yields}</dd></div>
           </dl>
           <p className="muted">{copy.caveat}</p>
-          <Button type={key === "materials" ? "primary" : "default"} onClick={() => { onClose(); pick[key](); }}>{copy.action}</Button>
+          <Button variant={key === "materials" ? "default" : "outline"} onClick={() => { onClose(); pick[key](); }}>{copy.action}</Button>
         </article>;
       })}
     </div>
@@ -83,7 +83,7 @@ export function InferenceChooser({ onMaterials, onChapters, onClose }: Inference
         : <>预估按声明的输出上限推算，<strong>可能偏低</strong> —— 有的供应商把思考 token 计进输出计费，实测见过超上限两倍。攒够三次同类调用后会改按实测均价算，那时才准。</>}
       {data?.modes.some((m) => m.credits === null) === true && " 价格表里没有当前配置的模型，那一档折不出积分：调用照样记用量，但不会扣。"}
     </p>
-  </Modal>;
+  </DialogFrame>;
 }
 
 /** 次数确定时不画区间；积分同理。区间两端相同还写成 a~b，作者会以为哪里不确定。 */

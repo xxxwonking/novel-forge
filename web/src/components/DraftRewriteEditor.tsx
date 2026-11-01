@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { Button, Input, Segmented, Select } from "antd";
+import { Button, Input, SegmentedControl, ChoiceSelect, Textarea } from "./controls.js";
 import { api, type DraftView } from "../api.js";
 
 export function DraftRewriteEditor({ draft, mode, onSaved, onClose }: { draft: DraftView; mode: "rewrite" | "continue"; onSaved: (draft: DraftView) => void; onClose: () => void }): React.ReactElement {
@@ -38,18 +38,18 @@ export function DraftRewriteEditor({ draft, mode, onSaved, onClose }: { draft: D
     <h2>{mode === "continue" ? "保留片段，继续完成" : "按要求改写正文"}</h2>
     <p className="muted">{mode === "continue" ? "已有片段原样保留，从末尾继续。完成后核对结构并检查，交付待采用的新版本。" : "选择原文范围并说明要求。范围外的正文原样保留；需要扩大范围时先展示建议。"}</p>
     {mode === "rewrite" ? <>
-      <label>修改范围<Segmented value={scopeKind} disabled={busy} onChange={value => setScopeKind(String(value))}
+      <label>修改范围<SegmentedControl value={scopeKind} disabled={busy} onChange={value => setScopeKind(String(value))}
         options={[{ value: "selection", label: "指定段落" }, { value: "chapter", label: "本章全文" }]} /></label>
       {scopeKind === "selection" ? <>
-        <label>在原文中选中要改写的内容<Input.TextArea aria-label="选择改写原文" readOnly rows={10} value={source.body} onSelect={selectText} disabled={busy} /></label>
-        <label>已选原文（也可粘贴）<Input.TextArea aria-label="已选原文" rows={3} value={quote} onChange={event => { setQuote(event.target.value); setOccurrence(null); }} disabled={busy} /></label>
-        {positions.length > 1 && <label>原文出现多次，请选择位置<Select value={chosen} disabled={busy} placeholder="请选择" onChange={value => setOccurrence(value ?? null)} allowClear
-          options={positions.map((offset, n) => ({ value: n, label: `第 ${n + 1} 处 · ${source.body.slice(Math.max(0, offset - 12), offset + Math.min(quote.length, 24))}` }))} /></label>}
+        <label>在原文中选中要改写的内容<Textarea aria-label="选择改写原文" readOnly rows={10} value={source.body} onSelect={selectText} disabled={busy} /></label>
+        <label>已选原文（也可粘贴）<Textarea aria-label="已选原文" rows={3} value={quote} onChange={event => { setQuote(event.target.value); setOccurrence(null); }} disabled={busy} /></label>
+        {positions.length > 1 && <div><label>原文出现多次，请选择位置<ChoiceSelect value={chosen} disabled={busy} placeholder="请选择" onChange={value => setOccurrence(value ?? null)}
+          options={positions.map((offset, n) => ({ value: n, label: `第 ${n + 1} 处 · ${source.body.slice(Math.max(0, offset - 12), offset + Math.min(quote.length, 24))}` }))} /></label><Button variant="ghost" disabled={busy || chosen === null} onClick={() => setOccurrence(null)}>清除位置选择</Button></div>}
         {quote && positions.length === 0 && <p className="finding" data-level="warn">所填文字不在源稿中，请重新选择原文。</p>}
       </> : <p className="muted">本次允许修改本章全文。其他章节保持原样，新版本仍需检查和采用。</p>}
     </> : <details><summary>查看保留片段的结尾</summary><pre className="rewrite-excerpt">{source.body.slice(-1200)}</pre></details>}
-    <label>{mode === "continue" ? "续写要求" : "改写要求"}<Input.TextArea aria-label={mode === "continue" ? "续写要求" : "改写要求"} rows={3} value={instruction} onChange={event => setInstruction(event.target.value)} placeholder="例如：先加一轮试探再答应，保留结尾的决定" disabled={busy} /></label>
+    <label>{mode === "continue" ? "续写要求" : "改写要求"}<Textarea aria-label={mode === "continue" ? "续写要求" : "改写要求"} rows={3} value={instruction} onChange={event => setInstruction(event.target.value)} placeholder="例如：先加一轮试探再答应，保留结尾的决定" disabled={busy} /></label>
     {error && <p className="finding" data-level="block" role="alert">{error}</p>}
-    <div className="row"><Button type="primary" loading={busy} disabled={!valid || !instruction.trim()} onClick={() => void save()}>{mode === "continue" ? "开始续写" : "开始改写"}</Button><Button disabled={busy} onClick={onClose}>取消</Button></div>
+    <div className="row"><Button variant="default" loading={busy} disabled={!valid || !instruction.trim()} onClick={() => void save()}>{mode === "continue" ? "开始续写" : "开始改写"}</Button><Button disabled={busy} onClick={onClose}>取消</Button></div>
   </section>;
 }

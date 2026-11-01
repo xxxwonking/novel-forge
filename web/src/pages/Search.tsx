@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { Button, Input } from "antd";
+import { Button, Input } from "../components/controls.js";
+import { X } from "lucide-react";
 import { api, type EntityHit, type SearchResult } from "../api.js";
 import { useFetch } from "../hooks.js";
 
@@ -34,10 +35,11 @@ export function Search({ query }: { query: string }): React.ReactElement {
       <h1>全文检索</h1>
       <p>正文与结构一起搜：人物、地点、情节线、卷、章节计划，以及已确认的事件与伏笔。</p>
     </div>
-    <Input.Search
-      className="search-box" size="large" allowClear enterButton="检索" placeholder="例如：钥匙"
-      value={input} onChange={(e) => setInput(e.target.value)} onSearch={submit} loading={result.loading}
-    />
+    <form className="search-form" onSubmit={event => { event.preventDefault(); submit(input); }}>
+      <Input aria-label="全文检索" placeholder="例如：钥匙" value={input} onChange={event => setInput(event.target.value)} />
+      {input !== "" && <Button size="icon" variant="ghost" aria-label="清除检索" onClick={() => { setInput(""); submit(""); }}><X aria-hidden="true" className="size-4" /></Button>}
+      <Button variant="default" type="submit" loading={result.loading}>检索</Button>
+    </form>
     {result.error !== null && <div className="finding" role="alert" data-level="block">{result.error}</div>}
     {query === "" && <p className="muted">输入一个词，看它在哪几章出现过、在哪条设定里被提到。</p>}
     {nothing && <p className="muted">没有找到「{query}」。检索不做模糊匹配，换个更短的词试试。</p>}
@@ -82,6 +84,6 @@ export function Search({ query }: { query: string }): React.ReactElement {
       </section>
     )}
     {result.loading && data === null && query !== "" && <div className="empty">检索中…</div>}
-    {result.error !== null && <Button size="small" onClick={result.reload}>重试</Button>}
+    {result.error !== null && <Button size="sm" onClick={result.reload}>重试</Button>}
   </>;
 }

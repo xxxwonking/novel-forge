@@ -14,8 +14,8 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import { Button, Drawer, Input, Segmented, Tag, Tooltip } from "antd";
-import { ArrowUpOutlined, CheckOutlined, CloseOutlined, LoadingOutlined } from "@ant-design/icons";
+import { Button, SidePanel, Input, SegmentedControl, StatusTag, HelpTooltip, Textarea } from "../components/controls.js";
+import { ArrowUp as ArrowUpOutlined, Check as CheckOutlined, X as CloseOutlined, LoaderCircle as LoadingOutlined, Sparkles, PenLine } from "lucide-react";
 import { api, type AgentEffect, type ConversationMode, type ConversationStreamEvent, type ConversationTurn, type DraftView } from "../api.js";
 import { useFetch } from "../hooks.js";
 
@@ -169,26 +169,26 @@ export function Chat({ onJump, refresh, initialPrompt = "", initialMode }: ChatP
             ? <>只讨论，不改动作品。谈拢后 Agent 出一份<strong>候选方案</strong>，你到作品资料页确认才生效。</>
             : <>讨论方向、查资料、把安排写进计划，或“按计划写下一章”。写出的章节是<strong>待采用草稿</strong>，你确认后才成为正式进度。</>}</p>
         </div>
-        <Tooltip title={planning ? "回到常规对话：说了就做" : "谋篇：只讨论、不改动，谈拢后出方案拍板"}>
-          <Segmented<ConversationMode>
+        <HelpTooltip title={planning ? "回到常规对话：说了就做" : "谋篇：只讨论、不改动，谈拢后出方案拍板"}>
+          <SegmentedControl<ConversationMode>
             className="chat-mode"
             value={mode}
             disabled={switching || sending}
             options={[{ label: "对话", value: "normal" }, { label: "谋篇", value: "planning" }]}
             onChange={(value) => void switchMode(value)}
           />
-        </Tooltip>
+        </HelpTooltip>
       </div>
 
       <div className="chat-stream" ref={streamRef} onScroll={onScroll}>
         {history.loading && turns.length === 0 && <div className="chat-empty muted">载入对话…</div>}
         {empty && (
           <div className="chat-empty">
-            <div className="chat-empty-mark" aria-hidden="true">✦</div>
+            <div className="chat-empty-mark" aria-hidden="true"><Sparkles /></div>
             <h2>{planning ? "不知道写什么也没关系。" : "从一句话开始。"}</h2>
             <p>{planning ? "先说一句脑子里有的画面，我陪你一步步把书想出来；想好之前什么都不会改。" : "可以直接下达任务，也可以先聊聊；想不清楚就切到「谋篇」。"}</p>
             <div className="chat-suggestions">
-              {(planning ? PLANNING_SUGGESTIONS : SUGGESTIONS).map((s) => <Button key={s} shape="round" onClick={() => void send(s)}>{s}</Button>)}
+              {(planning ? PLANNING_SUGGESTIONS : SUGGESTIONS).map((s) => <Button key={s} className="h-auto min-h-9 whitespace-normal rounded-full text-left" onClick={() => void send(s)}>{s}</Button>)}
             </div>
           </div>
         )}
@@ -202,13 +202,13 @@ export function Chat({ onJump, refresh, initialPrompt = "", initialMode }: ChatP
       {error !== null && <div className="finding chat-error" data-level="block">{error}</div>}
 
       <div className="composer">
-        <Input.TextArea
-          className="composer-input"
+        <Textarea
+          className="composer-input min-h-[124px] max-h-[280px]"
           aria-label="对话内容"
           aria-describedby="composer-status"
           value={input}
           placeholder={planning ? "谋篇中，只讨论不改动。想到什么就说… Enter 发送，Shift+Enter 换行" : "说点什么… Enter 发送，Shift+Enter 换行"}
-          autoSize={{ minRows: 4, maxRows: 8 }}
+          rows={4}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
@@ -219,29 +219,29 @@ export function Chat({ onJump, refresh, initialPrompt = "", initialMode }: ChatP
         />
         <div className="composer-bar">
           <span className="composer-status" id="composer-status">{sending ? <><LoadingOutlined /> {pending?.tools.length ? "正在处理" : "正在回复"}</> : planning ? "谋篇模式：Agent 改不动作品，方案在资料页拍板" : "Agent 会自行选择工具；正式采用始终由你决定"}</span>
-          <Tooltip title={sending ? "上一条还在回复" : "发送（Enter）"}>
-            <Button type="primary" shape="circle" icon={<ArrowUpOutlined />} disabled={sending || input.trim() === ""} onClick={() => void send()} aria-label="发送" />
-          </Tooltip>
+          <HelpTooltip title={sending ? "上一条还在回复" : "发送（Enter）"}>
+            <Button variant="default" size="icon" icon={<ArrowUpOutlined />} disabled={sending || input.trim() === ""} onClick={() => void send()} aria-label="发送" />
+          </HelpTooltip>
         </div>
       </div>
 
-      <Drawer
+      <SidePanel
         open={draft !== null}
         onClose={() => setDraft(null)}
         width={Math.min(560, window.innerWidth)}
-        closeIcon={<CloseOutlined />}
-        title={draft === null ? null : <span className="drawer-title"><Tag>草稿 {draft.draftId}</Tag><span className="muted">第 {draft.chapter} 章 · {draft.status} · {draft.words} 字</span></span>}
+
+        title={draft === null ? null : <span className="drawer-title"><StatusTag>草稿 {draft.draftId}</StatusTag><span className="muted">第 {draft.chapter} 章 · {draft.status} · {draft.words} 字</span></span>}
         footer={draft === null ? null : (
           <div className="drawer-footer">
             <Button onClick={() => onJump(draft.chapter, "")}>在正文页打开该章</Button>
             <a className="drawer-link" href={`#/draft/${draft.chapter}/${draft.draftId}`}>完整结果页</a>
             <span style={{ flex: 1 }} />
-            {draft.acceptable && <Button type="primary" icon={<CheckOutlined />} onClick={() => void adopt(draft.chapter, draft.draftId)}>采用这一版</Button>}
+            {draft.acceptable && <Button variant="default" icon={<CheckOutlined />} onClick={() => void adopt(draft.chapter, draft.draftId)}>采用这一版</Button>}
           </div>
         )}
       >
         {draft !== null && <DraftBody draft={draft} />}
-      </Drawer>
+      </SidePanel>
     </div>
   );
 }
@@ -303,7 +303,7 @@ function PendingMessage({ pending }: { pending: Pending }): React.ReactElement {
 
 function Avatar({ role }: { role: "user" | "agent" }): React.ReactElement {
   return role === "agent"
-    ? <div className="avatar" data-role="agent" aria-hidden="true"><svg viewBox="0 0 24 24" width="16" height="16" fill="none"><path d="M4 20l4-1 10-10-3-3L5 16l-1 4Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round"/><path d="M13 8l3 3" stroke="currentColor" strokeWidth="1.6"/></svg></div>
+    ? <div className="avatar" data-role="agent" aria-hidden="true"><PenLine /></div>
     : <div className="avatar" data-role="user" aria-hidden="true">你</div>;
 }
 
@@ -321,48 +321,48 @@ function EffectCard({
   switch (effect.kind) {
     case "chapter_started":
     case "task_updated":
-      return <div className="effect"><Tag color="gold">{effect.kind === "chapter_started" ? "章节任务" : "任务状态已更新"}</Tag><a href={`#/draft/${effect.chapter}/${effect.draftId}`}>第 {effect.chapter} 章 · 查看任务与结果</a></div>;
+      return <div className="effect"><StatusTag color="gold">{effect.kind === "chapter_started" ? "章节任务" : "任务状态已更新"}</StatusTag><a href={`#/draft/${effect.chapter}/${effect.draftId}`}>第 {effect.chapter} 章 · 查看任务与结果</a></div>;
     case "preparation_proposed":
     case "preparation_confirmed":
-      return <div className="effect"><Tag color={effect.kind === "preparation_confirmed" ? "cyan" : "gold"}>{effect.kind === "preparation_confirmed" ? "资料已确认" : "待确认方案"}</Tag><span>{effect.summary}</span><a href={`#/preparation?proposal=${encodeURIComponent(effect.proposalId)}`}>查看方案</a></div>;
+      return <div className="effect"><StatusTag color={effect.kind === "preparation_confirmed" ? "cyan" : "gold"}>{effect.kind === "preparation_confirmed" ? "资料已确认" : "待确认方案"}</StatusTag><span>{effect.summary}</span><a href={`#/preparation?proposal=${encodeURIComponent(effect.proposalId)}`}>查看方案</a></div>;
     case "chapter_written":
     case "chapter_revised":
       return (
         <div className="effect">
-          <Tag>草稿 {effect.draftId}</Tag>
+          <StatusTag>草稿 {effect.draftId}</StatusTag>
           <span className="muted">第 {effect.chapter} 章 · {effect.status}</span>
-          <Button size="small" onClick={() => onView(effect.chapter, effect.draftId)}>查看草稿</Button>
+          <Button size="sm" onClick={() => onView(effect.chapter, effect.draftId)}>查看草稿</Button>
           <a href={`#/draft/${effect.chapter}/${effect.draftId}`}>完整结果</a>
           {effect.acceptable && (
-            <Button size="small" type="primary" onClick={() => onAdopt(effect.chapter, effect.draftId)}>采用</Button>
+            <Button size="sm" variant="default" onClick={() => onAdopt(effect.chapter, effect.draftId)}>采用</Button>
           )}
         </div>
       );
     case "chapter_adopted":
       return (
         <div className="effect">
-          <Tag color="cyan">已采用 第 {effect.chapter} 章</Tag>
-          <Button size="small" onClick={() => onJump(effect.chapter, "")}>查看正文</Button>
+          <StatusTag color="cyan">已采用 第 {effect.chapter} 章</StatusTag>
+          <Button size="sm" onClick={() => onJump(effect.chapter, "")}>查看正文</Button>
           {effect.staleMarked.length > 0 && <span className="muted">后续 {effect.staleMarked.length} 章需重核</span>}
         </div>
       );
     case "plan_updated":
       return (
         <div className="effect">
-          <Tag color="orange">第 {effect.chapter} 章计划已更新</Tag>
+          <StatusTag color="orange">第 {effect.chapter} 章计划已更新</StatusTag>
           {effect.promotedToPayoff && <span className="muted">已升级为回收章</span>}
         </div>
       );
     case "foreshadow_rescheduled":
-      return <div className="effect"><Tag>{effect.foreshadowId} 改期 → 第 {effect.expectedBy} 章</Tag></div>;
+      return <div className="effect"><StatusTag>{effect.foreshadowId} 改期 → 第 {effect.expectedBy} 章</StatusTag></div>;
     case "foreshadow_abandoned":
-      return <div className="effect"><Tag>{effect.foreshadowId} 已废弃</Tag></div>;
+      return <div className="effect"><StatusTag>{effect.foreshadowId} 已废弃</StatusTag></div>;
     case "export_prepared":
-      return <div className="effect"><Tag color="gold">已固定 {effect.chapters} 章正式版本</Tag><a href={`#/export?id=${encodeURIComponent(effect.exportId)}`}>查看导出预览并下载</a></div>;
+      return <div className="effect"><StatusTag color="gold">已固定 {effect.chapters} 章正式版本</StatusTag><a href={`#/export?id=${encodeURIComponent(effect.exportId)}`}>查看导出预览并下载</a></div>;
     case "idea_recorded":
-      return <div className="effect"><Tag>已记为备选</Tag><span className="muted">{effect.text}</span></div>;
+      return <div className="effect"><StatusTag>已记为备选</StatusTag><span className="muted">{effect.text}</span></div>;
     case "action_failed":
-      return <div className="effect"><Tag color="volcano">未完成</Tag><span className="muted">{effect.tool}：{effect.message}</span></div>;
+      return <div className="effect"><StatusTag color="volcano">未完成</StatusTag><span className="muted">{effect.tool}：{effect.message}</span></div>;
   }
 }
 

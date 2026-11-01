@@ -6,7 +6,7 @@
  * 什么写到哪一章去 —— `[加入第 53 章回收]` 而不是 `[处理]`。
  */
 
-import { Button } from "antd";
+import { Button } from "./controls.js";
 import { Chip } from "./Chip.js";
 import type { Alert, AlertAction } from "../api.js";
 
@@ -82,16 +82,16 @@ export function AlertCard({ alert, rank, busy = false, onAction, onIgnore }: Ale
         {alert.actions.map((action) => (
           <Button
             key={`${action.kind}:${"targetChapter" in action ? action.targetChapter : ""}`}
-            size="small"
+            size="sm"
             disabled={busy}
-            type={isPrimary(action) ? "primary" : action.kind === "acknowledge" || action.kind === "open_view" ? "text" : "default"}
+            variant={isPrimary(action) ? "default" : action.kind === "acknowledge" || action.kind === "open_view" ? "ghost" : "outline"}
             onClick={() => onAction(alert, action)}
           >
             {actionLabel(action)}
           </Button>
         ))}
         {onIgnore !== undefined && (
-          <Button size="small" type="text" disabled={busy} onClick={() => onIgnore(alert)}>
+          <Button size="sm" variant="ghost" disabled={busy} onClick={() => onIgnore(alert)}>
             {alert.fatigueCount > 0 ? `暂不处理（已忽略 ${alert.fatigueCount} 次）` : "暂不处理"}
           </Button>
         )}

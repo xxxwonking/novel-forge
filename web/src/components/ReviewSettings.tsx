@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Button, Switch } from "antd";
+import { Button, ToggleSwitch } from "./controls.js";
 import { api, type ReviewSettings as Settings } from "../api.js";
 import { useFetch } from "../hooks.js";
 
@@ -23,7 +23,7 @@ export function ReviewSettings(): React.ReactElement {
 
   if (data.data === null) {
     return <section className="prep-section"><h2>模型审查</h2>
-      <p className="muted">{data.error ?? "读取设置…"} <Button size="small" onClick={data.reload}>重新读取</Button></p>
+      <p className="muted">{data.error ?? "读取设置…"} <Button size="sm" onClick={data.reload}>重新读取</Button></p>
     </section>;
   }
   const value = data.data;
@@ -40,7 +40,7 @@ export function ReviewSettings(): React.ReactElement {
     <p className="muted">这两项由模型核对，每章检查时<strong>各多一次模型调用</strong>。关掉只是不再出这类提示，字数、密度、词表等代码检查照常；已写好的草稿不受影响。</p>
     {error !== null && <div className="finding" role="alert" data-level="block">{error}</div>}
     {ITEMS.map((item) => <label className="review-toggle" key={item.key}>
-      <Switch checked={value[item.key]} loading={busy === item.key} onChange={(next) => void toggle(item.key, next)} />
+      <ToggleSwitch checked={value[item.key]} loading={busy === item.key} onChange={(next) => void toggle(item.key, next)} />
       <span><strong>{item.title}</strong><small>{item.detail}</small></span>
     </label>)}
   </section>;

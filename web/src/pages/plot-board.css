@@ -75,7 +75,7 @@
   .board-header h1 { font-size: 18px; }
   .board-directory-toggle { display: inline-flex; }
   .board-toolbar { padding: 10px; gap: 6px; }
-  .board-button { min-height: 40px; padding: 8px 11px; }
+  .board-button { min-height: 44px; padding: 8px 11px; }
   .board-workspace, .board-workspace[data-details="true"] { display: flex; flex-direction: column; height: auto; min-height: 440px; }
   .board-directory { display: none; border-right: 0; border-bottom: 1px solid #27272a; max-height: 380px; }
   .board-directory[data-open="true"] { display: block; }
