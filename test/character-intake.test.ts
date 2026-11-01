@@ -15,7 +15,7 @@ import { join } from "node:path";
 import type Anthropic from "@anthropic-ai/sdk";
 import { ProjectStore } from "../src/store/persist.js";
 import { ProjectSession } from "../src/server/state.js";
-import { MaterialStore } from "../src/import/materials.js";
+import { MaterialStore, MATERIAL_MAX_CHARS } from "../src/import/materials.js";
 import { handle, type ApiRequest } from "../src/server/api.js";
 import { characterSource } from "../src/preparation/sources.js";
 import type { CallResult } from "../src/client/claude.js";
@@ -80,7 +80,7 @@ describe("导入时收下资料文件", () => {
 
   it("过大的资料跳过并在 notes 里说明，不影响正文导入", () => {
     const { root, session } = empty();
-    const huge = "字".repeat(400_000);
+    const huge = "字".repeat(MATERIAL_MAX_CHARS + 1);
     const files = [chapterFile(1, "正文。"), file("巨型设定.txt", huge)];
     const preview = session.imports.preview({ files });
     expect(preview.chapters).toHaveLength(1);
@@ -230,7 +230,7 @@ describe("单独上传资料文件", () => {
       files: [
         { name: "好的.txt", text: "沈叙。" },
         { name: "空的.txt", text: "   " },
-        { name: "巨型.txt", text: "字".repeat(400_000) },
+        { name: "巨型.txt", text: "字".repeat(MATERIAL_MAX_CHARS + 1) },
         { name: ".隐藏.txt", text: "点号开头的名字不收" },
         { name: "x".repeat(200) + ".txt", text: "名字过长" },
       ],

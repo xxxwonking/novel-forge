@@ -57,7 +57,7 @@ npm test
 npm run web:build
 ```
 
-本地服务当前仅监听 `127.0.0.1`，尚未提供用户登录。访问 Host 须为回环地址；携带 Origin 的请求须与 Host 同源。普通 API POST 须使用 `application/json`，请求体上限 4 MiB；作品导入使用 `application/vnd.novel-forge.backup` 二进制请求体并有独立上限。`npm run acceptance:m1` 是单独的真实模型验收流程，会调用模型；它不属于上面的演示与常规检查。
+本地服务当前仅监听 `127.0.0.1`，尚未提供用户登录。访问 Host 须为回环地址；携带 Origin 的请求须与 Host 同源。普通 API POST 须使用 `application/json`，请求体上限 4 MiB；文档转换接口单独限制12 MiB，单份文档不超过8MB；作品导入使用 `application/vnd.novel-forge.backup` 二进制请求体并有独立上限。`npm run acceptance:m1` 是单独的真实模型验收流程，会调用模型；它不属于上面的演示与常规检查。
 
 最新交付与验收入口见 [工作记忆](MEMORY.md) 顶部摘要和 `docs/reports/`。历史报告保留当时的测试数字；UI 与工程检查通过不代表真实模型长篇生成质量已全部通过。
 
@@ -97,3 +97,8 @@ npm run test:e2e
 ```
 
 也可用已安装的 Chrome：`PLAYWRIGHT_CHANNEL=chrome npm run test:e2e`。测试固定使用5193端口，已被占用时明确失败，不接管未知服务；结果保存在被Git忽略的 `playwright-report/` 和 `test-results/`。GitHub Actions对PR及master执行安装、类型检查、单测、构建和浏览器回归，失败上传合成测试的截图与trace，无需模型密钥。
+
+
+全文人物核对支持逐块读取全部正文与资料，显示进度、逐字出处和身份疑点；只在作者选择并确认后补建档案，原抽样起草和单独上传保留。长资料单份最多100万字符，普通起草仍显示上下文读取范围。旧稿确认后也可“正文保持，纠正记录”：先预览候选及后章影响，再确认；历史载荷留档，硬冲突进入返修清单。
+
+白板可新增和编辑任意后续章计划，一章可安排多个事件并关联人物/情节线；保存先形成作者候选，确认后才生效。DOCX与有文本层PDF可先转换再预览，扫描件需先OCR；只提取文字，不还原排版。范围、限额与真实验收见[后续交付报告](docs/reports/2026-11-01-followup-completion.md)。

@@ -1,3 +1,4 @@
+import { FullTextCharacters } from "../components/FullTextCharacters.js";
 import { OutlineNodes } from "../components/OutlineNodes.js";
 import { useRef, useState } from "react";
 import { Button, Input, Textarea } from "../components/controls.js";
@@ -55,7 +56,7 @@ export function Preparation({ refresh, proposalId }: { refresh: () => void; prop
    * 结果仍是一份待确认方案，作者核对后才生效。
    */
   const importProfile = async (list: FileList | null): Promise<void> => {
-    const chosen = (list === null ? [] : [...list]).filter((f) => /\.(txt|md|markdown)$/iu.test(f.name) || f.type.startsWith("text/"));
+    const chosen = (list === null ? [] : [...list]).filter((f) => /\.(txt|md|markdown|docx|pdf)$/iu.test(f.name) || f.type.startsWith("text/"));
     if (chosen.length === 0) return;
     setImportingProfile(true); setError(null); setNotice(null);
     try {
@@ -117,6 +118,7 @@ export function Preparation({ refresh, proposalId }: { refresh: () => void; prop
       {view.materials.length===0?<p className="muted">整项目导入时，大纲、人物档案与设定会保存到这里，也可继续单独导入人物档案。</p>:<ul className="materials-list">{view.materials.map(m=><li key={m.file}><strong>{m.name}</strong><span className="muted"> · {{characters:"人物档案",outline:"大纲／简介",setting:"设定",material:"资料"}[m.kind]??"资料"} · {m.words.toLocaleString()} 字</span></li>)}</ul>}
       {(view.materialWarnings??[]).map(w=><p key={w} role="status" className="finding" data-level="warn">{w}</p>)}
     </section>
+    <FullTextCharacters known={view.confirmed.characters} onProposed={proposal => { setSelected(proposal.id); data.reload(); refresh(); }} />
     <div className="prep-readiness">
       <div><strong>{view.readiness.ready ? `第 ${view.nextChapter} 章资料已就绪` : "继续准备你的故事"}</strong><p>{view.readiness.ready ? "可以按当前计划创作，结果将作为待采用稿交付。" : `还需要：${view.readiness.missing.join("、")}。`}</p></div>
       <a className="prep-link" href={discuss(planPrompt)}>到对话整理方案 →</a>

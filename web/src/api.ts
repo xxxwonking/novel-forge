@@ -596,7 +596,7 @@ export interface PreparationProposal {
   id: string; summary: string; source: "author" | "assistant"; status: "proposed" | "confirmed" | "rejected";
   stale: boolean; createdAt: string; updatedAt: string;
   /** 只声明界面要读的那部分：删除在 content 预览里是隐形的，必须单独说出来。 */
-  changes: { removals?: Removals; relations?: RelationClaim[]; foreshadows?: ForeshadowClaim[] };
+  changes: { beats?: { chapter: number; volume: number; plan: ChapterBeat["plan"] }[]; removals?: Removals; relations?: RelationClaim[]; foreshadows?: ForeshadowClaim[] };
   content: PreparationContent;
   impacts: { message: string; chapters: number[] }[];
   findings: GateFinding[];
@@ -671,6 +671,11 @@ export interface ImportPreview {
   readyWithOverwrite: boolean;
   materials: string[];
 }
+export interface FullTextCharacters {
+  fingerprint: string; completed: number; total: number; done: boolean; stale: boolean;
+  characters: { name: string; aliases: string[]; roles: string[]; evidence: { source: string; quote: string }[] }[];
+  conflicts: string[]; blockedNames?: string[]; next: { title: string; offset: number } | null;
+}
 export interface InferenceDeclaration {
   events: { summary: string; participants: string[]; anchor: TextAnchor }[];
   foreshadowPlanted: { foreshadowId: string; label: string; intent: string; expectedBy: number; anchor: TextAnchor }[];
@@ -679,7 +684,10 @@ export interface InferenceDeclaration {
   characterStates: { characterId: string; field: string; from: string | null; to: string; anchor: TextAnchor }[];
   characterPresence: { characterId: string; role: string }[];
 }
+export interface InferenceCorrection { id: string; chapter: number; sourceToken: string; summary: string; declaration: NonNullable<DraftView["declaration"]>; impact: { changes: { text: string }[]; chapters: { chapter: number; severity: string; reasons: { message: string }[] }[] }; status: "proposed" | "confirmed" }
+export interface InferenceCorrectionSource { chapter: number; sourceToken: string; declaration: NonNullable<DraftView["declaration"]>; candidates: InferenceCorrection[] }
 export interface InferenceChapter {
+  eventCount?: number;
   review?: { token: string; declaration: InferenceDeclaration };
   chapter: number; words: number;
   state: "written" | "confirmed" | "pending" | "problem" | "failed" | "skipped" | "none";
@@ -790,6 +798,9 @@ export const api = {
   inferenceView: () => request<InferenceView>("/api/import/inference"),
   inferenceEstimate: () => request<{ modes: InferenceEstimate[] }>("/api/import/inference/estimate"),
   inferChapter: (chapter: number) => post<InferenceChapter>("/api/import/infer", { chapter }),
+  inferenceCorrection: (chapter: number) => request<InferenceCorrectionSource>(`/api/import/inference/correction?chapter=${chapter}`),
+  proposeInferenceCorrection: (input: { chapter: number; sourceToken: string; summary: string; changes: { section: string; index: number; value: unknown; occurrence?: number }[] }) => post<InferenceCorrection>("/api/import/inference/correction", input),
+  confirmInferenceCorrection: (id: string) => post<InferenceCorrection>("/api/import/inference/correction/confirm", { id }),
   confirmInference: (chapter: number) => post<{ chapter: number; committed: number }>("/api/import/inference/confirm", { chapter }),
   confirmValidInference: (chapter: number, reviewToken: string, excludedRecords?: { section: keyof InferenceDeclaration; index: number }[]) => post<{ chapter: number; committed: number }>("/api/import/inference/confirm-valid", { chapter, reviewToken, ...(excludedRecords === undefined || excludedRecords.length === 0 ? {} : { excludedRecords }) }),
   rejectInference: (chapter: number) => post<{ chapter: number; rejected: number }>("/api/import/inference/reject", { chapter }),
@@ -805,8 +816,14 @@ export const api = {
   saveWorkStatus: (completed: boolean) => post<{ completed: boolean }>("/api/work-status", { completed }),
   confirmPreparation: (proposalId: string) => post<{ changed: boolean; proposal: PreparationProposal }>("/api/preparation/confirm", { proposalId }),
   rejectPreparation: (proposalId: string) => post<PreparationProposal>("/api/preparation/reject", { proposalId }),
+  proposePreparation: (input: { summary: string; baseFingerprint: string; changes: unknown }) => post<PreparationProposal>("/api/preparation/propose", input),
+  proposeAuthorDetails: (input: { summary: string; baseFingerprint: string; changes: unknown }) => post<PreparationProposal>("/api/preparation/author-candidate", input),
   recordAuthorDetails: (input: { summary: string; baseFingerprint: string; changes: unknown }) => post<PreparationProposal>("/api/preparation/author", input),
   /** 让 AI 起草资料。apply=false 只交回草稿供表单试填，不落任何文件。 */
+  convertDocument: (name: string, base64: string) => post<{ text: string }>("/api/import/document", { name, base64 }),
+  fullTextCharacters: () => request<FullTextCharacters>("/api/preparation/full-text"),
+  readFullTextChunk: (cursor: number, fingerprint: string) => post<FullTextCharacters>("/api/preparation/full-text", { cursor, fingerprint }),
+  proposeFullTextCharacters: (fingerprint: string, names: string[]) => post<PreparationProposal>("/api/preparation/full-text/propose", { fingerprint, names }),
   draftPreparation: (input: { focus: DraftFocus; apply: boolean; brief?: string; count?: number }) =>
     post<PreparationDraftResult>("/api/preparation/draft", input),
   /** 跨章返修：清单只读；定位要花一次模型调用，所以由作者一章一章地点。 */

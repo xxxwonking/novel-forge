@@ -38,7 +38,7 @@ const speech = object({
   syntaxBias: object({ question: ratio, imperative: ratio, elliptical: ratio }),
   register: enumeration("vulgar", "colloquial", "neutral", "formal", "literary", "archaic"),
   emotionalExpression: enumeration("suppressed", "direct", "ironic", "explosive", "oblique"),
-  exemplars: array(nonempty, 1), counterExemplars: strings,
+  exemplars: array(nonempty), counterExemplars: strings,
 });
 const character = object({
   id: id("C"), name: nonempty, aliases: strings, tier: enumeration("protagonist", "major", "minor", "extra"),

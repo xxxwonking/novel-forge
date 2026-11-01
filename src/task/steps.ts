@@ -117,7 +117,7 @@ export async function declareStructure(
   write: Extract<WriteResult, { kind: "ok" }>,
 ): Promise<DeclareResult> {
   // 真实响应完整保留；局部生成还须声明代码合成后的全文，不能只分析替换片段。
-  const catalog = quoteCatalog(write.body);
+  const catalog = quoteCatalog(write.body, input.parseContextBase);
   const instruction = `${buildC5Task(input.parseContextBase)}\n\n${catalog.instruction}`;
   const task = write.c4Response === null || write.declarationBody === true
     ? `以下是本次版本的完整正文，是本次结构核对的唯一正文依据。此前的源稿或替换片段不代表本次完整结果。\n\n${write.body}\n\n${instruction}` : instruction;

@@ -185,7 +185,7 @@ export async function runChapter(
 
   // ── C5：同会话第二轮 ──
   // 追加**整个 response.content**，不能只取 text（§附录：压缩块必须保留）。
-  const catalog = quoteCatalog(chapterText);
+  const catalog = quoteCatalog(chapterText, input.parseContextBase);
   const c5Messages: Anthropic.MessageParam[] = [
     ...req.messages,
     { role: "assistant", content: c4.message.content },

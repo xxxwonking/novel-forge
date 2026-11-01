@@ -1,3 +1,4 @@
+import { convertDocument } from "../import/document.js";
 /**
  * JSON API 的路由与处理。**与 http 传输层分开**（http.ts 负责收发），
  * 这样端点逻辑可以直接在测试里调用，不必起一个真实端口。
@@ -71,6 +72,14 @@ export async function handleAsync(session: ProjectSession, req: ApiRequest): Pro
       throw error;
     }
   }
+  if (req.method === "POST" && req.path === "/api/import/document") {
+    try { return ok(await convertDocument(req.body)); }
+    catch (error) { if (error instanceof ChapterWriteError) return { status: error.status, body: { error: error.message } }; throw error; }
+  }
+  if (req.method === "POST" && req.path === "/api/preparation/full-text") {
+    try { return ok(await session.fullTextCharacters.next(req.body)); }
+    catch (error) { if (error instanceof ChapterWriteError) return { status: error.status, body: { error: error.message } }; throw error; }
+  }
   if (req.method === "POST" && req.path === "/api/preparation/draft") {
     return preparationDraft(session, req.body);
   }
@@ -79,6 +88,11 @@ export async function handleAsync(session: ProjectSession, req: ApiRequest): Pro
 
 export function handle(session: ProjectSession, req: ApiRequest): ApiResponse {
   const { method, path } = req;
+  if (path === "/api/preparation/full-text/propose" && method === "POST") {
+    try { return ok(session.proposeFullTextCharacters(req.body)); }
+    catch (error) { if (error instanceof ChapterWriteError) return { status: error.status, body: { error: error.message } }; throw error; }
+  }
+  if (path === "/api/preparation/full-text" && method === "GET") return ok(session.fullTextCharacters.view());
 
   if ((method === "POST" && path === "/api/export/preview") || (method === "GET" && (path === "/api/export" || path === "/api/export/file"))) {
     try { return ok(method === "POST" ? session.exports.prepare(req.body) : path === "/api/export/file" ? session.exports.file(req.query.get("id")) : session.exports.preview(req.query.get("id"))); }
@@ -142,6 +156,19 @@ export function handle(session: ProjectSession, req: ApiRequest): ApiResponse {
     }
   }
 
+  if (path === "/api/import/inference/correction" && method === "GET") {
+    try {
+      const id = req.query.get("id");
+      if (id !== null) return ok(session.inferenceCorrections.get(id));
+      const chapter = Number(req.query.get("chapter"));
+      return ok({ ...session.inferenceCorrections.view(chapter), candidates: session.inferenceCorrections.candidates(chapter) });
+    } catch (error) { if (error instanceof ChapterWriteError) return { status: error.status, body: { error: error.message } }; throw error; }
+  }
+  if (method === "POST" && (path === "/api/import/inference/correction" || path === "/api/import/inference/correction/confirm")) {
+    try { return ok(path.endsWith("/confirm") ? session.inferenceCorrections.confirm(req.body) : session.inferenceCorrections.propose(req.body)); }
+    catch (error) { if (error instanceof ChapterWriteError) return { status: error.status, body: { error: error.message } }; throw error; }
+  }
+
   // 反推的进度、确认与丢弃都不调模型，留在同步入口。
   if (path === "/api/import/inference" && method === "GET") return ok(session.inference.view());
   if (path === "/api/import/inference/estimate" && method === "GET") return ok({ modes: session.inferenceEstimate() });
@@ -160,6 +187,7 @@ export function handle(session: ProjectSession, req: ApiRequest): ApiResponse {
   if (path === "/api/preparation" && method === "GET") return ok({ ...session.preparation.view(), ideas: session.listIdeas() });  if (path.startsWith("/api/preparation/") && method === "POST") {
     try {
       if (path === "/api/preparation/propose") return ok(session.preparation.propose(req.body));
+      if (path === "/api/preparation/author-candidate") return ok(session.preparation.propose(req.body, "author"));
       if (path === "/api/preparation/author") return ok(session.preparation.recordAuthor(req.body));
       if (!isRecord(req.body) || typeof req.body["proposalId"] !== "string") return bad("缺少方案编号 proposalId");
       if (path === "/api/preparation/confirm") return ok(session.preparation.confirm(req.body["proposalId"]));

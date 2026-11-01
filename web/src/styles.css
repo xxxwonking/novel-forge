@@ -340,6 +340,7 @@ a.book-card:hover .book-cta { color: var(--main); }
 .draft-change { display: flex; justify-content: space-between; align-items: center; gap: 20px; padding: 12px 0; border-bottom: 1px solid var(--line); }
 .draft-change p { margin: 6px 0; }
 .draft-change button { flex-shrink: 0; }
+.full-text-intake blockquote { overflow-wrap: anywhere; }
 .inference-review-dialog .draft-change { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; overflow-wrap: anywhere; }
 .inference-review-dialog .draft-change blockquote { margin: 0; }
 .inference-review-choice { padding-top: 8px; }
@@ -361,7 +362,7 @@ a.book-card:hover .book-cta { color: var(--main); }
 .rewrite-excerpt { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 220px; overflow: auto; font: 13px/1.9 var(--sans); color: var(--ink-dim); }
 @media (max-width: 720px) { .revision-fields, .revision-comparison { grid-template-columns: 1fr; } .draft-actions button { max-width: 100%; } }
 @media (max-width: 1100px) { .prep-layout { grid-template-columns: minmax(0, 1fr); } .prep-sidebar { order: -1; display: flex; flex-wrap: wrap; gap: 10px; } .prep-sidebar h2 { width: 100%; margin: 0; } .prep-proposal-item { width: min(100%, 230px); margin: 0; } }
-@media (max-width: 720px) { .prep-readiness { align-items: flex-start; flex-direction: column; padding: 16px; gap: 12px; } .prep-card-grid { grid-template-columns: 1fr; } .prep-facts > div { grid-template-columns: 70px minmax(0, 1fr); gap: 8px; } .prep-main > .section-head { flex-wrap: wrap; gap: 12px; } .draft-change { align-items: flex-start; flex-direction: column; gap: 6px; } .draft-prose { font-size: 15px; } }
+@media (max-width: 720px) { .prep-readiness { align-items: flex-start; flex-direction: column; padding: 16px; gap: 12px; } .prep-card-grid { grid-template-columns: 1fr; } .prep-facts > div { grid-template-columns: 70px minmax(0, 1fr); gap: 8px; } .prep-main > .section-head { flex-wrap: wrap; gap: 12px; } .prep-section > .section-head { flex-direction: column; align-items: flex-start; gap: 12px; } .draft-change { align-items: flex-start; flex-direction: column; gap: 6px; } .draft-prose { font-size: 15px; } }
 /* 手改编辑器在窄屏塌成单列：两列栅格和行式列表都塞不下。 */
 @media (max-width: 720px) { .prep-grid { grid-template-columns: 1fr; } .prep-row { grid-template-columns: 1fr; gap: 8px; padding-bottom: 12px; border-bottom: 1px solid var(--line); } .prep-editor-body { max-height: none; overflow-y: visible; padding-right: 0; } }
 

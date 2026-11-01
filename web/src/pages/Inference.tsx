@@ -14,6 +14,7 @@
  */
 
 import { Fragment, useRef, useState } from "react";
+import { InferenceCorrection } from "../components/InferenceCorrection.js";
 import { Button, CheckField, DialogFrame, HelpTooltip } from "../components/controls.js";
 import { api, type InferenceChapter, type InferenceDeclaration, type InferenceView } from "../api.js";
 import { useFetch, useRouteActive } from "../hooks.js";
@@ -38,6 +39,7 @@ export function Inference({ refresh }: { refresh: () => void }): React.ReactElem
   const [notice, setNotice] = useState<string | null>(null);
   const [open, setOpen] = useState<number | null>(null);
   const [reviewing, setReviewing] = useState<InferenceChapter | null>(null);
+  const [correcting, setCorrecting] = useState<number | null>(null);
   const [excludedRecords, setExcludedRecords] = useState<{ section: keyof InferenceDeclaration; index: number }[]>([]);
   const stop = useRef(false);
   const reviewReturn = useRef<HTMLElement | null>(null);
@@ -115,6 +117,7 @@ export function Inference({ refresh }: { refresh: () => void }): React.ReactElem
     finally { setBusy(null); }
   };
   return <>
+    {correcting !== null && <InferenceCorrection chapter={correcting} characters={preparation.data?.confirmed.characters ?? []} onClose={() => setCorrecting(null)} onChanged={() => { data.reload(); refresh(); }} />}
     <div className="page-head"><h1>从正文反推结构</h1><p>读你已经写好的旧稿，逐章补出事件、伏笔与人物变化。反推出来的是模型的判断，确认之后才成为作品事实。</p></div>
 
     {view.blocked !== null && <div className="finding" data-level="block" role="alert">{view.blocked}<div><a href="#/preparation">去资料页 →</a></div></div>}
@@ -146,6 +149,7 @@ export function Inference({ refresh }: { refresh: () => void }): React.ReactElem
           return <article className="prep-beat" key={chapter.chapter} data-state={chapter.state} tabIndex={-1}>
             <div className="row">
               <h3>第 {chapter.chapter} 章</h3>
+              {(chapter.state === "confirmed" || chapter.state === "written") && <><Button size="sm" aria-label={`纠正第 ${chapter.chapter} 章结构`} disabled={busy !== null} onClick={() => setCorrecting(chapter.chapter)}>正文保持，纠正记录</Button>{chapter.eventCount === 0 && <span className="muted">未提取独立剧情事件，请核对覆盖</span>}</>}
               <HelpTooltip title={state.hint}><Chip color={state.color}>{state.label}</Chip></HelpTooltip>
               <span className="muted">{chapter.words} 字</span>
               <span className="push-right row">

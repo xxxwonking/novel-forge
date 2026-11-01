@@ -17,20 +17,21 @@ import { TaskPanel } from "./components/TaskPanel.js";
 import { ErrorBoundary } from "./components/ErrorBoundary.js";
 import type { ChapterTaskView } from "./api.js";
 import { actionLabel } from "./components/AlertCard.js";
-import { Home } from "./pages/Home.js";
-import { AlertList } from "./pages/AlertList.js";
-import { ViewPage } from "./pages/ViewPage.js";
-import { Reader } from "./pages/Reader.js";
-import { Search } from "./pages/Search.js";
-import { Credits } from "./pages/Credits.js";
-import { Chat } from "./pages/Chat.js";
-import { Works } from "./pages/Works.js";
-import { Preparation } from "./pages/Preparation.js";
-import { Drafts } from "./pages/Drafts.js";
-import { Export } from "./pages/Export.js";
-import { Inference } from "./pages/Inference.js";
-import { Revision } from "./pages/Revision.js";
 import { PlanningActionDialog, type EditablePlanningAction } from "./components/PlanningActionDialog.js";
+
+const Home = lazy(() => import("./pages/Home.js").then(module => ({ default: module.Home })));
+const AlertList = lazy(() => import("./pages/AlertList.js").then(module => ({ default: module.AlertList })));
+const ViewPage = lazy(() => import("./pages/ViewPage.js").then(module => ({ default: module.ViewPage })));
+const Reader = lazy(() => import("./pages/Reader.js").then(module => ({ default: module.Reader })));
+const Search = lazy(() => import("./pages/Search.js").then(module => ({ default: module.Search })));
+const Credits = lazy(() => import("./pages/Credits.js").then(module => ({ default: module.Credits })));
+const Chat = lazy(() => import("./pages/Chat.js").then(module => ({ default: module.Chat })));
+const Works = lazy(() => import("./pages/Works.js").then(module => ({ default: module.Works })));
+const Preparation = lazy(() => import("./pages/Preparation.js").then(module => ({ default: module.Preparation })));
+const Drafts = lazy(() => import("./pages/Drafts.js").then(module => ({ default: module.Drafts })));
+const Export = lazy(() => import("./pages/Export.js").then(module => ({ default: module.Export })));
+const Inference = lazy(() => import("./pages/Inference.js").then(module => ({ default: module.Inference })));
+const Revision = lazy(() => import("./pages/Revision.js").then(module => ({ default: module.Revision })));
 
 const VIEWS = [
   { path: "/foreshadow", label: "伏笔时间线" },
@@ -48,7 +49,7 @@ export function App(): React.ReactElement {
     return <div className="empty">{workspace.error === null ? "打开工作区…" : <>读取工作区失败：{workspace.error} <Button size="sm" variant="outline" onClick={workspace.reload}>重试</Button></>}</div>;
   }
   if (route === "/works" || (selectedProjectId() === null && workspace.data.defaultProjectId === null)) {
-    return <Works />;
+    return <Suspense fallback={<div className="empty" role="status">正在打开作品库…</div>}><Works /></Suspense>;
   }
   return <ProjectApp key={selectedProjectId() ?? workspace.data.defaultProjectId} projectId={selectedProjectId() ?? workspace.data.defaultProjectId ?? "default"} />;
 }
@@ -214,7 +215,11 @@ interface RoutedProps {
   onPlanningAction: (title: string, action: PlanningAction) => void;
 }
 
-function Routed({ route, overview, onAction, onIgnore, onJump, refresh, tasks, reloadTasks, refreshKey, onPlanningAction, projectId }: RoutedProps): React.ReactElement {
+function Routed(props: RoutedProps): React.ReactElement {
+  return <Suspense fallback={<div className="empty" role="status">正在打开页面…</div>}><RouteContent {...props} /></Suspense>;
+}
+
+function RouteContent({ route, overview, onAction, onIgnore, onJump, refresh, tasks, reloadTasks, refreshKey, onPlanningAction, projectId }: RoutedProps): React.ReactElement {
   const [path, search] = route.split("?");
   const query = new URLSearchParams(search ?? "");
   if (path === "/plotboard") return <Suspense fallback={<div className="empty" role="status">正在打开剧情白板…</div>}><PlotBoard projectId={projectId} onJump={onJump} /></Suspense>;

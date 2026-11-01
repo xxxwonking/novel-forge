@@ -38,7 +38,7 @@ const lines = (text: string): string[] => text.split("\n").map((line) => line.tr
 const text = (values: readonly string[]): string => values.join("\n");
 
 /** 保存入口共用：指纹取自打开表单那一刻的视图，提交时由服务端再核对一次。 */
-function useSave(fingerprint: string, onSaved: (proposal: PreparationProposal) => void) {
+function useSave(fingerprint: string, onSaved: (proposal: PreparationProposal) => void, candidate = false) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const receipt = useRef<{ content: string; id: string } | null>(null);
@@ -49,7 +49,7 @@ function useSave(fingerprint: string, onSaved: (proposal: PreparationProposal) =
     // 同一份改动重试复用编号；内容变了才是新一次意图。
     if (receipt.current?.content !== content) receipt.current = { content, id: crypto.randomUUID() };
     try {
-      onSaved(await api.recordAuthorDetails({ summary, baseFingerprint: fingerprint, changes }));
+      onSaved(await (candidate ? api.proposeAuthorDetails : api.recordAuthorDetails)({ summary, baseFingerprint: fingerprint, changes }));
     } catch (e) { setError((e as Error).message); }
     finally { setBusy(false); }
   };
@@ -168,7 +168,6 @@ export function CharacterEditor({ base, characters, fingerprint, onSaved, onClos
   const { busy, error, save, setError } = useSave(fingerprint, onSaved);
 
   const submit = (): void => {
-    if (lines(speechLines.exemplars).length === 0) { setError("正例台词至少写一条 —— 声音检查拿它做对比，没有它这项检查对本章失效。"); return; }
     const draft: CharacterRecord = {
       ...seed,
       id, name, aliases: lines(aliases), tier: tier as CharacterRecord["tier"],
@@ -250,7 +249,7 @@ export function CharacterEditor({ base, characters, fingerprint, onSaved, onClos
       <Field label="口头禅（一行一个）"><Textarea rows={2} value={speechLines.verbalTics} onChange={(e) => setSpeechLines({ ...speechLines, verbalTics: e.target.value })} /></Field>
       <Field label="禁用词（一行一个，命中即拦截）"><Textarea rows={2} value={speechLines.forbiddenLexicon} onChange={(e) => setSpeechLines({ ...speechLines, forbiddenLexicon: e.target.value })} /></Field>
     </div>
-    <Field label="正例台词（一行一句，至少一条）" wide><Textarea rows={4} value={speechLines.exemplars} onChange={(e) => setSpeechLines({ ...speechLines, exemplars: e.target.value })} /></Field>
+    <Field label="正例台词（一行一句；暂无可靠台词可留空）" wide><Textarea rows={4} value={speechLines.exemplars} onChange={(e) => setSpeechLines({ ...speechLines, exemplars: e.target.value })} /></Field>
 
     <details className="prep-advanced"><summary>高级 · AI 的机械参数与外貌</summary>
       <p className="muted">这些是喂给检查算法的参数，通常由 AI 起草，你不用逐项核对；只有发现模型写偏了才需要动。</p>
@@ -377,14 +376,14 @@ export function VolumeEditor({ base, volume, span, written, fingerprint, onSaved
 
 // ── 章节计划 ────────────────────────────────────────────────────────────
 
-export function BeatEditor({ base, chapter, characters, settings, plotLines, fingerprint, onSaved, onClose }: {
+export function BeatEditor({ base, chapter, characters, settings, plotLines, fingerprint, onSaved, onClose, candidate = false }: {
   base: ChapterBeat | null; chapter: number; characters: readonly CharacterRecord[]; settings: readonly SettingInput[];
-  plotLines: readonly PlotLineInput[]; fingerprint: string; onSaved: (proposal: PreparationProposal) => void; onClose: () => void;
+  plotLines: readonly PlotLineInput[]; fingerprint: string; onSaved: (proposal: PreparationProposal) => void; onClose: () => void; candidate?: boolean;
 }): React.ReactElement {
   const seed: BeatRecord = base ?? { ...emptyBeat(chapter, 1, characters.filter((c) => c.tier === "protagonist").map((c) => c.id), settings[0] === undefined ? [] : [settings[0].id]), budget: null };
   const [volume, setVolume] = useState(seed.volume);
   const [plan, setPlan] = useState(seed.plan);
-  const { busy, error, save, setError } = useSave(fingerprint, onSaved);
+  const { busy, error, save, setError } = useSave(fingerprint, onSaved, candidate);
   const characterOptions = characters.map((c) => ({ value: c.id, label: c.name }));
   const settingOptions = settings.map((s) => ({ value: s.id, label: s.name }));
   const plotLineOptions = [{ value: "", label: "不挂情节线" }, ...plotLines.map((p) => ({ value: p.id, label: p.label }))];
@@ -409,7 +408,7 @@ export function BeatEditor({ base, chapter, characters, settings, plotLines, fin
       <Field label="次级推进（可空）" wide><Input value={plan.secondaryThread ?? ""} onChange={(e) => patch({ secondaryThread: e.target.value === "" ? null : e.target.value })} /></Field>
     </div>
 
-    <h4 className="prep-editor-head">计划事件</h4>
+    <h3 className="prep-editor-head">计划事件</h3>
     <p className="muted">权重直接决定本章字数预算：「事件章」及以上至少要有一件事发生。</p>
     {plan.events.map((row, n) => <div className="prep-row" key={n}>
       <ChoiceSelect value={row.kind} options={options(EVENT_KINDS)} onChange={(v) => patch({ events: setRow([...plan.events], n, { ...row, kind: v as EventKind }) })} />
@@ -420,7 +419,7 @@ export function BeatEditor({ base, chapter, characters, settings, plotLines, fin
     </div>)}
     <Button onClick={() => patch({ events: [...plan.events, { kind: "action", summary: "", weight: 1, plotLine: null }] })}>添加事件</Button>
 
-    <h4 className="prep-editor-head">本章埋设伏笔</h4>
+    <h3 className="prep-editor-head">本章埋设伏笔</h3>
     <p className="muted">这里只写名称与权重；意图由模型在写作时给出。兑现要留到后面的章节。</p>
     {plan.plants.map((row, n) => <div className="prep-row" key={n}>
       <Input value={row.label} placeholder="伏笔名称" onChange={(e) => patch({ plants: setRow([...plan.plants], n, { ...row, label: e.target.value }) })} />
@@ -429,7 +428,7 @@ export function BeatEditor({ base, chapter, characters, settings, plotLines, fin
     </div>)}
     <Button onClick={() => patch({ plants: [...plan.plants, { label: "", weight: "sub" }] })}>添加伏笔</Button>
 
-    <h4 className="prep-editor-head">本章兑现伏笔</h4>
+    <h3 className="prep-editor-head">本章兑现伏笔</h3>
     <p className="muted">只能收束已经正式埋设、且尚未结束的伏笔，权重必须与该伏笔一致；填错会在保存时被打回。</p>
     {plan.resolves.map((row, n) => <div className="prep-row" key={n}>
       <Input value={row.foreshadowId} placeholder="伏笔编号，如 F02" onChange={(e) => patch({ resolves: setRow([...plan.resolves], n, { ...row, foreshadowId: e.target.value }) })} />

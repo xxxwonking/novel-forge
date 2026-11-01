@@ -37,6 +37,7 @@ import { InferenceStore, type InferenceRun } from "./inference-store.js";
 export type InferenceState = "written" | "confirmed" | "pending" | "problem" | "failed" | "skipped" | "none";
 
 export interface InferenceChapterView {
+  readonly eventCount: number;
   readonly review?: { readonly token: string; readonly declaration: C5Declaration };
   readonly chapter: ChapterNo;
   readonly words: number;
@@ -305,12 +306,14 @@ export class InferenceService {
     const pending = inferred.filter((e) => e.envelope.provenance === "proposed");
     const state: InferenceState = formal ? "written"
       : inferred.some((e) => e.envelope.provenance === "committed") ? "confirmed"
-        : pending.length > 0 ? "pending"
+        : run?.confirmedEmptyBody === stableFingerprint(text) ? "confirmed"
+          : pending.length > 0 ? "pending"
           : run === undefined || run.outcome === "done" ? "none" : run.outcome;
     const review = state === "problem" ? this.reviewCandidate(chapter, run) : undefined;
     return {
       ...(review === undefined ? {} : { review }),
       chapter, words: countWords(text), state,
+      eventCount: events.filter(e => e.payload.type === "plot_event" && !isPlanOrigin(e.envelope.origin) && ["committed", "authored"].includes(e.envelope.provenance)).length,
       problems: state === "problem" || state === "failed" ? run?.problems ?? [] : [],
       warnings: state === "pending" || run?.reviewedProblems !== undefined ? run?.warnings ?? [] : [],
       at: run?.at ?? null,

@@ -85,7 +85,7 @@ export function keyChanges(draft: ChapterDraft): readonly string[] {
   if (d === null) return [];
   return [
     ...d.characterStates.filter((s) => s.field === "vital").map((s) => `人物 ${s.characterId} 的生死状态变化：${s.from ?? "未记录"} → ${s.to}`),
-    ...d.relationsChanged.map((r) => `关系变化：${r.from} → ${r.to}（${r.toKind}）`),
+    ...d.relationsChanged.filter(r => r.fromKind !== r.toKind).map((r) => `关系变化：${r.from} → ${r.to}（${r.toKind}）`),
     ...d.foreshadowPlanted.filter((f) => f.weight === "main").map((f) => `埋下主线伏笔「${f.label}」`),
     ...draft.proposals.map((p) => p.kind === "foreshadow" ? `写作中提出的伏笔建议「${p.label}」` : `写作中提出的人物建议：${p.name} 的 ${p.field}`),
   ];
@@ -185,6 +185,8 @@ export class ContinuousRunService {
         const extra = changes.length === 0 ? "" : `另外还有需要你确认的变化：${changes.join("；")}`;
         return { chapter, reason: "review_unavailable", detail: `模型审查没跑成，不替你自动采用，请看过后再决定：${skipped.map((f) => f.message).join("")}${extra}`, draftId };
       }
+      const unsupported = draft.findings.filter(f => f.rule === "semantic_resolution_unfulfilled");
+      if (unsupported.length > 0) return { chapter, draftId, reason: "needs_revision", detail: `伏笔兑现的语义审查需要作者核对，不自动采用：${unsupported.map(f => f.message).join("；")}` };
       return changes.length === 0 ? null : { chapter, reason: "key_change", detail: `这一章有需要你亲自确认的变化：${changes.join("；")}`, draftId };
     }
     const detail = draft.error?.detail ?? draft.findings.filter((f) => f.level === "block").map((f) => f.message).join("；");

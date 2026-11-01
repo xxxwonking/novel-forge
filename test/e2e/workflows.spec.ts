@@ -22,7 +22,7 @@ test("完整导入预览区分正文与资料，模型失败后原稿保留并�
   await expect(dialog.getByRole("row", { name: /第 5000 章/ })).toHaveCount(0);
   await dialog.getByRole("button", { name: "导入 1 章", exact: true }).click();
   await expect(dialog).toHaveCount(0);
-  await expect(page.getByRole("status")).toContainText("自动整理未完成");
+  await expect(page.getByRole("status").filter({ hasText: "自动整理未完成" })).toContainText("自动整理未完成");
   const headers = { "x-novel-project": id };
   const loaded = await request.get("/api/preparation", { headers });
   const state = await loaded.json();
@@ -35,7 +35,7 @@ test("完整导入预览区分正文与资料，模型失败后原稿保留并�
   await page.reload();
   await page.getByRole("button", { name: /待确认 浏览器作者方案/ }).click();
   await page.getByRole("button", { name: "只确认方案", exact: true }).click();
-  await expect(page.getByRole("status")).toContainText("方案已确认");
+  await expect(page.getByRole("status").filter({ hasText: "方案已确认" })).toContainText("方案已确认");
   await page.reload();
   const confirmed = await (await request.get("/api/preparation", { headers })).json();
   expect(confirmed.confirmed.plotLines).toContainEqual({ id: "P_Case", label: "查账线", weight: "main" });

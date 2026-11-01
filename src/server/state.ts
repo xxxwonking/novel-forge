@@ -1,3 +1,6 @@
+import { InferenceCorrections } from "../import/correction.js";
+import type { PreparationProposal } from "../preparation/types.js";
+import { FullTextIntake } from "../preparation/full-text.js";
 /**
  * 服务端的项目会话：把 store / 投影 / 告警 / 视图串成一个可查询的对象。
  *
@@ -121,10 +124,12 @@ export interface ProjectSessionOptions extends ChapterWriterOptions {
 
 export class ProjectSession {
   readonly preparation: PreparationService;
+  readonly fullTextCharacters: FullTextIntake;
   readonly planning: PlanningService;
   readonly exports: TextExportService;
   readonly imports: ImportService;
   readonly inference: InferenceService;
+  readonly inferenceCorrections: InferenceCorrections;
   readonly run: ContinuousRunService;
   readonly revise: ReviseService;
   private readonly store: ProjectStore;
@@ -184,6 +189,13 @@ export class ProjectSession {
       commitPresence: (scans) => this.appendPresence(scans),
       completed: () => this.workCompleted,
     });
+    this.fullTextCharacters = new FullTextIntake(root, {
+      sources: () => { const materials = new MaterialStore(root); return [
+        ...materials.list().map(m => ({ id: `material:${m.file}`, title: m.name, text: materials.read(m.file) ?? "" })),
+        ...this.chapterNumbers().map(n => ({ id: `chapter:${n}`, title: `第 ${n} 章`, text: this.chapterText(n) ?? "" })),
+      ]; }, known: () => this.characters, client: () => this.getModelClient(),
+    });
+    this.inferenceCorrections = new InferenceCorrections(root, { source: this, transaction: operation => this.transact(operation) });
     this.planning = new PlanningService(this, operation => this.transact(operation));
     this.exports = new TextExportService(root, this);
     this.imports = new ImportService(root, this);
@@ -456,6 +468,19 @@ export class ProjectSession {
       this.stream = stream;
       this.invalidate();
       return stale.length;
+    });
+  }
+
+  /** 显式结构纠正的提交侧，追加新事件、作废旧载荷并记录后续影响。 */
+  applyInferenceCorrection(chapter: number, declaration: C5Declaration): void {
+    this.transact(() => {
+      const before = this.revise.adoptedDeclaration(chapter);
+      const stream = EventStream.restore(this.stream.all());
+      stream.supersedeChapter(chapter, ["import_inference", "C5_declaration", "user_edit"]);
+      const added = commitDeclaration(stream, chapter, declaration, "user_edit");
+      for (const event of added) stream.decide(event.envelope.id, "committed");
+      this.store.rewriteEvents(stream.all()); this.stream = stream; this.invalidate();
+      this.revise.record(chapter, before, declaration);
     });
   }
 
@@ -752,6 +777,26 @@ export class ProjectSession {
             : options.focus === "foreshadows" ? "最后用一段话说明你认出了哪几条伏笔、各自的依据在资料还是正文，以及哪几条你不太确定、需要作者自己判断。"
             : "最后用一段话说明你补了哪些人物、各自的关键设定，以及哪里还需要作者拿主意。",
       ].join("\n");
+  }
+
+  /** 从全文识别的逐字证据生成最小人物候选，不捏造性格和台词、不改已有卡。 */
+  proposeFullTextCharacters(raw: unknown): PreparationProposal {
+    const view = this.fullTextCharacters.view();
+    if (!raw || typeof raw !== "object" || !("fingerprint" in raw) || raw.fingerprint !== view.fingerprint || !view.done || view.stale) throw new ChapterWriteError(409, "请先完成当前版本全文识别，再核对候选");
+    if (!("names" in raw) || !Array.isArray(raw.names) || raw.names.length === 0 || raw.names.some(name => typeof name !== "string")) throw new ChapterWriteError(400, "请选择要补建档案的人物");
+    const selected = [...new Set(raw.names as string[])];
+    const characters: CharacterInput[] = selected.map(name => {
+      const found = view.characters.find(c => c.name === name);
+      if (!found || this.characters.some(c => c.name === name || c.aliases.includes(name))) throw new ChapterWriteError(409, `“${name}”不是可新增的人物，请重新核对已有档案`);
+      const id = `C_text_${stableFingerprint(name).slice(0, 20)}` as const;
+      if (this.characters.some(c => c.id === id)) throw new ChapterWriteError(409, "人物编号冲突，请手动建卡");
+      return { id, name, aliases: found.aliases, tier: "minor", profile: {
+        role: found.roles.join("；"), appearance: [], traits: [], forbiddenBehaviors: [], wants: "", fears: "",
+        background: `全文识别候选，身份与声音待作者核对。\n${found.evidence.map(e => `${e.source}：「${e.quote}」`).join("\n")}`,
+      }, speech: { sentenceLength: { min: 0, max: 100 }, verbalTics: [], signatureLexicon: [], forbiddenLexicon: [], addressForms: [], syntaxBias: { question: 0, imperative: 0, elliptical: 0 }, register: "neutral", emotionalExpression: "direct", exemplars: [], counterExemplars: [] } };
+    });
+    if (selected.some(name => view.blockedNames.includes(name))) throw new ChapterWriteError(409, "人物姓名或别名存在冲突，请先按出处核对并在人物编辑器分别建卡，不自动合并");
+    return this.preparation.propose({ baseFingerprint: this.preparation.fingerprint(), summary: `从全文逐字出处补建${characters.length}名人物；未推断性格/台词，请核对后确认。`, changes: { characters } });
   }
 
   /**
