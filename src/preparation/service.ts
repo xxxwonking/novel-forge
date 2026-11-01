@@ -266,16 +266,22 @@ function build(snapshot: ProjectSnapshot, changes: PreparationChanges, now: stri
     if (c.speech.sentenceLength.min > c.speech.sentenceLength.max) fail(`人物 ${c.id} 的台词句长区间无效`);
     for (const address of c.speech.addressForms) if (address.target !== null && !characters.some((candidate) => candidate.id === address.target)) fail(`人物 ${c.id} 的称谓引用了不存在的人物 ${address.target}`);
   }
+  const referenceProblems: string[] = [];
   for (const b of changes.beats ?? []) {
-    for (const id of b.plan.characters) if (!characters.some((c) => c.id === id && (accepted(c.provenance) || changes.characters?.some((p) => p.id === id)))) fail(`第 ${b.chapter} 章引用的人物 ${id} 未确认且不在本方案中`);
-    for (const id of b.plan.locations) if (!settings.some((s) => s.id === id)) fail(`第 ${b.chapter} 章引用的地点/组织 ${id} 不存在`);
-    for (const event of b.plan.events) if (event.plotLine !== null && !plotLines.some((p) => p.id === event.plotLine)) fail(`第 ${b.chapter} 章引用的情节线 ${event.plotLine} 不存在`);
+    for (const id of b.plan.characters) if (!characters.some((c) => c.id === id && (accepted(c.provenance) || changes.characters?.some((p) => p.id === id)))) referenceProblems.push(`第 ${b.chapter} 章引用的人物 ${id} 未确认且不在本方案中`);
+    for (const id of b.plan.locations) if (!settings.some((s) => s.id === id)) referenceProblems.push(`第 ${b.chapter} 章引用的地点/组织 ${id} 不存在；请沿用现有地点ID，或在同一方案的settings中补充该ID`);
+    for (const event of b.plan.events) if (event.plotLine !== null && !plotLines.some((p) => p.id === event.plotLine)) referenceProblems.push(`第 ${b.chapter} 章引用的情节线 ${event.plotLine} 不存在`);
     for (const resolve of b.plan.resolves) {
       const f = projection.foreshadows.find((item) => item.id === resolve.foreshadowId);
-      if (f === undefined || f.status !== "open" || f.weight !== resolve.weight || f.plantedAt >= b.chapter) fail(`第 ${b.chapter} 章收束的伏笔 ${resolve.foreshadowId} 尚未正式埋设、已结束或权重不一致`);
+      const prefix = `第 ${b.chapter} 章收束的伏笔 ${resolve.foreshadowId}`;
+      if (f === undefined) referenceProblems.push(`${prefix} 尚未正式埋设：没有该编号的正式记录，请读取可用伏笔目录`);
+      else if (f.status !== "open") referenceProblems.push(`${prefix} 已结束或尚未正式埋设：当前状态为${f.status}，不能再次收束`);
+      else if (f.plantedAt >= b.chapter) referenceProblems.push(`${prefix} 在第 ${f.plantedAt} 章埋设，必须早于安排收束的章节`);
+      else if (f.weight !== resolve.weight) referenceProblems.push(`${prefix} 权重不一致：实际为 ${f.weight}，本次填了 ${resolve.weight}；请沿用 ${f.weight}，不要换编号绕过校验`);
     }
     findings.push(...validatePlan(b.plan, rules));
   }
+  if (referenceProblems.length > 0) fail([...new Set(referenceProblems)].join("\n"));
   if ((changes.beats?.length ?? 0) > 0) findings.push(...validateVolume({ beats: beats.filter((b) => (changes.beats ?? []).some((p) => p.chapter === b.chapter)), dueInVolume: projection.foreshadows.filter((f) => f.status === "open").map((f) => ({ foreshadowId: f.id, label: f.label, expectedBy: f.expectedBy })) }, rules));
   assertRemovable(snapshot, removals, { characters, settings, beats }, fail);
   // 关系两端必须是这本书里真有的人 —— 否则关系图上会出现一条指向空处的边。

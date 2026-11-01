@@ -1142,6 +1142,7 @@ export class ProjectSession {
     const pendingDrafts = this.listDrafts(next).filter((d) => d.status !== "adopted" && d.status !== "discarded").length;
     return {
       title: this.setting.title,
+      completed: this.workCompleted,
       genre: this.profile.genre,
       platform: this.profile.platform,
       currentChapter: this.currentChapter,
@@ -1199,7 +1200,11 @@ export class ProjectSession {
           return { message: JSON.stringify(task), effect: { kind: "task_updated", chapter, draftId, status: task.status } };
         } catch (error) { return fail("control_chapter_task", error instanceof Error ? error.message : String(error)); }
       },
-      getPreparation: (proposalId) => JSON.stringify(proposalId === null ? { ...this.preparation.view(), ideas: this.listIdeas() } : this.preparation.get(proposalId)),
+      getPreparation: (proposalId) => JSON.stringify(proposalId === null ? {
+        ...this.preparation.view(), ideas: this.listIdeas(), completed: this.workCompleted,
+        readinessScope: this.workCompleted ? "缺项仅针对作者明确要求的新续篇/番外，不代表作品未完结" : "写下一章的准备条件",
+        availableResolutions: this.derived.projections.foreshadows.filter(f => f.status === "open").map(f => ({ id: f.id, label: f.label, weight: f.weight, plantedAt: f.plantedAt })),
+      } : this.preparation.get(proposalId)),
       proposePreparation: async (input, author) => {
         try {
           const proposal = author ? this.preparation.recordAuthor(input) : this.preparation.propose(input);
@@ -1218,6 +1223,7 @@ export class ProjectSession {
         const open = foreshadows.filter((f) => f.status === "open").length;
         const overdue = foreshadows.filter((f) => f.status === "open" && (f.overdueBy as number) > 0).length;
         return `《${info.title}》 题材=${info.genre} 平台=${info.platform}
+作品状态：${info.completed ? "已完结（作者标记），开放伏笔不能推翻完结状态" : "未标记完结，不能据此代替文学判断"}。
 已写到第 ${info.currentChapter} 章；下一章第 ${info.nextChapter} 章，节拍${info.nextPlanReady ? "已确认" : "未确认"}。
 下一章待处理草稿 ${info.pendingDrafts} 份；未收伏笔 ${open} 条（逾期 ${overdue} 条）。`;
       },

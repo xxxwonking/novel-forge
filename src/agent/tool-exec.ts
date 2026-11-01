@@ -86,6 +86,76 @@ function asRecord(input: unknown): Record<string, unknown> {
   return typeof input === "object" && input !== null ? (input as Record<string, unknown>) : {};
 }
 
+/** 空删除对象没有任何删除意图，只在模型工具边界省略；域API仍严格校验。 */
+function preparationArguments(input: unknown): unknown {
+  const root = asRecord(input),
+    changes = asRecord(root["changes"]);
+  const removals = changes["removals"];
+  if (
+    typeof removals !== "object" ||
+    removals === null ||
+    Array.isArray(removals) ||
+    Object.keys(removals).length !== 0
+  )
+    return input;
+  const { removals: _empty, ...rest } = changes;
+  return { ...root, changes: rest };
+}
+
+function toolInputKey(name: string, input: unknown): string {
+  return `${name}\n${JSON.stringify(input, (_key, value: unknown) => (typeof value === "object" && value !== null && !Array.isArray(value) ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b))) : value))}`;
+}
+
+function stoppedToolSummary(
+  effects: readonly AgentEffect[],
+  reason: string,
+): string {
+  const completed = effects.flatMap((e) => {
+    switch (e.kind) {
+      case "action_failed":
+        return [];
+      case "preparation_proposed":
+        return [`已保存待确认候选：${e.summary}`];
+      case "preparation_confirmed":
+        return [`已确认资料方案：${e.summary}`];
+      case "plan_updated":
+        return [`已调整第 ${e.chapter} 章计划`];
+      case "idea_recorded":
+        return ["已保存备选想法"];
+      case "chapter_adopted":
+        return [`已采用第 ${e.chapter} 章`];
+      case "chapter_written":
+      case "chapter_revised":
+        return [`已保存第 ${e.chapter} 章草稿，仍需核对采用`];
+      case "chapter_started":
+      case "task_updated":
+        return [`第 ${e.chapter} 章任务已有处理结果，请查看任务记录`];
+      case "foreshadow_rescheduled":
+        return [`已调整伏笔 ${e.foreshadowId} 的期限`];
+      case "foreshadow_abandoned":
+        return [`已记录伏笔 ${e.foreshadowId} 的放弃决定`];
+      case "export_prepared":
+        return ["已准备导出预览"];
+    }
+  });
+  const failed = [
+    ...new Set(
+      effects.flatMap((e) => (e.kind === "action_failed" ? [e.message] : [])),
+    ),
+  ];
+  return [
+    reason,
+    ...(completed.length ? completed : ["本轮没有保存新的操作结果。"]),
+    ...(failed.length
+      ? [
+          "本轮未完成的操作及原因：",
+          ...failed.map((s) => `- ${s}`),
+          "请先核对并修正以上条件；已完成的操作不要重复执行。",
+        ]
+      : ["可核对以上结果后继续；本轮没有继续执行尚未处理的工具请求。"]),
+  ].join("\n");
+}
+
 /** 执行一次 tool_use。返回 tool_result（供续调）和可选 effect（记给 UI）。 */
 export async function executeMainTool(
   block: Anthropic.ToolUseBlock,
@@ -152,7 +222,7 @@ export async function executeMainTool(
       catch (error) { return { result: err(error instanceof Error ? error.message : String(error)) }; }
     case "propose_preparation":
     case "record_author_details":
-      return action(await ctx.proposePreparation(input, block.name === "record_author_details"));
+      return action(await ctx.proposePreparation(preparationArguments(input), block.name === "record_author_details"));
     case "confirm_preparation": {
       const proposalId = readStr("proposalId");
       if (proposalId === "") return { result: err("先用 get_preparation 定位要确认的方案编号") };
@@ -295,6 +365,7 @@ export async function runAgentLoop(
   let toolRounds = 0;
   const effects: AgentEffect[] = [];
   let writeAttempted = false;
+  const failedInputs = new Map<string, string>();
   const stopped = (text: string, hitCap = false): AgentLoopResult => ({
     text, effects, toolRounds, hitCap,
     // 交接和错误说明来自程序，不伪装成带有模型内部字段的 assistant 消息。
@@ -333,23 +404,37 @@ export async function runAgentLoop(
       return { text: rendered, effects, toolRounds, hitCap: false, modelMessages };
     }
     if (toolRounds >= maxRounds) {
-      return stopped(rendered || "（这一步涉及的操作较多，我先停下。请把要做的事说得更具体一点。）", true);
+      return {
+        ...stopped(stoppedToolSummary(effects, "本轮已达到工具调用轮数上限，已停止继续操作。"), true),
+        status: "incomplete", retryable: !writeAttempted,
+      };
     }
     toolRounds += 1;
     const toolResults: Anthropic.ToolResultBlockParam[] = [];
+    let repeatedFailure = false;
     for (const b of result.message.content) {
       if (b.type !== "tool_use") continue;
       if (!/^(?:get_|list_)/u.test(b.name)) writeAttempted = true;
       observe?.({ type: "tool", name: b.name, status: "started", ok: true });
       const allowed = !restrictTools || callOpts.tools?.some(tool => tool.name === b.name) === true;
       const message = `本次任务不允许调用工具 ${b.name}，请只使用本轮提供的工具。`;
-      const { result: tr, effect } = allowed ? await executeMainTool(b,ctx,mode,quotes) : {
+      const readOnly = /^(?:get_|list_)/u.test(b.name);
+      const key = toolInputKey(b.name, ["propose_preparation", "record_author_details"].includes(b.name) ? preparationArguments(b.input) : b.input);
+      const previous = readOnly ? undefined : failedInputs.get(key);
+      if (previous !== undefined) repeatedFailure = true;
+      const { result: tr, effect } = previous !== undefined ? {
+        result: { type: "tool_result" as const, tool_use_id: b.id, content: `相同参数已失败，本次未重复执行。${previous}`, is_error: true },
+      } : allowed ? await executeMainTool(b,ctx,mode,quotes) : {
         result:{type:"tool_result" as const,tool_use_id:b.id,content:message,is_error:true},
         effect:{kind:"action_failed" as const,tool:b.name,message},
       };
       observe?.({ type: "tool", name: b.name, status: "finished", ok: tr.is_error !== true });
       toolResults.push(tr);
       if (effect !== undefined) effects.push(effect);
+      if (!readOnly) {
+        if (tr.is_error) failedInputs.set(key, typeof tr.content === "string" ? tr.content : "工具参数未通过校验");
+        else failedInputs.clear();
+      }
     }
     messages = appendTurn(messages, result.message, toolResults);
     const background = effects.map(backgroundNotice).filter((notice): notice is string => notice !== null);
@@ -359,6 +444,10 @@ export async function runAgentLoop(
       // 整轮工具均已执行并保留真实历史；进度由任务页查询，不再花模型轮次轮询。
       return stopped([...adopted, ...new Set(background), "可从下方任务入口查看进度和检查结果；服务运行时，离开页面后任务仍会按本次要求继续。", ...failures].join("\n"));
     }
+    if (repeatedFailure) return {
+      ...stopped(stoppedToolSummary(effects, "相同参数的操作已失败，本轮已停止重复尝试。")),
+      status: "incomplete", retryable: false,
+    };
   }
 }
 

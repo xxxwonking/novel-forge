@@ -14,6 +14,7 @@ import type { ConversationMode } from "./types.js";
 import { CONVERSATION_QUOTE_INSTRUCTIONS } from "./conversation-quotes.js";
 
 export interface MainAgentContextInfo {
+  readonly completed?: boolean;
   readonly title: string;
   readonly genre: string;
   readonly platform: string;
@@ -30,14 +31,17 @@ export interface MainAgentContextInfo {
 
 /** 谋篇的适用情形：筹备缺项非空 → 从零筹备；否则 → 接入中途想法。 */
 export function planningScopeOf(info: MainAgentContextInfo): "preparation" | "revision" {
+  if (info.completed) return "revision";
   return (info.readinessMissing?.length ?? 0) > 0 ? "preparation" : "revision";
 }
 
 function renderContext(info: MainAgentContextInfo): string {
   return `## 当前作品
 《${info.title}》｜题材 ${info.genre}｜平台 ${info.platform}
+作品状态：${info.completed ? "已完结（作者标记）。开放伏笔不能推翻完结状态；缺少后续章计划也不表示尚未完结。旧对话若说未完结，以当前状态为准。" : "未标记完结；这不等于已经判断正文在文学意义上尚未收尾。"}
 已写到第 ${info.currentChapter} 章，下一章是第 ${info.nextChapter} 章。
-下一章节拍：${info.nextPlanReady ? "已确认，可写" : "尚未确认（不能直接写章，先和作者把计划定下来）"}。
+${info.completed ? "下一章编号仅供作者明确要写续篇或番外时使用，不代表必须继续原主线。作者只说“继续推进”时，先确认是在整理现有作品还是要写续篇/番外；不擅自改变完结标记或启动续写。" : ""}
+下一章节拍：${info.nextPlanReady ? "已确认（仍以作者本次写作授权为准）" : info.completed ? "尚未确认，仅在作者明确要写续篇/番外时才需要准备" : "尚未确认（不能直接写章，先和作者把计划定下来）"}。
 下一章待处理草稿：${info.pendingDrafts} 份。`;
 }
 
@@ -62,6 +66,7 @@ ${CONVERSATION_QUOTE_INSTRUCTIONS}
 - 纠错（“正文保持，昏倒不是死亡”）：先 get_chapter_draft 核对原文和确切版本，用 correct_draft_structure 只改有依据的记录，再用新版本返回的 revisionToken 调 check_chapter_draft。adoptOnSuccess 只有作者明确要求检查并采用时才为 true。正文或引用不支持纠正时说明分歧，不伪造证据或删除必须处理项来放行。
 - 写作、修订和检查都是后台任务：本轮明确要求的资料、计划与采用先处理，再提交 write_next_chapter、revise_chapter_draft 或 check_chapter_draft。稿件 writing/declaring/checking、任务 running/waiting 都只表示已受理，不能说已完成或可采用。提交后本轮交接给任务页，不循环查询、不重发任务；作者后续询问进度时再用 list_chapter_tasks 查当前状态。control_chapter_task 暂停/结束/恢复同一任务；暂停/结束在当前请求返回后生效，明确区分 pausing/ending 与 paused/ended。
 - 准备作品：先 get_preparation 看作者已指定内容、已有建议和开写缺项。用 propose_preparation 保存你的建议方案，明确展示具体人物、设定和章目标；不要只在回复里说“已整理”却不保存。第一章计划需要具体冲突、兑现、结束位置和有效人物/地点引用。你可以补充作者授权决定的细节，但仍须作为本次方案展示。
+- 创建未来章计划：plan_add_to_chapter只能修改已经确认的计划，不能创建缺失章节。先get_preparation，再用propose_preparation同一候选补齐必要地点和章计划，沿用同一地点ID。没有删除时省略removals；收束伏笔必须按availableResolutions或list_open_foreshadows的真实ID与weight，不把sub改成main，不换编号绕过错误。收到校验错误先逐项修正；相同参数失败后不要反复提交。候选修正成功后明确说明前面的失败已修正，候选仍待作者确认。
 - 作者选择方案（“按第二个方向开始写”）：用确切 proposalId 调 confirm_preparation，然后执行作者已经要求的写章；不重复询问同一选择。仅讨论或含糊的“继续”不确认方案。
 - 作者只授权“先试写一版看看”：propose_preparation 保存依赖建议后，以 proposalId 调 write_next_chapter；不确认资料，明确说明采用章节时将一并确认这些依赖。
 - 作者直接指定设定或偏好：get_preparation 后用 record_author_details，只提交明确指定的字段，保留其他已有信息。baseFingerprint 必须用读到的值；版本冲突时重新读取，不覆盖新选择。

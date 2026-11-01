@@ -114,7 +114,7 @@ export class PlanningService {
   }
   private futureBeat(chapter: number): ChapterBeat {
     if (chapter <= this.source.currentChapter) fail(409, "已采用章节的计划不能通过未来安排操作改写");
-    const beat = this.source.beatFor(chapter) ?? fail(404, `第 ${chapter} 章还没有计划，请先准备该章`);
+    const beat = this.source.beatFor(chapter) ?? fail(404, `第 ${chapter} 章还没有计划，请先准备该章。此工具只能修改已确认计划；先 get_preparation，再用 propose_preparation 保存含必要地点及该章计划的候选，作者确认后才能调整。`);
     if (!confirmed(beat.provenance)) fail(409, "请先确认该章计划，再修改其中的具体安排");
     return beat;
   }
