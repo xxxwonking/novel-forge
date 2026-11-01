@@ -54,6 +54,10 @@ for (const theme of ["浅色", "深色"])
       name: "聚焦人物：李长风",
       exact: true,
     });
+    await person.click();
+    await expect(person).toHaveAttribute("aria-pressed", "true");
+    await person.click();
+    await expect(person).toHaveAttribute("aria-pressed", "false");
     await person.focus();
     await page.keyboard.press("Enter");
     await expect(person).toHaveAttribute("aria-pressed", "true");
@@ -70,6 +74,28 @@ for (const theme of ["浅色", "深色"])
       .getByRole("button", { name: "暂停连线动效", exact: true })
       .click();
     await expect(particle).toHaveCSS("animation-play-state", "paused");
+    const canvas = page.getByRole("group", { name: "人物关系图", exact: true });
+    const initialView = await canvas.getAttribute("viewBox");
+    await page.getByRole("button", { name: "放大关系图", exact: true }).click();
+    await expect(canvas).not.toHaveAttribute("viewBox", initialView!);
+    await page.getByRole("button", { name: "适配关系图", exact: true }).click();
+    const hit = person.locator(".relation-hit");
+    const original = (await hit.boundingBox())!;
+    await page.mouse.move(
+      original.x + original.width / 2,
+      original.y + original.height / 2,
+    );
+    await page.mouse.down();
+    await page.mouse.move(
+      original.x + original.width / 2 + 70,
+      original.y + original.height / 2 + 30,
+      { steps: 8 },
+    );
+    await page.mouse.up();
+    const dragged = (await hit.boundingBox())!;
+    expect(dragged.x - original.x).toBeGreaterThan(55);
+    await expect(page).toHaveURL(/relations/);
+    await page.getByRole("button", { name: "适配关系图", exact: true }).click();
     await page
       .getByRole("button", { name: "开启连线动效", exact: true })
       .click();
@@ -77,10 +103,48 @@ for (const theme of ["浅色", "深色"])
     await expect(particle).toHaveCSS("display", "none");
     await page.emulateMedia({ reducedMotion: "no-preference" });
     await expect(particle).toBeVisible();
+    const panView = await canvas.getAttribute("viewBox");
+    const area = (await canvas.boundingBox())!;
+    await page.mouse.move(area.x + 12, area.y + 15);
+    await page.mouse.down();
+    await page.mouse.move(area.x + 65, area.y + 40, { steps: 5 });
+    await page.mouse.up();
+    await expect(canvas).not.toHaveAttribute("viewBox", panView!);
+    await page.getByRole("button", { name: "适配关系图", exact: true }).click();
     await page.setViewportSize({ width: 390, height: 844 });
-    expect(
-      (await page.locator(".relation-hit").first().boundingBox())!.height,
-    ).toBeGreaterThanOrEqual(44);
+    await canvas.scrollIntoViewIfNeeded();
+    const mobileArea = (await canvas.boundingBox())!;
+    const touchView = await canvas.getAttribute("viewBox");
+    const cdp = await page.context().newCDPSession(page);
+    const cy = mobileArea.y + mobileArea.height / 2,
+      cx = mobileArea.x + mobileArea.width / 2;
+    await cdp.send("Input.dispatchTouchEvent", {
+      type: "touchStart",
+      touchPoints: [
+        { x: cx - 40, y: cy, id: 1 },
+        { x: cx + 40, y: cy, id: 2 },
+      ],
+    });
+    await cdp.send("Input.dispatchTouchEvent", {
+      type: "touchMove",
+      touchPoints: [
+        { x: cx - 70, y: cy, id: 1 },
+        { x: cx + 70, y: cy, id: 2 },
+      ],
+    });
+    await cdp.send("Input.dispatchTouchEvent", {
+      type: "touchEnd",
+      touchPoints: [],
+    });
+    await expect(canvas).not.toHaveAttribute("viewBox", touchView!);
+    await cdp.detach();
+    await page.getByRole("button", { name: "适配关系图", exact: true }).click();
+    await expect
+      .poll(
+        async () =>
+          (await page.locator(".relation-hit").first().boundingBox())!.height,
+      )
+      .toBeGreaterThanOrEqual(44);
     expect(
       await page.evaluate(
         () => document.documentElement.scrollWidth <= window.innerWidth,

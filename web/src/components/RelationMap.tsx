@@ -1,23 +1,20 @@
-/**
- * 关系图（视图四）。
- *
- * §12.9 把关系图排在 M5，这里做的是一个**确定性圆周布局**而不是力导向 ——
- * 节点数是几十不是几千，而力导向的代价是每次打开位置都不一样，用户建立不了
- * 空间记忆（"苏晚晴在右上角"）。真需要更好的布局是 M5 的事。
- *
- * 布局按 degree 降序排在圆周上：连边多的角色彼此靠近，视觉上自然成簇。
- */
-
+import { useRelationNetwork } from "./useRelationNetwork.js";
 import { Chip } from "./Chip.js";
 import { useEffect, useState, type CSSProperties } from "react";
-import { Pause, Play, X } from "lucide-react";
+import {
+  Pause,
+  Play,
+  X,
+  ZoomIn,
+  ZoomOut,
+  Maximize,
+  RotateCcw,
+} from "lucide-react";
 import { Button } from "./controls.js";
 import "./relation-map.css";
 import type { RelationGraph } from "../api.js";
 import { relationLabel, tierLabel } from "../chart.js";
 
-const SIZE = 520;
-const RADIUS = 190;
 const NODE_BASE = 5;
 
 const KIND_COLOR: Record<string, string> = {
@@ -57,19 +54,8 @@ export function RelationMap({
   const ordered = [...graph.nodes].sort(
     (a, b) => b.degree - a.degree || a.id.localeCompare(b.id),
   );
-  const positions = new Map(
-    ordered.map((n, i) => {
-      const angle =
-        (i / Math.max(1, ordered.length)) * Math.PI * 2 - Math.PI / 2;
-      return [
-        n.id,
-        {
-          x: SIZE / 2 + Math.cos(angle) * RADIUS,
-          y: SIZE / 2 + Math.sin(angle) * RADIUS,
-        },
-      ];
-    }),
-  );
+  const network = useRelationNetwork(graph, paused);
+  const positions = network.positions;
 
   const active = hover ?? focused ?? selected ?? highlight ?? null;
   let particles = 0;
@@ -83,6 +69,42 @@ export function RelationMap({
               ? "选择人物查看关联"
               : `正在聚焦：${nameOf(graph, active)}`}
           </span>
+          <Button
+            variant="ghost"
+            size="sm"
+            aria-label="放大关系图"
+            title="放大"
+            onClick={() => network.zoom(0.8)}
+          >
+            <ZoomIn aria-hidden="true" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            aria-label="缩小关系图"
+            title="缩小"
+            onClick={() => network.zoom(1.25)}
+          >
+            <ZoomOut aria-hidden="true" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            aria-label="适配关系图"
+            title="适配全部"
+            onClick={network.fit}
+          >
+            <Maximize aria-hidden="true" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            aria-label="重新整理人物布局"
+            title="重新整理"
+            onClick={network.reset}
+          >
+            <RotateCcw aria-hidden="true" />
+          </Button>
           <Button
             variant="ghost"
             size="sm"
@@ -114,18 +136,13 @@ export function RelationMap({
         </div>
         <svg
           className="relation-canvas"
-          viewBox={`0 0 ${SIZE} ${SIZE}`}
+          ref={network.svg}
+          {...network.handlers}
+          viewBox={`${network.view.x} ${network.view.y} ${network.view.size} ${network.view.size}`}
           role="group"
           aria-label="人物关系图"
           data-paused={paused || hidden}
         >
-          <circle
-            className="relation-orbit"
-            cx={SIZE / 2}
-            cy={SIZE / 2}
-            r={RADIUS}
-            aria-hidden="true"
-          />
           {graph.edges.map((e, i) => {
             const from = positions.get(e.from);
             const to = positions.get(e.to);
@@ -164,7 +181,9 @@ export function RelationMap({
                   onClick={
                     jumpable === null
                       ? undefined
-                      : () => onJump(jumpable.chapter, jumpable.anchor.quote)
+                      : () =>
+                          !network.moved.current &&
+                          onJump(jumpable.chapter, jumpable.anchor.quote)
                   }
                 >
                   <title>{`${nameOf(graph, e.from)} · ${nameOf(graph, e.to)}：${relationLabel(e.kind)}${e.declared ? "（仅档案设定）" : `（第 ${e.changedAt} 章）`}\n${e.note}`}</title>
@@ -199,14 +218,16 @@ export function RelationMap({
               <g
                 key={n.id}
                 className="relation-person"
+                data-person={n.id}
                 role="button"
                 tabIndex={0}
                 aria-label={`聚焦人物：${n.name}`}
                 aria-pressed={selected === n.id}
                 opacity={dim ? 0.25 : 1}
-                onClick={() =>
-                  setSelected((value) => (value === n.id ? null : n.id))
-                }
+                onClick={() => {
+                  if (!network.moved.current)
+                    setSelected((value) => (value === n.id ? null : n.id));
+                }}
                 onKeyDown={(event) => {
                   if (event.key === "Enter" || event.key === " ") {
                     event.preventDefault();
@@ -227,7 +248,7 @@ export function RelationMap({
                   className="relation-hit"
                   cx={p.x}
                   cy={p.y}
-                  r={24}
+                  r={Math.max(24, 24 * network.unitsPerPixel)}
                   fill="transparent"
                 />
                 <circle
@@ -249,6 +270,7 @@ export function RelationMap({
                 />
                 <text
                   className="chart-label"
+                  style={{ fontSize: 12 * network.unitsPerPixel }}
                   data-strong={active === n.id || undefined}
                   x={p.x}
                   y={p.y - Math.min(16, NODE_BASE + n.degree) - 10}
@@ -261,7 +283,7 @@ export function RelationMap({
           })}
         </svg>
         <p className="relation-caption muted">
-          点选或聚焦人物查看关联。粒子往返仅提示关联，不表示因果方向。
+          拖动人物调整分布，拖动空白平移，滚轮或双指缩放。点选人物聚焦关系。
         </p>
       </section>
       <div className="relation-history">
@@ -329,7 +351,7 @@ export function RelationMap({
           虚线表示这条关系只来自资料、<strong>尚未写进正文</strong>
           ；正文写到那里就会变成实线，也才能点着跳过去。
           <br />
-          人物位置保持稳定。仅正式正文关系显示粒子，动效可暂停；系统要求减少动态时自动静止。
+          人物按关联自然聚合，拖动后固定位置；重新整理可释放固定。粒子往返仅提示关联，不表示因果方向。
         </p>
       </div>
     </div>
