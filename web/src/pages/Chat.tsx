@@ -1,3 +1,4 @@
+import { ChatSurface, type ChatPresentation } from "../components/ChatSurface.js";
 import {
   Message,
   PendingMessage,
@@ -52,6 +53,10 @@ import { useFetch } from "../hooks.js";
 
 export interface ChatProps {
   initialPrompt?: string;
+  presentation: ChatPresentation;
+  onClose: () => void;
+  onExpand: () => void;
+  onOpenDraft: (chapter: number, draftId: string) => void;
   /** 地址里指定的模式（新建空白作品后直接进谋篇）。只在载入时对齐一次。 */
   initialMode?: ConversationMode | undefined;
   onJump: (chapter: number, quote: string) => void;
@@ -78,6 +83,7 @@ export function Chat({
   refresh,
   initialPrompt = "",
   initialMode,
+  presentation, onClose, onExpand, onOpenDraft,
 }: ChatProps): React.ReactElement {
   const [history, setHistory] = useState<ConversationHistory | null>(null);
   const providers = useFetch(api.providers);
@@ -101,24 +107,22 @@ export function Chat({
   const [switching, setSwitching] = useState(false);
   const streamRef = useRef<HTMLDivElement | null>(null);
   const stickToBottom = useRef(true);
+  const scrollPosition = useRef(0);
+
+  const compact = presentation !== "full";
+  const handledMode = useRef<ConversationMode | undefined>(undefined);
 
   const turns: ConversationTurn[] = [...(history?.turns ?? []), ...live];
   const sending = pending !== null;
   const planning = mode === "planning";
 
   // 历史载入后对齐后端的模式；之后以本地状态为准（每次切换都落过库）。
-  // 地址里带了模式且与后端不同时，先落库再改本地态 —— 模式存后端是谋篇的锁，刷新不能把它打开。
+  // 路由切换不重载历史，避免覆盖正在生成的回复；URL 模式意图在下方单独处理。
   useEffect(() => {
     let alive = true;
     void api
       .conversationHistory()
-      .then(async (h) => {
-        if (initialMode !== undefined && initialMode !== h.mode)
-          h = {
-            ...h,
-            mode: (await api.setConversationMode(initialMode, h.sessionId))
-              .mode,
-          };
+      .then((h) => {
         if (alive) {
           setHistory(h);
           setMode(h.mode);
@@ -133,7 +137,10 @@ export function Chat({
     return () => {
       alive = false;
     };
-  }, [initialMode]);
+  }, []);
+
+  useEffect(() => { if (initialPrompt) setInput(initialPrompt); }, [initialPrompt]);
+  useEffect(() => { setHistoryOpen(false); setRename(null); setDraft(null); }, [presentation]);
 
   const manage = async (
     action: "create" | "select" | "rename",
@@ -174,10 +181,18 @@ export function Chat({
     }
   };
 
+  useEffect(() => {
+    if (initialMode === undefined) { handledMode.current = undefined; return; }
+    if (!history || loading || sending || changing || switching || handledMode.current === initialMode) return;
+    handledMode.current = initialMode;
+    void switchMode(initialMode);
+  }, [initialMode, history, loading, sending, changing, switching]);
+
   // 作者往上翻看旧消息时不再强制拉到底；回到底部附近后恢复跟随。
   const onScroll = (): void => {
     const el = streamRef.current;
     if (el === null) return;
+    scrollPosition.current = el.scrollTop;
     stickToBottom.current =
       el.scrollHeight - el.scrollTop - el.clientHeight < 48;
   };
@@ -296,6 +311,7 @@ export function Chat({
   };
 
   const viewDraft = async (chapter: number, draftId: string): Promise<void> => {
+    if (compact) { onOpenDraft(chapter, draftId); return; }
     try {
       setDraft(await api.chapterDraft(chapter, draftId));
     } catch (e) {
@@ -347,10 +363,17 @@ export function Chat({
   };
 
   return (
-    <div className="chat-page" data-mode={mode}>
+    <ChatSurface presentation={presentation} onClose={onClose} onExpand={onExpand}
+      dismissNested={historyOpen ? () => setHistoryOpen(false) : rename !== null ? () => setRename(null) : draft !== null ? () => setDraft(null) : undefined}
+      onVisible={() => {
+      const el = streamRef.current;
+      if (el) el.scrollTo({ top: stickToBottom.current ? el.scrollHeight : scrollPosition.current, behavior: "instant" });
+      providers.reload();
+    }}>
+    <div className="chat-page" data-mode={mode} data-compact={compact}>
       <div className="chat-head">
         <div>
-          <h1>{planning ? "谋篇" : "对话"}</h1>
+          {!compact && <h1>{planning ? "谋篇" : "对话"}</h1>}
           <div className="chat-session-title">{activeTitle}</div>
           <p>
             {planning ? (
@@ -368,20 +391,22 @@ export function Chat({
         </div>
         <div className="chat-head-actions">
           <Button
-            size="sm"
+            size={compact ? "icon" : "sm"}
+            aria-label="新对话" title="新对话"
             icon={<Plus />}
             disabled={sending || changing || switching || loading}
             onClick={() => void manage("create")}
           >
-            新对话
+            {!compact && "新对话"}
           </Button>
           <Button
-            size="sm"
+            size={compact ? "icon" : "sm"}
+            aria-label="历史对话" title="历史对话"
             icon={<History />}
             disabled={sending || changing || switching || loading}
             onClick={() => setHistoryOpen(true)}
           >
-            历史对话
+            {!compact && "历史对话"}
           </Button>
           <Button
             size="icon"
@@ -392,9 +417,9 @@ export function Chat({
           >
             <Pencil aria-hidden="true" />
           </Button>
-          <a className="chat-provider-link" href="#/providers">
+          <a className="chat-provider-link" href="#/providers" aria-label="AI 供应商" title={"AI 供应商：" + (provider?.name ?? "未配置") + " · " + (provider?.model ?? "")}>
             <Settings2 aria-hidden="true" />
-            AI 供应商
+            {!compact && "AI 供应商"}
             <span>
               {provider?.name ?? "未配置"} · {provider?.model ?? ""}
             </span>
@@ -523,7 +548,7 @@ export function Chat({
       <div className="composer">
         <Textarea
           ref={inputRef}
-          className="composer-input min-h-[124px] max-h-[280px]"
+          className={compact ? "composer-input min-h-[96px] max-h-[min(220px,28dvh)]" : "composer-input min-h-[124px] max-h-[280px]"}
           aria-label="对话内容"
           aria-describedby="composer-status"
           value={input}
@@ -678,5 +703,6 @@ export function Chat({
         {draft !== null && <DraftBody draft={draft} />}
       </SidePanel>
     </div>
+    </ChatSurface>
   );
 }

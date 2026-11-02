@@ -5,6 +5,7 @@ import { App } from "./App.js";
 import "./styles.css";
 import "./styles/ui.css";
 import "./styles/application.css";
+import "./styles/chat-dock.css";
 
 const root = document.getElementById("root");
 if (root === null) throw new Error("缺少 #root");
