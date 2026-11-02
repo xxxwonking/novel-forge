@@ -1,6 +1,16 @@
 # 模型配置：官方 API 与代理／聚合平台
 
-国内模型官方 API 和代理／聚合平台共用 Chat Completions 客户端。模型 ID 不限于 Gemini，选择账户实际可用、支持文本及工具调用的模型即可。写章和主 Agent 当前共用同一组连接信息、模型与能力配置。
+国内模型官方 API 和代理／聚合平台可使用 Chat Completions，另支持 Anthropic Messages 与 Gemini 原生。模型 ID 不限于 Gemini，选择账户实际可用、支持文本及工具调用的模型即可。写章和主 Agent 共用当前默认供应商，Anthropic 可单独填写审查模型。
+
+## 页面配置（推荐）
+
+作品库或作品导航进入“AI 供应商”。添加配置，填写协议、API地址、模型ID和密钥；保存后设为默认。可保留多个配置、显式测试连接、编辑与删除；当前默认需先切换后删除。环境配置可复制为可编辑副本，密钥仅在服务端复制，原环境不变。编辑已有配置时密钥输入框留空即保留原值。
+
+配置保存在工作区 `.model-providers.json`，不进入作品目录或Git；POSIX文件权限0600。公开API只返回是否保存密钥，不回显密钥。备份/导入也明确排除此凭证文件。当前仍是回环地址的单用户服务，不将这套本机配置当作多租户密钥管理。
+
+页面切换/修改默认配置对新请求生效，已提交的调用、对话回合和章节任务持有原客户端，不会中途换模型。恢复旧任务仍需模型与目标一致；配置失败不会回退其他供应商。连接测试发出一条最多32输出tokens的文本请求，经当前作品的积分闸门计量；它不证明工具、结构化输出或长篇质量全部可用。未选择作品时仍可保存配置，测试连接需先选作品。
+
+Chat高级选项可分别选择JSON约束、流式和用量统计、DeepSeek思考扩展、超时与输出限额。Gemini/Anthropic原生保留各自协议，不套用Chat扩展。SDK和现有业务抽象复用，没有新增供应商SDK依赖。
 
 ## 支持的接口格式
 
@@ -8,9 +18,25 @@
 | --- | --- |
 | OpenAI 兼容 Chat Completions（`/chat/completions`） | `NOVEL_MODEL_PROVIDER=chat`；适用于 DeepSeek 官方及提供此协议的国内厂商／代理 |
 | Anthropic Messages | `NOVEL_MODEL_PROVIDER=claude`；保留现有 Claude 客户端 |
-| Responses、Gemini 原生 `generateContent`、本地模型权重文件 | 当前未实现；本地推理服务如提供兼容 Chat API，可使用 chat 接入 |
+| Gemini原生 `generateContent` / `streamGenerateContent` | 页面选择“Gemini 原生”，或 `NOVEL_MODEL_PROVIDER=gemini` |
+| Responses、本地模型权重文件 | 当前未实现；本地推理服务如提供兼容 Chat API，可使用 chat 接入 |
 
 DeepSeek 的官方格式已有专门预设。通义千问、Kimi、GLM、豆包等，需使用各平台的 **Chat 兼容地址与具体模型 ID**，确认该模型支持 tools、所选 JSON 格式和输出长度。接口兼容不代表所有模型的工具／思考能力相同，也不代表已逐一完成真实测试。LangGraph 继续负责流程编排，没有新增 LangChain 模型抽象。
+
+## Gemini原生与Anthropic自定义模型
+
+Gemini原生环境入口：
+
+```dotenv
+NOVEL_MODEL_PROVIDER=gemini
+GEMINI_BASE_URL=https://generativelanguage.googleapis.com/v1beta
+GEMINI_API_KEY=replace-with-your-api-key
+GEMINI_MODEL=replace-with-an-available-gemini-model-id
+```
+
+模型ID不包含 `models/` 前缀，API地址是版本前缀。客户端使用 `x-goog-api-key` 请求头，不把密钥放进URL；支持文本SSE、函数调用/结果、JSON Schema、用量、拒绝与截断。原始parts及thoughtSignature仅在匹配目标的内部历史中回放，页面不展示思考/签名。请求失败不自动重试或切换协议。实现依据：[GenerateContent参考](https://ai.google.dev/api/generate-content)、[签名回放规则](https://ai.google.dev/gemini-api/docs/generate-content/thought-signatures)。当前未接入Vertex、OAuth或Interactions。
+
+Anthropic页面可填写创作及审查两个模型；审查留空时复用创作模型。环境变量模式可设置 `ANTHROPIC_MODEL` 和可选的 `ANTHROPIC_JUDGE_MODEL`；不填自定义模型则保留项目原角色分工。页面配置使用零SDK自动重试，所有调用仍记录已返回用量；旧环境入口保持原SDK策略。
 
 ## DeepSeek 官方配置
 
@@ -57,7 +83,7 @@ CHAT_THINKING=default
 
 `default` 表示不发送思考开关，由接口决定；`disabled` 会显式发送 DeepSeek 格式的关闭开关。`enabled/disabled` 使用 `thinking: { type: ... }`，不自动翻译为其他厂商的 `enable_thinking` 等扩展字段。不要给不支持此字段的平台启用它。
 
-预设从不改写地址、挑选模型、借用其他平台密钥或在失败后切换服务。当前部署一次选用一套配置；更换配置后重启服务。
+预设从不改写地址、挑选模型、借用其他平台密钥或在失败后切换服务。环境变量更换需重启；页面配置无需重启，对新请求生效。
 
 Chat 与 Claude 客户端均不自动跟随 HTTP 重定向，以免把凭证转发给其他端点。代理返回 3xx 时，应按平台文档直接配置最终 API 地址。Claude 错误信息会遮蔽配置中的 API key 和 Bearer token，再返回任务或页面。
 
@@ -105,7 +131,9 @@ npm run acceptance:chat
 
 此命令会产生真实 API 用量，并在独立 `data/chat-smoke-日期-随机后缀/` 作品中执行“正文 → 声明 → 检查 → 测试作品内采用 → 下一章读取”。不会覆盖已有作品或继续生成第二章，正文、结果与用量会保存。退出码 0 为流程通过，2 为需修改，1 为失败。
 
-主 Agent 保存完整 Chat 消息，包含工具结果、最终 assistant 的 reasoning_content 和工具签名；内部字段不返回 Web API。旧对话或切换模型时，可见文字会作为上下文接续，旧模型的内部字段不发往新目标。完整回放会增加上下文用量，目前没有自动压缩或跨进程锁。
+主 Agent按会话保存完整模型消息，包含工具结果、Chat reasoning_content 和原生工具签名；内部字段不返回 Web API。新对话隔离模型上下文，作品资料、正式正文与全书备选想法仍保留。旧对话或切换模型时，可见文字会作为上下文接续，旧模型的内部字段不发往新目标。完整回放会增加上下文用量，目前没有自动压缩或跨进程锁。
+
+新页面发送稳定requestId，同一请求重发优先返回已保存收据。模型失败或截断明确标记；只有未尝试写工具的最后一条失败可以直接手动重试，不重复保存用户消息。已经执行/尝试写工具的回合保留effect并要求先核对；断线、服务中断后执行结果未知的收据也阻止重复执行，可同步历史或核对任务后新开对话。旧版无收据失败只提供编辑恢复入口，不推断它从未执行过工具。
 
 章节草稿恢复要求模型、端点和思考配置一致；更改这些配置后应恢复原配置或另写一版。密钥轮换、JSON 模式、输出限额和超时调整不改变会话目标，因此可在修正 JSON 能力配置后恢复已有正文的 C5。错误、拒绝、截断和资源不足均保留明确状态；Chat 客户端不自动重试，两种客户端均不自动切换模型。
 

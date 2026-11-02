@@ -44,6 +44,10 @@ export type AgentEffect =
 
 /** 一条对话记录。user 回合无 effects；agent 回合可能带若干 effects。 */
 export interface ConversationTurn {
+  readonly requestId?: string;
+  readonly retryOf?: string;
+  readonly status?: "failed" | "incomplete";
+  readonly retryable?: boolean;
   readonly role: "user" | "agent";
   readonly text: string;
   readonly at: IsoTimestamp;
@@ -68,6 +72,7 @@ export type ConversationMode = "normal" | "planning";
 
 /** 持久化到 conversation.json 的整体形态。 */
 export interface ConversationState {
+  readonly pendingRequest?: { readonly id: string; readonly text: string; readonly at: string };
   readonly turns: readonly ConversationTurn[];
   readonly ideas: readonly AlternativeIdea[];
   /**
@@ -88,6 +93,10 @@ export interface ConversationModelHistory {
 
 /** 一次 converse() 的返回：回复文本 + 本回合的 effects + 工具轮数（成本可见）。 */
 export interface ConversationReply {
+  readonly requestId?: string;
+  readonly sessionId?: string;
+  readonly status?: "failed" | "incomplete";
+  readonly retryable?: boolean;
   readonly text: string;
   readonly effects: readonly AgentEffect[];
   readonly toolRounds: number;

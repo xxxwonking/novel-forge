@@ -131,7 +131,7 @@ export class ReviseService {
     return declarationOf(this.deps.source.events().filter((event) =>
       event.envelope.chapter === chapter
       && (event.envelope.provenance === "committed" || event.envelope.provenance === "authored")
-      && (event.envelope.origin === "C5_declaration" || event.envelope.origin === "import_inference")));
+      && (event.envelope.origin === "C5_declaration" || event.envelope.origin === "import_inference" || event.envelope.origin === "user_edit")));
   }
 
   /** 采用前看一眼这一稿会牵连到哪些章。只读，不落盘、不调模型。 */

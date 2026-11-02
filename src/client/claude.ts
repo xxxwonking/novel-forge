@@ -12,6 +12,7 @@
  *   ⑤ 错误 catch 从具体到宽泛：NotFound → RateLimit → APIStatus → APIConnection
  */
 
+import { createHash } from "node:crypto";
 import Anthropic, {
   APIConnectionError,
   APIError,
@@ -33,6 +34,11 @@ export type ModelRole = keyof typeof MODELS;
 export type Effort = "low" | "medium" | "high" | "xhigh" | "max";
 
 export interface ClientOptions {
+  readonly model?: string;
+  readonly judgeModel?: string;
+  readonly timeoutMs?: number;
+  readonly maxRetries?: number;
+  readonly maxOutputTokens?: number;
   readonly apiKey: string;
   readonly baseURL?: string;
   /**
@@ -134,6 +140,7 @@ export function describeTiming(timing: CallTiming): string {
 const STREAMING_THRESHOLD = 8192;
 
 export class ClaudeClient {
+  readonly conversationKey?: string;
   private readonly sdk: Anthropic;
   readonly official: boolean;
 
@@ -141,9 +148,15 @@ export class ClaudeClient {
     this.sdk = new Anthropic({
       apiKey: opts.apiKey,
       fetchOptions: { redirect: "manual" },
+      ...(opts.timeoutMs === undefined ? {} : { timeout: opts.timeoutMs }),
+      ...(opts.maxRetries === undefined ? {} : { maxRetries: opts.maxRetries }),
       ...(opts.baseURL === undefined ? {} : { baseURL: opts.baseURL }),
     });
     this.official = opts.official;
+    if (opts.model || opts.judgeModel) {
+      this.conversationKey = createHash("sha256")
+        .update(`claude\n${opts.baseURL ?? "https://api.anthropic.com"}\n${opts.model ?? MODELS.creative}\n${opts.judgeModel ?? opts.model ?? MODELS.judge}`).digest("hex");
+    }
   }
 
   /**
@@ -160,11 +173,14 @@ export class ClaudeClient {
       apiKey,
       ...(baseURL === undefined ? {} : { baseURL }),
       official: isOfficialEndpoint(baseURL),
+      ...(env.ANTHROPIC_MODEL?.trim()?{model:env.ANTHROPIC_MODEL.trim(),judgeModel:env.ANTHROPIC_JUDGE_MODEL?.trim()||env.ANTHROPIC_MODEL.trim()}:{}),
     });
   }
 
   async call(opts: CallOptions): Promise<CallResult> {
-    const params = buildParams(opts);
+    const requested = { ...opts, maxTokens: Math.min(opts.maxTokens, this.opts.maxOutputTokens ?? opts.maxTokens) };
+    const model = opts.role === "judge" ? this.opts.judgeModel ?? this.opts.model : this.opts.model;
+    const params = { ...buildParams(requested), ...(model ? { model } : {}) };
     const elapsed = startTiming();
     let partialText = "";
     try {

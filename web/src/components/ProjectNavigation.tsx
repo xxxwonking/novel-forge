@@ -1,4 +1,5 @@
-import { ArrowLeft, BookOpen, ClipboardList, Coins, Download, FileText, House, MessagesSquare, Network, Route, Search, TriangleAlert, Users, Waypoints, Workflow, type LucideIcon } from "lucide-react";
+import { ThemeSwitcher } from "./ThemeSwitcher.js";
+import { ArrowLeft, BookOpen, ClipboardList, Coins, Download, FileText, House, MessagesSquare, Network, Route, Search, Settings2, TriangleAlert, Users, Waypoints, Workflow, type LucideIcon } from "lucide-react";
 import { Separator } from "./ui/separator.js";
 
 interface Props {
@@ -21,7 +22,7 @@ export function ProjectNavigation({ route, title, currentChapter, nextChapter, a
   </a>;
 
   return <div className="project-navigation">
-    <a className="navigation-link all-works" href="#/works" onClick={event => { if (event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) { event.preventDefault(); onNavigate("/works"); } }}><ArrowLeft aria-hidden="true" />全部作品</a>
+    <div className="navigation-top"><a className="navigation-link all-works" href="#/works" onClick={event => { if (event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) { event.preventDefault(); onNavigate("/works"); } }}><ArrowLeft aria-hidden="true" />全部作品</a><ThemeSwitcher /></div>
     <div className="navigation-title">{title}</div>
     <div className="navigation-progress">第 {currentChapter} 章 · 下一章 {nextChapter}</div>
     <div className="navigation-section">
@@ -31,6 +32,7 @@ export function ProjectNavigation({ route, title, currentChapter, nextChapter, a
       {link("/alerts", "全部提示", TriangleAlert, alertCount)}
       {link("/search", "全文检索", Search)}
       {link("/credits", "用量与积分", Coins)}
+      {link("/providers", "AI 供应商", Settings2)}
     </div>
     <div className="navigation-label">结构视图</div>
     <div className="navigation-section">

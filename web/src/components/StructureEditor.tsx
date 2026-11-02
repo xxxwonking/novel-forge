@@ -18,7 +18,7 @@ const enums: Record<string, [string, string][]> = {
   relations: [["ally", "盟友"], ["hostile", "敌对"], ["kin", "亲属"], ["romantic", "情感"], ["mentor", "师徒"], ["subordinate", "上下级"], ["acquaintance", "相识"], ["unknown", "未明"]],
 };
 
-export function StructureEditor({ draft, characters, onSaved, onClose }: { draft: DraftView; characters: readonly { id: string; name: string }[]; onSaved: (draft: DraftView) => void; onClose: () => void }): React.ReactElement {
+export function StructureEditor({ draft, characters, onSaved, onClose, onSubmit }: { draft: Pick<DraftView, "chapter" | "draftId" | "revisionToken" | "declaration">; onSubmit?: (payload: Parameters<typeof api.correctDraft>[0]) => Promise<void>; characters: readonly { id: string; name: string }[]; onSaved: (draft: DraftView) => void; onClose: () => void }): React.ReactElement {
   const [source] = useState(draft);
   const [section, setSection] = useState<Section>("characterStates");
   const [index, setIndex] = useState(0);
@@ -48,7 +48,8 @@ export function StructureEditor({ draft, characters, onSaved, onClose }: { draft
     const content = JSON.stringify(payload);
     if (receipt.current?.content !== content) receipt.current = { content, id: crypto.randomUUID() };
     try {
-      onSaved(await api.correctDraft({ ...payload, requestId: receipt.current.id }));
+      if (onSubmit) await onSubmit({ ...payload, requestId: receipt.current.id });
+      else onSaved(await api.correctDraft({ ...payload, requestId: receipt.current.id }));
     } catch (e) { setError((e as Error).message); }
     finally { setBusy(false); }
   };

@@ -18,13 +18,14 @@ import type { ModelClient } from "../client/model.js";
 import type { ChapterRunInput } from "../chapter/pipeline.js";
 import { checkChapter, checkSemanticsWithModel, checkVoiceWithModel, declareStructure, writeChapterBody, type WriteResult } from "./steps.js";
 import { rewriteChapterBody } from "./rewrite.js";
+import { writeScenes, sceneBody } from "./scene-writing.js";
 import { automaticRevisionLimit, canAutomaticallyRevise } from "./automatic-revision.js";
 import { canAccept } from "../gate/route.js";
 import { stableFingerprint } from "./revision.js";
 import type { ToolContext } from "./tool-exec.js";
 import type { C5Declaration } from "../types/events.js";
 import type { GateFinding } from "../types/beat.js";
-import type { ChapterTaskOutcome, DraftError, DraftProposal, DraftGeneration, DraftRevision } from "./types.js";
+import type { ChapterTaskOutcome, DraftError, DraftProposal, DraftGeneration, DraftRevision, DraftScenes } from "./types.js";
 
 export type WriteOk = Extract<WriteResult, { kind: "ok" }>;
 
@@ -41,12 +42,14 @@ export interface ChapterGraphDeps {
   readonly maxAutoRevisions?: number;
   /** 在开始修订前原子保存版本关系及冻结输入，返回新版本的图状态。 */
   readonly beginAutomaticRevision?: (state: ChapterGraphState) => Partial<ChapterGraphState> | null;
+  readonly sceneWriting?: boolean;
 }
 
 const StateSpec = Annotation.Root({
   runInput: Annotation<ChapterRunInput>,
   write: Annotation<WriteOk | null>,
   body: Annotation<string>,
+  scenes: Annotation<DraftScenes | null>,
   declaration: Annotation<C5Declaration | null>,
   c5Findings: Annotation<readonly GateFinding[]>,
   findings: Annotation<readonly GateFinding[]>,
@@ -73,6 +76,7 @@ export function initialGraphState(runInput: ChapterRunInput): ChapterGraphState 
     runInput,
     write: null,
     body: "",
+    scenes: null,
     declaration: null,
     c5Findings: [],
     findings: [],
@@ -99,15 +103,20 @@ export function buildChapterGraph(deps: ChapterGraphDeps) {
   const write = async (s: ChapterGraphState): Promise<Partial<ChapterGraphState>> => {
     const stop = stopped(); if (stop !== null) return stop;
     if (s.write !== null) return {}; // resume：正文已在，跳过 C4，不重跑
-    const r = s.generation === null ? await writeChapterBody(deps.client, s.runInput, deps.ctx, deps.maxToolRounds)
+    if (s.scenes !== null && s.generation === null && sceneBody(s.scenes) !== s.body) return { outcome: "failed", error: { step: "C4", detail: "分场检查点与当前正文不一致，请保留现稿并另建任务" } };
+    let scenes = s.scenes;
+    const r = s.generation === null ? deps.sceneWriting ? await writeScenes(deps.client, s.runInput, deps.ctx, deps.maxToolRounds, scenes, next => {
+      scenes = next;
+      deps.onState?.({ ...s, scenes: next, body: sceneBody(next), proposals: deps.collectedProposals() });
+    }, () => deps.stopRequested?.() != null) : await writeChapterBody(deps.client, s.runInput, deps.ctx, deps.maxToolRounds)
       : await rewriteChapterBody(deps.client, s.runInput, deps.ctx, deps.maxToolRounds, s.generation);
     if (r.kind === "refused") return { outcome: "refused", refusalMessage: r.userMessage };
     if (r.kind === "failed") return { outcome: "failed", error: { step: "C4", detail: r.detail } };
-    if (r.kind === "incomplete") return { body: r.body, outcome: "failed", error: { step: "C4", detail: r.detail } };
+    if (r.kind === "incomplete") return { scenes, body: r.body, outcome: "failed", error: { step: "C4", detail: r.detail }, proposals: deps.collectedProposals() };
     if (r.kind === "scope_change") return { outcome: "needs_revision", acceptable: false,
       revision: s.revision === null ? null : { ...s.revision, resultSummary: r.summary, scopeAdvice: r.advice },
       findings: [{ rule: "revision_scope", level: "warn", message: r.advice }], proposals: deps.collectedProposals() };
-    return { write: r, body: r.body, proposals: deps.collectedProposals(),
+    return { scenes, write: r, body: r.body, proposals: deps.collectedProposals(),
       revision: s.revision === null || r.summary === undefined ? s.revision : { ...s.revision, resultSummary: r.summary } };
   };
 

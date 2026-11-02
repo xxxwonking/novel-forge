@@ -1,3 +1,4 @@
+import { buildChapterRunInput } from "../src/server/chapter-input.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createServer, type Server } from "node:http";
 import { once } from "node:events";
@@ -154,7 +155,7 @@ describe("Chat 章节入口", () => {
     expect(state.requests[3]?.messages).toContainEqual(finalAssistant);
     expect(state.requests[3]?.response_format.type).toBe(preset === "deepseek" ? "json_object" : "json_schema");
     if (preset === "deepseek") {
-      expect(state.requests[3]?.messages[0].content).toContain(JSON.stringify(quoteCatalog(PROSE).schema));
+      expect(state.requests[3]?.messages[0].content).toContain(JSON.stringify(quoteCatalog(PROSE, buildChapterRunInput(state.session, 3).parseContextBase).schema));
       expect(state.requests[3]?.thinking).toEqual({ type: "enabled" });
     }
     expect(state.claude).not.toHaveBeenCalled();
@@ -166,7 +167,7 @@ describe("Chat 章节入口", () => {
     const before = state.store.load();
     const response = await write(state.session);
     expect(response.body).toMatchObject({ status: "failed", body: PROSE, error: { step: "C5", detail: "C5 输出不是合法 JSON" } });
-    expect(state.requests[1]?.messages[0].content).toContain(JSON.stringify(quoteCatalog(PROSE).schema));
+    expect(state.requests[1]?.messages[0].content).toContain(JSON.stringify(quoteCatalog(PROSE, buildChapterRunInput(state.session, 3).parseContextBase).schema));
     expect(state.requests[1]?.response_format).toEqual(mode === "json_object" ? { type: "json_object" } : undefined);
     expect(state.store.load().events).toEqual(before.events);
     expect(state.store.load().chapters).toEqual(before.chapters);

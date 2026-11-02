@@ -16,8 +16,8 @@ import { readProjectFile, writeProjectFile } from "../store/transaction.js";
 import { countWords } from "../text/measure.js";
 
 const DIR = "materials";
-/** 单份资料的字数上限。角色档案通常几千字，超过这个量级的多半是误把正文当资料选了。 */
-export const MATERIAL_MAX_CHARS = 100_000;
+/** 单份资料的字符上限；长资料通过全文分块读取，普通起草仍明确显示抽样范围。 */
+export const MATERIAL_MAX_CHARS = 1_000_000;
 
 export interface MaterialFile {
   /** 作者看到的原名（可能带目录前缀）。 */

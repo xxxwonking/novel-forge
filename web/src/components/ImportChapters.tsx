@@ -72,15 +72,16 @@ export function ImportChapters({ onImported, onClose }: {
     // 选文件夹时浏览器会把里面所有东西都给过来（含子目录、图片、zip）；只留文本，
     // 剩下的交给服务端按「有没有章节标记」再筛一遍。
     const candidates = list === null ? [] : [...list];
-    const chosen = candidates.filter((f) => /\.(txt|md|markdown|json)$/iu.test(f.name) || f.type.startsWith("text/"));
-    if (chosen.length === 0) { setFiles([]);setText("");setPreview(null);setFilename(null);setIgnoredFiles(candidates.map(f=>f.webkitRelativePath||f.name));setError("选中的内容里没有可读取的 TXT、Markdown 或 JSON 文件。"); return; }
+    const chosen = candidates.filter((f) => /\.(txt|md|markdown|json|docx|pdf)$/iu.test(f.name) || f.type.startsWith("text/"));
+    if (chosen.length === 0) { setFiles([]);setText("");setPreview(null);setFilename(null);setIgnoredFiles(candidates.map(f=>f.webkitRelativePath||f.name));setError("选中的内容里没有可读取的 TXT、Markdown、JSON、DOCX 或文本 PDF 文件。"); return; }
     setBusy(true); setError(null);
     try {
-      const read = await Promise.all(chosen.map(async (file) => ({ name: file.webkitRelativePath || file.name, text: await readTextFile(file) })));
+      const read: ImportFileInput[] = [];
+      for (const file of chosen) read.push({ name: file.webkitRelativePath || file.name, text: await readTextFile(file) });
       setText(""); setFiles(read); setFilename(`${read.length} 个文件`); setPreview(null); setOverwrite(false);
       const skipped=candidates.filter(f=>!chosen.includes(f));
       setIgnoredFiles(skipped.map(f=>f.webkitRelativePath||f.name));
-    } catch (e) { setError((e as Error).message); }
+    } catch (e) { setFiles([]); setText(""); setPreview(null); setFilename(null); setError((e as Error).message); }
     finally { setBusy(false); }
   };
 
@@ -132,7 +133,8 @@ export function ImportChapters({ onImported, onClose }: {
     {error !== null && <div className="finding" role="alert" data-level="block">{error}</div>}
 
     <div className="import-source">
-      <input type="file" accept=".txt,.md,.markdown,.json,text/plain,text/markdown,application/json" multiple ref={picker} style={{ display: "none" }}
+      <p className="muted">支持 TXT、Markdown、JSON、DOCX 与有文本层的 PDF。文档单份不超过8MB，只提取文字；扫描件需先 OCR。请在预览中核对段落与章节标记。</p>
+      <input type="file" accept=".txt,.md,.markdown,.json,.docx,.pdf,text/plain,text/markdown,application/json" multiple ref={picker} style={{ display: "none" }}
         onChange={(e) => { void pick(e.target.files); e.target.value = ""; }} />
       {/* webkitdirectory 不在 React 的属性表里，用 ref 挂；每章一个文件的作者手上就是一个文件夹，
           让他进去 ⌘A 全选是把系统对话框的限制推给了作者。 */}

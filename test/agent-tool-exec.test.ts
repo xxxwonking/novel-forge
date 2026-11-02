@@ -89,6 +89,19 @@ describe("executeMainTool", () => {
     expect(r.effect).toMatchObject({ kind: "chapter_written", chapter: 3, draftId: "ch3d1" });
   });
 
+  it("write_next_chapter 保留作者明确指定的分场额度", async () => {
+    const writeNextChapter = vi.fn(fakeCtx().writeNextChapter);
+    await executeMainTool(block("write_next_chapter", { sceneWriting: { maxCalls: 12, maxCredits: 30 } }), fakeCtx({ writeNextChapter }));
+    expect(writeNextChapter).toHaveBeenCalledWith(undefined, { maxCalls: 12, maxCredits: 30 });
+  });
+
+  it("非法分场额度不能退回无预算的旧写章方式", async () => {
+    const writeNextChapter = vi.fn(fakeCtx().writeNextChapter);
+    const result = await executeMainTool(block("write_next_chapter", { sceneWriting: { maxCalls: 0, maxCredits: 30 } }), fakeCtx({ writeNextChapter }));
+    expect(result.result.is_error).toBe(true);
+    expect(writeNextChapter).not.toHaveBeenCalled();
+  });
+
   it("adopt_chapter 缺 draftId → is_error、无 effect", async () => {
     const adoptChapter = vi.fn(fakeCtx().adoptChapter);
     const r = await executeMainTool(block("adopt_chapter", {}), fakeCtx({ adoptChapter }));

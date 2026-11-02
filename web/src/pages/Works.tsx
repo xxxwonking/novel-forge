@@ -1,3 +1,4 @@
+import { ThemeSwitcher } from "../components/ThemeSwitcher.js";
 import { useRef, useState } from "react";
 import { Button, Disclosure, Input, NumberInput, DialogFrame, ConfirmAction, ChoiceSelect, InlineGroup, Textarea } from "../components/controls.js";
 import { ArrowRight as ArrowRightOutlined, Trash2 as DeleteOutlined, Download as DownloadOutlined, Import as ImportOutlined, RefreshCw as ReloadOutlined, Undo2 as UndoOutlined } from "lucide-react";
@@ -100,6 +101,7 @@ export function Works(): React.ReactElement {
         {workspace.data !== null && (workspace.data.credits.exhausted
           ? <span className="library-balance" data-state="exhausted" role="status">积分已用完 · 新的模型调用会被拦下</span>
           : <span className="library-balance">剩余 {workspace.data.credits.balance.toLocaleString("zh-CN", { maximumFractionDigits: 0 })} 积分</span>)}
+        <ThemeSwitcher />
       </div>
 
       {/* 标语进左列，与表单并排：表单从页首就在手边，不必先滚过一屏标语。 */}
@@ -113,6 +115,7 @@ export function Works(): React.ReactElement {
           <div className="section-head">
             <h2>我的作品 <span>{String(count).padStart(2, "0")}</span></h2>
             <InlineGroup>
+              <a href="#/providers">AI 供应商</a>
               <Button variant="ghost" size="sm" icon={<ImportOutlined />} disabled={pending !== null || importing} onClick={() => { setImportError(null); setShelfError(null); setImportOpen(true); }}>导入备份</Button>
               <Button variant="ghost" size="sm" icon={<ReloadOutlined />} loading={workspace.loading && workspace.data !== null} onClick={workspace.reload}>刷新</Button>
             </InlineGroup>

@@ -64,6 +64,8 @@ export interface Projections {
 }
 
 export function project(input: ProjectionInput): Projections {
+  // 修订早章的新载荷追加在事件流末尾，故事时序仍由章号决定；同章保留seq。
+  input = { ...input, events: [...input.events].sort((a, b) => a.envelope.chapter - b.envelope.chapter || a.envelope.seq - b.envelope.seq) };
   return {
     foreshadows: projectForeshadows(input),
     plotLines: projectPlotLines(input),

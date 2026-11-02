@@ -29,6 +29,12 @@ export interface InferenceRun {
   readonly problems: readonly string[];
   readonly warnings: readonly string[];
   readonly at: IsoTimestamp;
+  /** 仅是待作者复核的有效部分，未写入事件流；重读时必须重新校验。 */
+  readonly confirmedEmptyBody?: string;
+  readonly candidate?: unknown;
+  readonly candidateBasis?: string;
+  readonly reviewedProblems?: readonly string[];
+  readonly reviewedExclusions?: readonly { readonly section: string; readonly index: number; readonly record: unknown }[];
 }
 
 interface InferenceFile {
@@ -72,5 +78,8 @@ function valid(value: unknown): value is InferenceRun {
   if (run.outcome !== "done" && run.outcome !== "problem" && run.outcome !== "failed" && run.outcome !== "skipped") return false;
   return Array.isArray(run.problems) && run.problems.every((p) => typeof p === "string")
     && Array.isArray(run.warnings) && run.warnings.every((w) => typeof w === "string")
-    && typeof run.at === "string";
+    && typeof run.at === "string"
+    && (run.confirmedEmptyBody === undefined || /^[a-f0-9]{64}$/u.test(run.confirmedEmptyBody))
+    && (run.candidate === undefined || (run.candidate !== null && typeof run.candidate === "object" && typeof run.candidateBasis === "string"))
+    && (run.reviewedProblems === undefined || (Array.isArray(run.reviewedProblems) && run.reviewedProblems.every(p => typeof p === "string")));
 }

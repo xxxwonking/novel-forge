@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createServer, type Server } from "node:http";
 import { once } from "node:events";
 import type { AddressInfo } from "node:net";
-import { ClaudeClient } from "../src/client/claude.js";
+import { ClaudeClient, type ClientOptions } from "../src/client/claude.js";
 
 const servers: Server[] = [];
 afterEach(async () => {
@@ -12,7 +12,7 @@ afterEach(async () => {
   }
 });
 
-async function endpoint(ending: "missing" | "error" | "complete") {
+async function endpoint(ending: "missing" | "error" | "complete", overrides:Partial<ClientOptions>={}) {
   const requests: unknown[] = [];
   const server = createServer(async (req, res) => {
     let body = ""; for await (const chunk of req) body += chunk;
@@ -34,11 +34,17 @@ async function endpoint(ending: "missing" | "error" | "complete") {
     res.end();
   });
   servers.push(server); server.listen(0, "127.0.0.1"); await once(server, "listening");
-  const client = new ClaudeClient({ apiKey: "local-test-key", baseURL: `http://127.0.0.1:${(server.address() as AddressInfo).port}`, official: false });
+  const client = new ClaudeClient({ apiKey: "local-test-key", baseURL: `http://127.0.0.1:${(server.address() as AddressInfo).port}`, official: false,...overrides });
   return { client, requests };
 }
 
 describe("Claude 协议的本地流式响应", () => {
+  it("自定义创作/审查模型与输出限额应用到真实Messages请求",async()=>{
+    const service=await endpoint("complete",{model:"creative-local",judgeModel:"judge-local",maxOutputTokens:128,maxRetries:0});
+    for(const role of ["creative","judge"] as const)expect((await service.client.call({role,maxTokens:512,messages:[{role:"user",content:"本地测试"}],onTextDelta:()=>{}})).kind).toBe("ok");
+    expect(service.requests).toMatchObject([{model:"creative-local",max_tokens:128},{model:"judge-local",max_tokens:128}]);
+    expect(service.client.conversationKey).toBeTruthy();
+  });
   it("代理返回的 HTTP 错误不向任务和页面回传 API 凭证", async () => {
     const server = createServer(async (req, res) => {
       for await (const _chunk of req) { /* consume request */ }

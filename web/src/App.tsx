@@ -1,3 +1,4 @@
+import { ThemeSwitcher } from "./components/ThemeSwitcher.js";
 /**
  * 应用外壳与路由。
  *
@@ -17,20 +18,22 @@ import { TaskPanel } from "./components/TaskPanel.js";
 import { ErrorBoundary } from "./components/ErrorBoundary.js";
 import type { ChapterTaskView } from "./api.js";
 import { actionLabel } from "./components/AlertCard.js";
-import { Home } from "./pages/Home.js";
-import { AlertList } from "./pages/AlertList.js";
-import { ViewPage } from "./pages/ViewPage.js";
-import { Reader } from "./pages/Reader.js";
-import { Search } from "./pages/Search.js";
-import { Credits } from "./pages/Credits.js";
-import { Chat } from "./pages/Chat.js";
-import { Works } from "./pages/Works.js";
-import { Preparation } from "./pages/Preparation.js";
-import { Drafts } from "./pages/Drafts.js";
-import { Export } from "./pages/Export.js";
-import { Inference } from "./pages/Inference.js";
-import { Revision } from "./pages/Revision.js";
 import { PlanningActionDialog, type EditablePlanningAction } from "./components/PlanningActionDialog.js";
+
+const Home = lazy(() => import("./pages/Home.js").then(module => ({ default: module.Home })));
+const AlertList = lazy(() => import("./pages/AlertList.js").then(module => ({ default: module.AlertList })));
+const ViewPage = lazy(() => import("./pages/ViewPage.js").then(module => ({ default: module.ViewPage })));
+const Reader = lazy(() => import("./pages/Reader.js").then(module => ({ default: module.Reader })));
+const Search = lazy(() => import("./pages/Search.js").then(module => ({ default: module.Search })));
+const Credits = lazy(() => import("./pages/Credits.js").then(module => ({ default: module.Credits })));
+const Chat = lazy(() => import("./pages/Chat.js").then(module => ({ default: module.Chat })));
+const Works = lazy(() => import("./pages/Works.js").then(module => ({ default: module.Works })));
+const Preparation = lazy(() => import("./pages/Preparation.js").then(module => ({ default: module.Preparation })));
+const Drafts = lazy(() => import("./pages/Drafts.js").then(module => ({ default: module.Drafts })));
+const Export = lazy(() => import("./pages/Export.js").then(module => ({ default: module.Export })));
+const Inference = lazy(() => import("./pages/Inference.js").then(module => ({ default: module.Inference })));
+const Revision = lazy(() => import("./pages/Revision.js").then(module => ({ default: module.Revision })));
+const Providers = lazy(() => import("./pages/Providers.js").then(module => ({ default: module.Providers })));
 
 const VIEWS = [
   { path: "/foreshadow", label: "伏笔时间线" },
@@ -44,11 +47,12 @@ const PlotBoard = lazy(() => import("./pages/PlotBoard.js").then(module => ({ de
 export function App(): React.ReactElement {
   const [route] = useRoute();
   const workspace = useFetch(() => api.workspace(), []);
+  if(route==="/providers"&&selectedProjectId()===null&&workspace.data?.defaultProjectId==null)return <main className="main"><div className="theme-page-tools"><a href="#/works">返回作品库</a><ThemeSwitcher /></div><Suspense fallback={<p role="status">读取配置…</p>}><Providers/></Suspense></main>;
   if (workspace.data === null) {
     return <div className="empty">{workspace.error === null ? "打开工作区…" : <>读取工作区失败：{workspace.error} <Button size="sm" variant="outline" onClick={workspace.reload}>重试</Button></>}</div>;
   }
   if (route === "/works" || (selectedProjectId() === null && workspace.data.defaultProjectId === null)) {
-    return <Works />;
+    return <Suspense fallback={<div className="empty" role="status">正在打开作品库…</div>}><Works /></Suspense>;
   }
   return <ProjectApp key={selectedProjectId() ?? workspace.data.defaultProjectId} projectId={selectedProjectId() ?? workspace.data.defaultProjectId ?? "default"} />;
 }
@@ -156,7 +160,8 @@ function ProjectApp({ projectId }: { projectId: string }): React.ReactElement {
       <a className="skip-navigation" href="#project-content" onClick={event => { event.preventDefault(); document.getElementById("project-content")?.focus(); }}>跳到内容</a>
       <Sheet open={navOpen} onOpenChange={setNavOpen}>
         <header className="mobile-work-header"><a href="#/works"><ArrowLeft className="size-4" aria-hidden="true" />作品</a><strong>{navigation.title}</strong>
-          <SheetTrigger asChild><Button size="sm" variant="outline" aria-label="作品导航"><Menu aria-hidden="true" />目录</Button></SheetTrigger>
+          <ThemeSwitcher />
+          <SheetTrigger asChild><Button size="sm" variant="outline" aria-label="作品导航"><Menu aria-hidden="true" />作品导航</Button></SheetTrigger>
         </header>
         <SheetContent side="left" className="mobile-navigation-dialog w-[min(20rem,90vw)] gap-0 overflow-hidden border-border p-0" overlayClassName="mobile-navigation-overlay">
           <SheetHeader className="shrink-0 border-b border-border py-5 pr-16 pl-5"><SheetTitle className="text-base">作品导航</SheetTitle><SheetDescription>切换创作页面或查看剧情结构</SheetDescription></SheetHeader>
@@ -214,7 +219,11 @@ interface RoutedProps {
   onPlanningAction: (title: string, action: PlanningAction) => void;
 }
 
-function Routed({ route, overview, onAction, onIgnore, onJump, refresh, tasks, reloadTasks, refreshKey, onPlanningAction, projectId }: RoutedProps): React.ReactElement {
+function Routed(props: RoutedProps): React.ReactElement {
+  return <Suspense fallback={<div className="empty" role="status">正在打开页面…</div>}><RouteContent {...props} /></Suspense>;
+}
+
+function RouteContent({ route, overview, onAction, onIgnore, onJump, refresh, tasks, reloadTasks, refreshKey, onPlanningAction, projectId }: RoutedProps): React.ReactElement {
   const [path, search] = route.split("?");
   const query = new URLSearchParams(search ?? "");
   if (path === "/plotboard") return <Suspense fallback={<div className="empty" role="status">正在打开剧情白板…</div>}><PlotBoard projectId={projectId} onJump={onJump} /></Suspense>;
@@ -229,6 +238,7 @@ function Routed({ route, overview, onAction, onIgnore, onJump, refresh, tasks, r
   if (path === "/export") return <Export exportId={query.get("id")} />;
   if (path === "/search") return <Search query={query.get("q") ?? ""} />;
   if (path === "/credits") return <Credits />;
+  if (path === "/providers") return <Providers />;
   if (path === "/inference") return <Inference refresh={refresh} />;
   if (path === "/revision") return <Revision refresh={refresh} />;
   if (path?.startsWith("/draft/")) {

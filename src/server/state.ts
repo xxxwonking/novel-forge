@@ -1,3 +1,6 @@
+import { InferenceCorrections } from "../import/correction.js";
+import type { PreparationProposal } from "../preparation/types.js";
+import { FullTextIntake } from "../preparation/full-text.js";
 /**
  * 服务端的项目会话：把 store / 投影 / 告警 / 视图串成一个可查询的对象。
  *
@@ -112,6 +115,8 @@ export interface PreparationDraftResult {
 }
 
 export interface ProjectSessionOptions extends ChapterWriterOptions {
+  readonly clientFactory?: () => ModelClient;
+  readonly modelName?: typeof resolveModelName;
   /**
    * 全局剩余积分，每次模型调用前现问一次。工作区提供它（汇总全部作品，含回收站）。
    * 不经工作区单独构造会话时退回本作品自己的账 —— 仍然有闸门，只是看不见别的作品。
@@ -121,10 +126,12 @@ export interface ProjectSessionOptions extends ChapterWriterOptions {
 
 export class ProjectSession {
   readonly preparation: PreparationService;
+  readonly fullTextCharacters: FullTextIntake;
   readonly planning: PlanningService;
   readonly exports: TextExportService;
   readonly imports: ImportService;
   readonly inference: InferenceService;
+  readonly inferenceCorrections: InferenceCorrections;
   readonly run: ContinuousRunService;
   readonly revise: ReviseService;
   private readonly store: ProjectStore;
@@ -147,6 +154,9 @@ export class ProjectSession {
   private progress: ReturnType<typeof buildStoryProgress> | null = null;
   private readonly conversation: ConversationStore;
   private modelClient: ModelClient | undefined;
+  private modelSource: ModelClient | undefined;
+  private readonly clientFactory: (() => ModelClient) | undefined;
+  private readonly modelName: typeof resolveModelName;
   private readonly creditBalance: (() => number) | undefined;
 
   constructor(
@@ -155,6 +165,8 @@ export class ProjectSession {
     writing: ProjectSessionOptions = {},
   ) {
     this.creditBalance = writing.creditBalance;
+    this.clientFactory = writing.client === undefined ? writing.clientFactory : undefined;
+    this.modelName = writing.modelName ?? resolveModelName;
     this.store = new ProjectStore(root);
     this.drafts = new DraftStore(root);
     const snap = this.store.load();
@@ -184,6 +196,13 @@ export class ProjectSession {
       commitPresence: (scans) => this.appendPresence(scans),
       completed: () => this.workCompleted,
     });
+    this.fullTextCharacters = new FullTextIntake(root, {
+      sources: () => { const materials = new MaterialStore(root); return [
+        ...materials.list().map(m => ({ id: `material:${m.file}`, title: m.name, text: materials.read(m.file) ?? "" })),
+        ...this.chapterNumbers().map(n => ({ id: `chapter:${n}`, title: `第 ${n} 章`, text: this.chapterText(n) ?? "" })),
+      ]; }, known: () => this.characters, client: () => this.getModelClient(),
+    });
+    this.inferenceCorrections = new InferenceCorrections(root, { source: this, transaction: operation => this.transact(operation) });
     this.planning = new PlanningService(this, operation => this.transact(operation));
     this.exports = new TextExportService(root, this);
     this.imports = new ImportService(root, this);
@@ -198,7 +217,7 @@ export class ProjectSession {
       maxBatchChapters: this.rules.task.maxBatchChapters,
       // 改早章留下的硬矛盾没处理完就不开连写：接下来每一章都会建立在错的基准上。
       assertCanStart: () => { this.revise.assertNoConflicts(); this.writer.prepareModelTask(); },
-      writeChapter: (chapter, requestId) => this.writer.write({ chapter, requestId }),
+      writeChapter: (chapter, requestId, sceneWriting) => this.writer.write({ chapter, requestId, ...(sceneWriting === undefined ? {} : { sceneWriting }) }),
       adopt: (chapter, draft) => { this.adopt(chapter, draft.draftId, { revisionToken: adoptionToken(draft) }); },
     });
   }
@@ -459,6 +478,19 @@ export class ProjectSession {
     });
   }
 
+  /** 显式结构纠正的提交侧，追加新事件、作废旧载荷并记录后续影响。 */
+  applyInferenceCorrection(chapter: number, declaration: C5Declaration): void {
+    this.transact(() => {
+      const before = this.revise.adoptedDeclaration(chapter);
+      const stream = EventStream.restore(this.stream.all());
+      stream.supersedeChapter(chapter, ["import_inference", "C5_declaration", "user_edit"]);
+      const added = commitDeclaration(stream, chapter, declaration, "user_edit");
+      for (const event of added) stream.decide(event.envelope.id, "committed");
+      this.store.rewriteEvents(stream.all()); this.stream = stream; this.invalidate();
+      this.revise.record(chapter, before, declaration);
+    });
+  }
+
   /** 裁决一章的旧稿反推声明（作者确认或丢弃）。返回实际改变的条数。 */
   decideInference(chapter: ChapterNo, decision: "committed" | "rejected"): number {
     return this.transact(() => {
@@ -668,18 +700,36 @@ export class ProjectSession {
    * 一轮对话：主 Agent 理解意图、自主选工具，产出回复与本回合的 effects。
    * 需要模型客户端（未配置抛 503）—— 只读浏览不经过这里，不受影响。
    */
-  async converse(text: string, observe?: ConversationObserver): Promise<ConversationReply> {
+  async converse(text: string, observe?: ConversationObserver, request: {sessionId?: string; requestId?: string; retryOf?: string} = {}): Promise<ConversationReply> {
     const client = this.getModelClient();
     const service = new MainAgentService({
       client,
-      store: this.conversation,
+      store: this.conversation.forSession(request.sessionId),
       // 排队的回合在真正开始时取资料，包含前一回合已采用的正文和状态。
       ctx: () => this.buildAgentContext(text.trim()),
       contextInfo: () => this.agentContextInfo(),
       maxRounds: this.rules.agent.maxConversationRounds,
       maxPlanningRounds: this.rules.agent.maxPlanningRounds,
     });
-    return service.send(text, observe);
+    return service.send(text, observe, request);
+  }
+
+  conversationHistory(id?: string) {
+    const store = this.conversation.forSession(id), state = store.load();
+    return {
+      turns: state.turns, ideas: state.ideas, mode: state.mode,
+      sessionId: store.sessionId(), sessions: this.conversation.listSessions(),
+      pendingRequest: state.pendingRequest === undefined ? null : { id: state.pendingRequest.id, at: state.pendingRequest.at },
+    };
+  }
+
+  manageConversation(action: string, id?: string, title?: string) {
+    if (action === "create") return this.conversationHistory(this.conversation.createSession(title));
+    if (!id) throw new Error("缺少会话编号");
+    if (action === "select") this.conversation.selectSession(id);
+    else if (action === "rename" && title !== undefined) this.conversation.renameSession(id, title);
+    else throw new Error("无效的会话操作");
+    return this.conversationHistory(id);
   }
 
   conversationMode(): ConversationMode {
@@ -687,8 +737,8 @@ export class ProjectSession {
   }
 
   /** 模式是对话的属性，存在会话文件里 —— 它决定这一轮能不能写入，必须与工具集是同一份真相。 */
-  setConversationMode(mode: ConversationMode): ConversationMode {
-    this.conversation.setMode(mode);
+  setConversationMode(mode: ConversationMode, id?: string): ConversationMode {
+    this.conversation.forSession(id).setMode(mode);
     return mode;
   }
 
@@ -752,6 +802,26 @@ export class ProjectSession {
             : options.focus === "foreshadows" ? "最后用一段话说明你认出了哪几条伏笔、各自的依据在资料还是正文，以及哪几条你不太确定、需要作者自己判断。"
             : "最后用一段话说明你补了哪些人物、各自的关键设定，以及哪里还需要作者拿主意。",
       ].join("\n");
+  }
+
+  /** 从全文识别的逐字证据生成最小人物候选，不捏造性格和台词、不改已有卡。 */
+  proposeFullTextCharacters(raw: unknown): PreparationProposal {
+    const view = this.fullTextCharacters.view();
+    if (!raw || typeof raw !== "object" || !("fingerprint" in raw) || raw.fingerprint !== view.fingerprint || !view.done || view.stale) throw new ChapterWriteError(409, "请先完成当前版本全文识别，再核对候选");
+    if (!("names" in raw) || !Array.isArray(raw.names) || raw.names.length === 0 || raw.names.some(name => typeof name !== "string")) throw new ChapterWriteError(400, "请选择要补建档案的人物");
+    const selected = [...new Set(raw.names as string[])];
+    const characters: CharacterInput[] = selected.map(name => {
+      const found = view.characters.find(c => c.name === name);
+      if (!found || this.characters.some(c => c.name === name || c.aliases.includes(name))) throw new ChapterWriteError(409, `“${name}”不是可新增的人物，请重新核对已有档案`);
+      const id = `C_text_${stableFingerprint(name).slice(0, 20)}` as const;
+      if (this.characters.some(c => c.id === id)) throw new ChapterWriteError(409, "人物编号冲突，请手动建卡");
+      return { id, name, aliases: found.aliases, tier: "minor", profile: {
+        role: found.roles.join("；"), appearance: [], traits: [], forbiddenBehaviors: [], wants: "", fears: "",
+        background: `全文识别候选，身份与声音待作者核对。\n${found.evidence.map(e => `${e.source}：「${e.quote}」`).join("\n")}`,
+      }, speech: { sentenceLength: { min: 0, max: 100 }, verbalTics: [], signatureLexicon: [], forbiddenLexicon: [], addressForms: [], syntaxBias: { question: 0, imperative: 0, elliptical: 0 }, register: "neutral", emotionalExpression: "direct", exemplars: [], counterExemplars: [] } };
+    });
+    if (selected.some(name => view.blockedNames.includes(name))) throw new ChapterWriteError(409, "人物姓名或别名存在冲突，请先按出处核对并在人物编辑器分别建卡，不自动合并");
+    return this.preparation.propose({ baseFingerprint: this.preparation.fingerprint(), summary: `从全文逐字出处补建${characters.length}名人物；未推断性格/台词，请核对后确认。`, changes: { characters } });
   }
 
   /**
@@ -994,7 +1064,7 @@ export class ProjectSession {
       + estimateTokens(this.preparationAsk({ focus: "foreshadows", apply: true }, null));
     const toolResult = estimateTokens(JSON.stringify(this.preparation.view()));
     const materials: ModeFacts = {
-      key: "materials", model: resolveModelName("judge"), purpose: PREPARATION_PURPOSE,
+      key: "materials", model: this.modelName("judge"), purpose: PREPARATION_PURPOSE,
       maxOutputTokens: PREPARATION_DRAFT_MAX_TOKENS,
       // 下界是"读一次、提一次"，上界是轮数上限。
       calls: { min: 2, max: Math.max(2, rounds) },
@@ -1002,12 +1072,23 @@ export class ProjectSession {
     };
     const ledger = readCreditEntries(this.root);
     // 逐章那档的次数要含重试，而重试次数只有账本数得出来（投影里一章只留一条记录）。
-    const chapters = this.inference.estimateFacts(resolveModelName("creative"), ledger.filter((e) => e.purpose === "inference").length);
+    const chapters = this.inference.estimateFacts(this.modelName("creative"), ledger.filter((e) => e.purpose === "inference").length);
     return estimateModes([materials, chapters], ledger, loadPricing());
   }
 
   /** 全流程唯一的客户端出口：在这里包上计量与余额闸门，任何调用点都不会绕过记账或拦截。 */
   getModelClient(): ModelClient {
+    if (this.clientFactory) {
+      try {
+        const source = this.clientFactory();
+        if (source !== this.modelSource) {
+          this.modelSource = source;
+          this.modelClient = this.meter(source);
+        }
+      } catch (error) {
+        throw new ChapterWriteError(503, `模型配置不可用：${error instanceof Error ? error.message : "配置错误"}`);
+      }
+    }
     if (this.modelClient === undefined) {
       try {
         this.modelClient = this.meter(createModelClient());
@@ -1016,6 +1097,18 @@ export class ProjectSession {
       }
     }
     return this.modelClient;
+  }
+
+  async testProvider(client: ModelClient) {
+    const result = await this.meter(client).call({
+      role: "judge", purpose: "provider_test", maxTokens: 32,
+      messages: [{ role: "user", content: "Reply with OK. Do not call tools." }],
+    });
+    if (result.kind !== "ok") {
+      throw new ChapterWriteError(502, result.kind === "error" ? result.error.message
+        : result.kind === "refusal" ? result.userMessage : "连接成功，但测试回复被截断，请检查输出限额");
+    }
+    return { ok: true, model: result.message.model, message: "已收到模型回复；文本连接可用，工具和写章能力仍需在实际任务中核对。" };
   }
 
   private materialCharacterChecklist(): readonly string[] {
@@ -1049,6 +1142,7 @@ export class ProjectSession {
     const pendingDrafts = this.listDrafts(next).filter((d) => d.status !== "adopted" && d.status !== "discarded").length;
     return {
       title: this.setting.title,
+      completed: this.workCompleted,
       genre: this.profile.genre,
       platform: this.profile.platform,
       currentChapter: this.currentChapter,
@@ -1106,7 +1200,11 @@ export class ProjectSession {
           return { message: JSON.stringify(task), effect: { kind: "task_updated", chapter, draftId, status: task.status } };
         } catch (error) { return fail("control_chapter_task", error instanceof Error ? error.message : String(error)); }
       },
-      getPreparation: (proposalId) => JSON.stringify(proposalId === null ? { ...this.preparation.view(), ideas: this.listIdeas() } : this.preparation.get(proposalId)),
+      getPreparation: (proposalId) => JSON.stringify(proposalId === null ? {
+        ...this.preparation.view(), ideas: this.listIdeas(), completed: this.workCompleted,
+        readinessScope: this.workCompleted ? "缺项仅针对作者明确要求的新续篇/番外，不代表作品未完结" : "写下一章的准备条件",
+        availableResolutions: this.derived.projections.foreshadows.filter(f => f.status === "open").map(f => ({ id: f.id, label: f.label, weight: f.weight, plantedAt: f.plantedAt })),
+      } : this.preparation.get(proposalId)),
       proposePreparation: async (input, author) => {
         try {
           const proposal = author ? this.preparation.recordAuthor(input) : this.preparation.propose(input);
@@ -1125,6 +1223,7 @@ export class ProjectSession {
         const open = foreshadows.filter((f) => f.status === "open").length;
         const overdue = foreshadows.filter((f) => f.status === "open" && (f.overdueBy as number) > 0).length;
         return `《${info.title}》 题材=${info.genre} 平台=${info.platform}
+作品状态：${info.completed ? "已完结（作者标记），开放伏笔不能推翻完结状态" : "未标记完结，不能据此代替文学判断"}。
 已写到第 ${info.currentChapter} 章；下一章第 ${info.nextChapter} 章，节拍${info.nextPlanReady ? "已确认" : "未确认"}。
 下一章待处理草稿 ${info.pendingDrafts} 份；未收伏笔 ${open} 条（逾期 ${overdue} 条）。`;
       },
@@ -1198,9 +1297,9 @@ export class ProjectSession {
         const idea = this.conversation.recordIdea(text, now());
         return { message: `已记为备选：${idea.text}`, effect: { kind: "idea_recorded", id: idea.id, text: idea.text } };
       },
-      writeNextChapter: async (proposalId) => {
+      writeNextChapter: async (proposalId, sceneWriting) => {
         try {
-          const draft = this.startChapter({ chapter: this.nextChapter, authorRequest, ...(proposalId === undefined ? {} : { proposalId }) });
+          const draft = this.startChapter({ chapter: this.nextChapter, authorRequest, ...(sceneWriting === undefined ? {} : { sceneWriting }), ...(proposalId === undefined ? {} : { proposalId }) });
           const running = draft.execution?.status === "running";
           return {
             message: running ? `第 ${draft.chapter} 章任务 ${draft.draftId} 已启动，正在处理，尚未写完。离开页面后服务会继续，作者可查看、暂停或结束。`

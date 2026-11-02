@@ -116,6 +116,15 @@ export interface DraftInsertionPoint {
   readonly before: string;
 }
 
+/** 每章完整任务的授权；积分是已报告费用的停止线，并非供应商硬限额。 */
+export interface SceneWritingOptions { readonly maxCalls: number; readonly maxCredits: number }
+export interface ScenePart { readonly title: string; readonly goal: string; readonly eventIndices: readonly number[] }
+export interface DraftScenes {
+  readonly plan: readonly ScenePart[];
+  readonly completed: readonly string[];
+  readonly partial: string;
+}
+
 /** 冻结正文与范围，失败恢复不得重新猜测或扩大作者的选择。内部执行数据不放进 API。 */
 export interface DraftGeneration {
   readonly mode: "rewrite" | "continue";
@@ -152,6 +161,7 @@ export interface DraftReview {
 /** 可序列化的写章来源校验；不保存带函数和 Set 的 runInput。旧草稿可缺。 */
 export interface DraftWriteContext {
   readonly fingerprint: string;
+  readonly sceneWriting?: SceneWritingOptions;
   /** 新写章时冻结的自动修订额度；缺省的历史任务不追加额度。 */
   readonly autoRevisionLimit?: 0 | 1;
   /** 创建请求的幂等编号，恢复时保留，不被新一轮检查覆盖。 */
@@ -176,6 +186,7 @@ export interface ChapterDraft {
   /** 丢弃前的状态。丢弃是软的，恢复要回到原处而不是凭空变成「待采用」。 */
   readonly discardedFrom?: ChapterDraftStatus;
   readonly body: string;
+  readonly scenes?: DraftScenes;
   readonly declaration: C5Declaration | null;
   readonly findings: readonly GateFinding[];
   readonly acceptable: boolean;
@@ -221,6 +232,10 @@ export type TaskStage = "writing" | "revising" | "declaring" | "checking";
 export type TaskStatus = "waiting" | "awaiting_input" | "running" | "pausing" | "ending" | "paused" | "ended" | "completed" | "failed" | "interrupted";
 export interface TaskUsage {
   readonly calls: number;
+  readonly credits?: number;
+  readonly unpricedCalls?: number;
+  /** 作者明确核对后授权继续，未知消耗仍保留，不从统计中删去。 */
+  readonly acknowledgedUnknownCalls?: number;
   readonly inputTokens: number;
   readonly outputTokens: number;
   readonly unmeasuredCalls: number;
@@ -235,6 +250,7 @@ export interface DraftExecution {
   readonly usage: TaskUsage;
 }
 export interface ChapterTaskView extends DraftExecution {
+  readonly sceneWriting?: SceneWritingOptions & { readonly completed: number; readonly total: number; readonly unknownUsageNeedsConfirmation: boolean };
   readonly autoRevisionLimit: number;
   readonly autoRevisionsUsed: number;
   readonly automaticResultDraftId: DraftId | null;

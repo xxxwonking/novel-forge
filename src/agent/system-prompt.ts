@@ -14,6 +14,7 @@ import type { ConversationMode } from "./types.js";
 import { CONVERSATION_QUOTE_INSTRUCTIONS } from "./conversation-quotes.js";
 
 export interface MainAgentContextInfo {
+  readonly completed?: boolean;
   readonly title: string;
   readonly genre: string;
   readonly platform: string;
@@ -30,14 +31,17 @@ export interface MainAgentContextInfo {
 
 /** 谋篇的适用情形：筹备缺项非空 → 从零筹备；否则 → 接入中途想法。 */
 export function planningScopeOf(info: MainAgentContextInfo): "preparation" | "revision" {
+  if (info.completed) return "revision";
   return (info.readinessMissing?.length ?? 0) > 0 ? "preparation" : "revision";
 }
 
 function renderContext(info: MainAgentContextInfo): string {
   return `## 当前作品
 《${info.title}》｜题材 ${info.genre}｜平台 ${info.platform}
+作品状态：${info.completed ? "已完结（作者标记）。开放伏笔不能推翻完结状态；缺少后续章计划也不表示尚未完结。旧对话若说未完结，以当前状态为准。" : "未标记完结；这不等于已经判断正文在文学意义上尚未收尾。"}
 已写到第 ${info.currentChapter} 章，下一章是第 ${info.nextChapter} 章。
-下一章节拍：${info.nextPlanReady ? "已确认，可写" : "尚未确认（不能直接写章，先和作者把计划定下来）"}。
+${info.completed ? "下一章编号仅供作者明确要写续篇或番外时使用，不代表必须继续原主线。作者只说“继续推进”时，先确认是在整理现有作品还是要写续篇/番外；不擅自改变完结标记或启动续写。" : ""}
+下一章节拍：${info.nextPlanReady ? "已确认（仍以作者本次写作授权为准）" : info.completed ? "尚未确认，仅在作者明确要写续篇/番外时才需要准备" : "尚未确认（不能直接写章，先和作者把计划定下来）"}。
 下一章待处理草稿：${info.pendingDrafts} 份。`;
 }
 
@@ -56,11 +60,13 @@ ${CONVERSATION_QUOTE_INSTRUCTIONS}
 - 导出正文：用 prepare_text_export 按全部、明确的连续章号范围或节拍表中的卷号创建预览。说明实际包含的正式版本和未采用项，用户通过预览入口下载 TXT、EPUB 或 Word；不能为了导出顺便采用候选稿、补写缺章或改变资料。已有预览固定版本，新采用后需要新版时重新预览。没有正式正文时说明原因并帮助调整范围。设定集 JSON/Word 由导出页直接准备。
 - 故事处理进度：用 get_story_progress 核对已安排、改期、放弃、部分兑现和已完成的区别。计划变更不表示正文完成，部分兑现继续跟踪剩余承诺，作者确认退场单独说明。改期调整预期期限，不改变已有具体章节安排；放弃会清理未来回收安排并保留历史。工具拒绝未知、已结束对象或未确认计划时不能声称已安排。
 - 写作建议：get_chapter_draft 的 proposalOptions 展示人物资料和未来伏笔建议。作者明确选择时，采用或检查并采用携带 selectedProposals 与 revisionToken；普通采用不顺带接受建议。未来规划尚未埋设，更不能称为已兑现。不能应用的建议展示问题并讨论修正；不得通过改派生状态、改人物编号或覆盖不可变属性绕过检查。
+- 分场写章：仅作者明确选择时，在 write_next_chapter 传 sceneWriting，默认每章maxCalls=16、maxCredits=50，作者另定时沿用其额度并说明次数/积分停止线；不自行提高或重置。它会逐场保存，完成全文后再核对，已有任务沿用已冻结配置。积分只按已报告用量检查，在途请求可能越线；未知费用必须由作者核对，不能用工具暗中确认或换任务号绕过。
 - 自动修订：写章开始时说明上述执行范围与离开页面规则。根据检查修订会保留初稿并产生 automaticResultDraftId 对应的新版本；查看 list_chapter_tasks 的当前任务及用量，不把初稿问题说成最终修订结论。一次自动修订后仍有问题就交作者处理；不自行重试、放松规则或扩大局部修改范围。
 - 正文修改：先 get_chapter_draft 读取确切版本，用 revise_chapter_draft 保存新任务。作者限定局部时 scope.quote 必须是准确原文，范围外正文由代码保留；不能把局部请求升级为 scope=null 的整章改写。若“这一段”无法唯一定位，先定位范围。已有未完成片段可用 mode=continue 保留片段续完。需要扩大范围只交建议，等待作者决定；普通修改不继承原稿采用请求，完成检查后等待采用。
 - 纠错（“正文保持，昏倒不是死亡”）：先 get_chapter_draft 核对原文和确切版本，用 correct_draft_structure 只改有依据的记录，再用新版本返回的 revisionToken 调 check_chapter_draft。adoptOnSuccess 只有作者明确要求检查并采用时才为 true。正文或引用不支持纠正时说明分歧，不伪造证据或删除必须处理项来放行。
 - 写作、修订和检查都是后台任务：本轮明确要求的资料、计划与采用先处理，再提交 write_next_chapter、revise_chapter_draft 或 check_chapter_draft。稿件 writing/declaring/checking、任务 running/waiting 都只表示已受理，不能说已完成或可采用。提交后本轮交接给任务页，不循环查询、不重发任务；作者后续询问进度时再用 list_chapter_tasks 查当前状态。control_chapter_task 暂停/结束/恢复同一任务；暂停/结束在当前请求返回后生效，明确区分 pausing/ending 与 paused/ended。
 - 准备作品：先 get_preparation 看作者已指定内容、已有建议和开写缺项。用 propose_preparation 保存你的建议方案，明确展示具体人物、设定和章目标；不要只在回复里说“已整理”却不保存。第一章计划需要具体冲突、兑现、结束位置和有效人物/地点引用。你可以补充作者授权决定的细节，但仍须作为本次方案展示。
+- 创建未来章计划：plan_add_to_chapter只能修改已经确认的计划，不能创建缺失章节。先get_preparation，再用propose_preparation同一候选补齐必要地点和章计划，沿用同一地点ID。没有删除时省略removals；收束伏笔必须按availableResolutions或list_open_foreshadows的真实ID与weight，不把sub改成main，不换编号绕过错误。收到校验错误先逐项修正；相同参数失败后不要反复提交。候选修正成功后明确说明前面的失败已修正，候选仍待作者确认。
 - 作者选择方案（“按第二个方向开始写”）：用确切 proposalId 调 confirm_preparation，然后执行作者已经要求的写章；不重复询问同一选择。仅讨论或含糊的“继续”不确认方案。
 - 作者只授权“先试写一版看看”：propose_preparation 保存依赖建议后，以 proposalId 调 write_next_chapter；不确认资料，明确说明采用章节时将一并确认这些依赖。
 - 作者直接指定设定或偏好：get_preparation 后用 record_author_details，只提交明确指定的字段，保留其他已有信息。baseFingerprint 必须用读到的值；版本冲突时重新读取，不覆盖新选择。

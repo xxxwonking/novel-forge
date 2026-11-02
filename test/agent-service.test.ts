@@ -25,6 +25,47 @@ const INFO: MainAgentContextInfo = {
   pendingDrafts: 0,
 };
 
+it("显式重发只重试未执行写工具的失败，重复请求返回原收据", async () => {
+  const root=mkdtempSync(join(tmpdir(),"nf-retry-"));
+  try {
+    let calls=0;
+    const client={official:false,call:async()=>++calls===1?{kind:"error" as const,error:{type:"connection" as const,status:null,message:"暂时不可达",retryable:true}}:modelText("已恢复")};
+    const store=new ConversationStore(root);
+    const service=new MainAgentService({client,store,ctx:ctxWith(),contextInfo:()=>INFO,maxRounds:8,maxPlanningRounds:8});
+    const failed=await service.send("看看进度",undefined,{requestId:"r1"});
+    expect(failed.status).toBe("failed"); expect(failed.retryable).toBe(true);
+    const reply=await service.send("看看进度",undefined,{requestId:"r2",retryOf:"r1"});
+    expect(reply.text).toBe("已恢复"); expect(store.load().turns.filter(t=>t.role==="user")).toHaveLength(1);
+    expect((await service.send("看看进度",undefined,{requestId:"r2",retryOf:"r1"})).text).toBe("已恢复");
+    expect(calls).toBe(2);
+    await expect(service.send("不同内容",undefined,{requestId:"r2"})).rejects.toThrow();
+  } finally { rmSync(root,{recursive:true,force:true}); }
+});
+
+it("执行写工具后再失败保留真实effect，禁止整轮重放；中断收据阻止重启后重复执行",async()=>{
+  const root=mkdtempSync(join(tmpdir(),"nf-unsafe-retry-"));
+  try {
+    const store=new ConversationStore(root);
+    const failure={kind:"error" as const,error:{type:"connection" as const,status:null,message:"断线",retryable:true}};
+    const {client,calls}=fakeClient([toolUse("record_alternative_idea",{text:"方向A"}),failure]);
+    const service=new MainAgentService({client,store,ctx:ctxWith(),contextInfo:()=>INFO,maxRounds:8,maxPlanningRounds:8});
+    const reply=await service.send("记下这个方向",undefined,{requestId:"write1"});
+    expect(reply).toMatchObject({status:"failed",retryable:false,effects:[{kind:"idea_recorded"}]});
+    await expect(service.send("记下这个方向",undefined,{requestId:"write2",retryOf:"write1"})).rejects.toThrow();expect(calls).toHaveLength(2);
+    store.beginRequest("unfinished","执行状态未知");
+    await expect(service.send("新的指令",undefined,{requestId:"write3"})).rejects.toThrow("尚未确定");
+  } finally {rmSync(root,{recursive:true,force:true});}
+});
+
+it("模型连接中断时保留已经收到的可见片段与失败标记",async()=>{
+  const root=mkdtempSync(join(tmpdir(),"nf-partial-chat-"));try {
+    const {client}=fakeClient([{kind:"error",partialText:"这段回复已经收到。",error:{type:"connection",status:null,message:"连接中断",retryable:true}}]);
+    const service=new MainAgentService({client,store:new ConversationStore(root),ctx:ctxWith(),contextInfo:()=>INFO,maxRounds:8,maxPlanningRounds:8});
+    const reply=await service.send("说说方向",undefined,{requestId:"partial"});
+    expect(reply.text).toContain("这段回复已经收到。");expect(reply.status).toBe("failed");
+  }finally{rmSync(root,{recursive:true,force:true});}
+});
+
 function toolUse(name: string, input: unknown) {
   return {
     kind: "ok" as const,

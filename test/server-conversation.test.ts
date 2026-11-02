@@ -55,7 +55,7 @@ function toolUse(name: string, input: unknown) {
 describe("/api/conversation", () => {
   it("GET 空历史返回 turns/ideas 空数组", () => {
     const { session } = seed();
-    expect(history(session).body).toEqual({ turns: [], ideas: [], mode: "normal" });
+    expect(history(session).body).toEqual({ turns: [], ideas: [], mode: "normal", sessionId:"legacy", sessions:[{id:"legacy",title:"新对话",turns:0,updatedAt:null}],pendingRequest:null });
   });
 
   it("POST 纯查询：返回文本，历史落盘两条", async () => {

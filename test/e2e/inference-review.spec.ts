@@ -1,0 +1,33 @@
+import { test, expect } from "@playwright/test";
+import AxeBuilder from "@axe-core/playwright";
+
+test("手机复核明确展示排除与保留项，取消不写入，确认发送版本令牌", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  let confirmed = false;
+  const declaration = { events: [{ type: "plot_event", kind: "info", summary: "李长风核对账本", participants: ["C01"], weight: 1, plotLine: "P01", anchor: { chapter: 1, quote: "账本上的红印", offsetHint: 0, occurrence: 0 } }], foreshadowPlanted: [], foreshadowResolved: [], characterStates: [], characterPresence: [{ characterId: "C01", role: "pov" }], relationsChanged: [] };
+  const problem = "「旧账本」已有同名伏笔或不能唯一定位的规划，请明确规划编号，不能重复创建";
+  await page.route("**/api/import/inference", route => route.fulfill({ json: { chapters: [{ chapter: 1, words: 200, state: confirmed ? "confirmed" : "problem", declaration: null, problems: confirmed ? [] : [problem], warnings: confirmed ? [`作者复核后排除：${problem}`] : [], at: "2026-11-01T00:00:00Z", ...(confirmed ? {} : { review: { token: "review-token", declaration } }) }], nextChapter: null, pending: [], blocked: null } }));
+  await page.goto("/?work=browser-fixture#/inference");
+  await page.getByRole("button", { name: "复核有效记录", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "复核第 1 章的有效记录", exact: true });
+  await expect(dialog).toBeInViewport();
+  await expect(dialog).toContainText("旧账本");
+  await expect(dialog).toContainText("李长风核对账本");
+  await expect(dialog.getByRole("button", { name: "确认保留，排除问题项", exact: true })).toBeInViewport();
+  expect((await new AxeBuilder({ page }).withRules(["heading-order", "aria-dialog-name"]).analyze()).violations).toEqual([]);
+  await dialog.getByRole("checkbox", { name: "保留事件第 1 项", exact: true }).uncheck();
+  await dialog.getByRole("button", { name: "取消", exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  expect(confirmed).toBe(false);
+  await expect(page.getByRole("button", { name: "复核有效记录", exact: true })).toBeFocused();
+  await page.route("**/api/import/inference/confirm-valid", route => { confirmed = true; return route.fulfill({ json: { chapter: 1, committed: 1 } }); });
+  await page.getByRole("button", { name: "复核有效记录", exact: true }).click();
+  await expect(dialog.getByRole("checkbox", { name: "保留事件第 1 项", exact: true })).toBeChecked();
+  await dialog.getByRole("checkbox", { name: "保留事件第 1 项", exact: true }).uncheck();
+  const sent = page.waitForRequest(r => r.url().endsWith("/api/import/inference/confirm-valid"));
+  await dialog.getByRole("button", { name: "确认保留，排除问题项", exact: true }).click();
+  expect((await sent).postDataJSON()).toEqual({ chapter: 1, reviewToken: "review-token", excludedRecords: [{ section: "events", index: 0 }] });
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByRole("status")).toContainText("排除原因已留档");
+  await expect(page.getByRole("article")).toBeFocused();
+});

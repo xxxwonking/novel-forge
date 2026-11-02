@@ -6,6 +6,8 @@ import type { ChapterDraft, ChapterTaskView, DraftId } from "../task/types.js";
 import { taskView, type TaskControl } from "../task/execution.js";
 import { authoredSession, draftRevisionToken } from "../task/revision.js";
 import { automaticRevisionLimit } from "../task/automatic-revision.js";
+import { parseSceneWriting } from "../task/generation-budget.js";
+import type { SceneWritingOptions } from "../task/types.js";
 import { selectedProposalIndices } from "../task/proposals.js";
 import { validateDraftReference, type DraftCheckOptions } from "./draft-revisions.js";
 import type { ChapterNo } from "../types/primitives.js";
@@ -16,6 +18,8 @@ import {
 } from "./chapter-input.js";
 
 export interface ChapterWriteOptions extends ChapterInputOptions {
+  readonly sceneWriting?: SceneWritingOptions;
+  readonly acknowledgeUnknownUsage?: boolean;
   readonly chapter: ChapterNo;
   readonly requestId?: string;
   readonly draftId?: DraftId;
@@ -77,7 +81,7 @@ export class ChapterWriter {
 
   /** 客户端一律向会话要 —— 它是唯一包了计量的出口，自己造一个就会绕过记账。 */
   private ensureClient(): void {
-    if (this.client === undefined) this.client = this.session.getModelClient();
+    this.client = this.session.getModelClient();
   }
 
   /** 显式检查才启动执行；保存正文不会顺带调用模型。 */
@@ -134,6 +138,11 @@ export class ChapterWriter {
   }
 
   write(options: ChapterWriteOptions, followAutomatic = true): Promise<ChapterDraft> {
+    if (options.acknowledgeUnknownUsage !== undefined && (typeof options.acknowledgeUnknownUsage !== "boolean" || options.draftId === undefined)) throw new ChapterWriteError(400, "核对未知用量仅用于明确恢复已有草稿");
+    if (options.sceneWriting !== undefined) {
+      try { options = { ...options, sceneWriting: parseSceneWriting(options.sceneWriting) }; }
+      catch (error) { throw new ChapterWriteError(400, error instanceof Error ? error.message : String(error)); }
+    }
     validateChapterNumber(options.chapter);
     if (options.requestId !== undefined && !/^[A-Za-z0-9_-]{1,128}$/u.test(options.requestId)) throw new ChapterWriteError(400, "requestId 格式无效");
     if (options.draftId !== undefined && !new RegExp(`^ch${options.chapter}d[1-9]\\d*$`, "u").test(options.draftId)) {
@@ -162,12 +171,14 @@ export class ChapterWriter {
         (options.newDraft !== true || options.requestId === undefined || options.requestId === running.request.requestId) &&
         (options.proposalId === undefined || options.proposalId === running.request.proposalId) &&
         (options.maxOutputTokens === undefined || options.maxOutputTokens === running.request.maxOutputTokens) &&
-        (options.authorRequest === undefined || options.authorRequest === running.request.authorRequest);
+        (options.authorRequest === undefined || options.authorRequest === running.request.authorRequest) &&
+        (options.sceneWriting === undefined || sameScenes(options.sceneWriting, running.request.sceneWriting));
       if (same) return running.promise;
       throw new ChapterWriteError(409, `第 ${running.request.chapter} 章正在生成，请先等待当前任务完成`);
     }
 
     const draft = this.findDraft(options, followAutomatic);
+    if (draft !== undefined && options.sceneWriting !== undefined && !sameScenes(options.sceneWriting, draft.writeContext?.sceneWriting)) throw new ChapterWriteError(409, "已有任务的分场配置与额度已冻结，请另建版本");
     if (draft !== undefined && options.proposalId !== undefined && options.proposalId !== draft.writeContext?.proposalId) {
       throw new ChapterWriteError(409, "当前草稿依赖另一份资料；切换方案时请明确另写一版");
     }
@@ -198,13 +209,15 @@ export class ChapterWriter {
     if (needsModel) this.ensureClient();
     const control: TaskControl = { requested: null };
     const service = new ChapterTaskService({ ...(this.client === undefined ? {} : { client: this.client }), draftStore: this.drafts, readSource, control, maxToolRounds: this.session.rules.task.maxToolIterations,
+      ...(options.acknowledgeUnknownUsage === undefined ? {} : { acknowledgeUnknownUsage: options.acknowledgeUnknownUsage }),
       canBeginAutomaticRevision: saved => !this.basisChanged(saved),
       onDraftChanged: id => { if (this.active !== null) this.active = { ...this.active, draftId: id }; },
     });
     const requestId = draft?.writeContext?.requestId ?? options.requestId;
     const autoRevisionLimit = draft === undefined ? automaticRevisionLimit(this.session.rules.task.maxAutoRevisions)
       : draft.writeContext?.autoRevisionLimit ?? 0;
-    const context = { fingerprint, autoRevisionLimit, ...(requestId === undefined ? {} : { requestId }), ...(maxOutputTokens === undefined ? {} : { maxOutputTokens }), ...(proposalId === undefined ? {} : { proposalId }), ...(authorRequest === undefined ? {} : { authorRequest }) };
+    const sceneWriting = draft?.writeContext?.sceneWriting ?? options.sceneWriting;
+    const context = { fingerprint, autoRevisionLimit, ...(sceneWriting === undefined ? {} : { sceneWriting }), ...(requestId === undefined ? {} : { requestId }), ...(maxOutputTokens === undefined ? {} : { maxOutputTokens }), ...(proposalId === undefined ? {} : { proposalId }), ...(authorRequest === undefined ? {} : { authorRequest }) };
     const draftId = draft?.draftId ?? this.drafts.nextDraftId(options.chapter);
     const operation = draft === undefined ? service.run(input, context) : service.resume(input, draftId, context);
     const promise = operation.then((result) => {
@@ -214,7 +227,7 @@ export class ChapterWriter {
       }
       return result;
     }).finally(() => { this.active = null; }).then((result) => this.finishAdoption(result));
-    this.active = { request: { ...options, ...(maxOutputTokens === undefined ? {} : { maxOutputTokens }), ...(proposalId === undefined ? {} : { proposalId }), ...(authorRequest === undefined ? {} : { authorRequest }) }, draftId,
+    this.active = { request: { ...options, ...(sceneWriting === undefined ? {} : { sceneWriting }), ...(maxOutputTokens === undefined ? {} : { maxOutputTokens }), ...(proposalId === undefined ? {} : { proposalId }), ...(authorRequest === undefined ? {} : { authorRequest }) }, draftId,
       rootDraftId: draft?.revision?.kind === "automatic" ? draft.revision.sourceDraftId : draftId, promise, control };
     return promise;
   }
@@ -283,7 +296,8 @@ export class ChapterWriter {
       (options.draftId !== undefined && options.draftId !== prior.draftId && options.draftId !== result?.draftId) ||
       (options.proposalId !== undefined && options.proposalId !== prior.writeContext?.proposalId) ||
       (options.authorRequest !== undefined && options.authorRequest !== prior.writeContext?.authorRequest) ||
-      (options.maxOutputTokens !== undefined && options.maxOutputTokens !== prior.writeContext?.maxOutputTokens))) {
+      (options.maxOutputTokens !== undefined && options.maxOutputTokens !== prior.writeContext?.maxOutputTokens) ||
+      (options.sceneWriting !== undefined && !sameScenes(options.sceneWriting, prior.writeContext?.sceneWriting)))) {
       throw new ChapterWriteError(409, "请求编号已用于另一组写章参数，请检查原任务");
     }
     return result;
@@ -306,3 +320,5 @@ export class ChapterWriter {
     return stale;
   }
 }
+
+const sameScenes = (a: SceneWritingOptions | undefined, b: SceneWritingOptions | undefined): boolean => a?.maxCalls === b?.maxCalls && a?.maxCredits === b?.maxCredits;

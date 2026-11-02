@@ -20,12 +20,16 @@ import type { ProjectSession } from "../server/state.js";
 import { ChapterWriteError, foreshadowAllocator } from "../server/chapter-input.js";
 import { countWords } from "../text/measure.js";
 import type { ModelClient } from "../client/model.js";
+import { stableFingerprint } from "../task/revision.js";
+import { parseC5 } from "../chapter/c5-schema.js";
+import { c5OutputIssue } from "../chapter/c5-validation.js";
+import { crossCheckC5 } from "../chapter/c5-crosscheck.js";
+import { correctDeclaration, type StructureCorrection } from "../chapter/c5-correction.js";
 import { declarationOf } from "../store/event-stream.js";
 import { isPlanOrigin } from "../types/events.js";
 import type { C5Declaration, StructuralEvent } from "../types/events.js";
 import type { ChapterNo, ForeshadowId } from "../types/primitives.js";
-import { buildInferenceTask, inferChapterStructure, INFER_MAX_TOKENS, SYNOPSIS_WINDOW, type PendingForeshadow } from "./infer.js";
-import { C5_OUTPUT_SCHEMA } from "../chapter/c5-schema.js";
+import { buildInferenceTask, canReviewProblems, inferenceSchema, inferChapterStructure, INFER_MAX_TOKENS, SYNOPSIS_WINDOW, type PendingForeshadow } from "./infer.js";
 import { estimateTokens } from "../context/select-l3.js";
 import type { ModeFacts } from "../credits/estimate.js";
 import { InferenceStore, type InferenceRun } from "./inference-store.js";
@@ -33,6 +37,8 @@ import { InferenceStore, type InferenceRun } from "./inference-store.js";
 export type InferenceState = "written" | "confirmed" | "pending" | "problem" | "failed" | "skipped" | "none";
 
 export interface InferenceChapterView {
+  readonly eventCount: number;
+  readonly review?: { readonly token: string; readonly declaration: C5Declaration };
   readonly chapter: ChapterNo;
   readonly words: number;
   readonly state: InferenceState;
@@ -87,8 +93,8 @@ export class InferenceService {
    * 逐章反推这条路要发生多少次调用、合计发出多少输入 token。
    *
    * 次数是**确定的**：`infer()` 一章一次调用，没处理过的章有几个就是几次，所以
-   * 区间两端相同。输入分两部分 —— 章正文逐章精确算，其余开销（任务说明、ID 清单、
-   * 伏笔清单、前情梗概、输出 schema）取"下一章此刻的真实提示词"再乘次数。
+   * 区间两端相同。每章正文、引文目录与schema逐章计入；资料、伏笔及前情开销取当前下一章
+   * 的上下文，再用于各章的完整提示词推算；重跑比例覆盖整份请求。
    *
    * 后者是个**偏低**的近似：反推往后走，伏笔清单与前情梗概都会变长。方向记在这里，
    * 不在界面上装作精确 —— 而只要攒够三次实测，这套推算就整体让位给账本里的均价。
@@ -101,13 +107,14 @@ export class InferenceService {
     // 代价是作者真心不想要的那几章也会被计入，但高报"补全成本"远比低报无害。
     const remaining = chapters.filter((c) => c.state !== "confirmed" && c.state !== "written" && c.state !== "pending").map((c) => c.chapter);
     const first = remaining[0];
-    const overhead = first === undefined ? 0 : estimateTokens(buildInferenceTask({
-      chapter: first, chapterText: "", title: this.deps.source.meta.setting.title, ...this.accumulated(first),
-    })) + estimateTokens(JSON.stringify(C5_OUTPUT_SCHEMA));
-    const prose = remaining.reduce((sum, n) => sum + estimateTokens(this.deps.source.chapterText(n) ?? ""), 0);
     const factor = this.callsPerChapter(inferenceCalls);
     const calls = Math.round(remaining.length * factor);
-    const tokens = overhead * calls + prose;
+    const accumulated = first === undefined ? null : this.accumulated(first);
+    const tokens = accumulated === null ? 0 : Math.round(remaining.reduce((sum, chapter) => {
+      const chapterText = this.deps.source.chapterText(chapter) ?? "";
+      const input = { chapter, chapterText, title: this.deps.source.meta.setting.title, ...accumulated };
+      return sum + estimateTokens(buildInferenceTask(input)) + estimateTokens(JSON.stringify(inferenceSchema(input)));
+    }, 0) * factor);
     return {
       key: "chapters", model, purpose: "inference", maxOutputTokens: INFER_MAX_TOKENS,
       calls: { min: calls, max: calls },
@@ -153,6 +160,7 @@ export class InferenceService {
       }
     }
 
+    const basis = this.reviewBasis(chapter);
     const client = this.deps.client();
     const outcome = await inferChapterStructure(client, {
       chapter, chapterText: text, title: this.deps.source.meta.setting.title,
@@ -162,7 +170,8 @@ export class InferenceService {
     const run: InferenceRun = outcome.kind === "ok"
       ? { outcome: "done", problems: [], warnings: outcome.warnings, at }
       : outcome.kind === "problem"
-        ? { outcome: "problem", problems: outcome.problems, warnings: outcome.warnings, at }
+        ? { outcome: "problem", problems: outcome.problems, warnings: outcome.warnings, at,
+          ...(outcome.candidate === undefined ? {} : { candidate: outcome.candidate, candidateBasis: basis }) }
         : { outcome: "failed", problems: [outcome.detail], warnings: [], at };
 
     this.deps.transaction(() => {
@@ -187,6 +196,54 @@ export class InferenceService {
       }
     }
     return { chapter, committed: this.deps.transaction(() => this.deps.source.decideInference(chapter, "committed")) };
+  }
+
+  /** 作者看过排除项后，显式保留有效记录；普通确认/批量确认绝不走此入口。 */
+  confirmValid(raw: unknown): { readonly chapter: ChapterNo; readonly committed: number } {
+    const chapter = parseChapter(raw);
+    const run = this.runs.get(chapter);
+    const current = this.chapterView(chapter, run);
+    const token = (raw as Record<string, unknown>)["reviewToken"];
+    if (current.state !== "problem" || typeof token !== "string" || current.review?.token !== token) throw new ChapterWriteError(409, "复核候选或来源已变化，请重新读取后核对");
+    const blocked = this.blocked();
+    if (blocked !== null) throw new ChapterWriteError(409, blocked);
+    const earlier = this.view().chapters.find(c => c.chapter < chapter && c.state !== "confirmed" && c.state !== "written" && c.state !== "skipped");
+    if (earlier) throw new ChapterWriteError(409, `请先处理第 ${earlier.chapter} 章，再确认当前复核`);
+    const excluded = (raw as Record<string, unknown>)["excludedRecords"] ?? [];
+    const original = current.review!.declaration;
+    if (!Array.isArray(excluded) || excluded.length > Object.values(original).reduce((sum, items) => sum + items.length, 0)) throw new ChapterWriteError(400, "排除记录的选择无效");
+    const changes: StructureCorrection[] = excluded.map(value => {
+      if (value === null || typeof value !== "object" || Array.isArray(value) || Object.keys(value).some(key => key !== "section" && key !== "index") || typeof value.section !== "string" || typeof value.index !== "number") throw new ChapterWriteError(400, "只能选择要排除的记录类别与位置，不能替换记录");
+      return { section: value.section as keyof C5Declaration, index: value.index, value: null };
+    });
+    const declaration = changes.length === 0 ? original : correctDeclaration(original, changes, { ...this.accumulated(chapter).parseContextBase, chapterText: this.deps.source.chapterText(chapter) ?? "" });
+    if (!Object.values(declaration).some(items => items.length > 0)) throw new ChapterWriteError(400, "至少保留一条有效记录；如果没有可保留的内容，请选择跳过这一章");
+    const labels: Record<keyof C5Declaration, string> = { events: "事件", foreshadowPlanted: "埋设伏笔", foreshadowResolved: "兑现记录", relationsChanged: "关系变化", characterStates: "人物状态", characterPresence: "人物出场" };
+    const reviewedExclusions = changes.map(change => ({ section: change.section, index: change.index, record: original[change.section][change.index]! }));
+    const excludedMessages = reviewedExclusions.map(({ section, index, record }) => `作者另行排除：${labels[section]}第 ${index + 1} 项${"foreshadowId" in record ? `（${record.foreshadowId}）` : "summary" in record ? `（${record.summary}）` : ""}`);
+    return this.deps.transaction(() => {
+      this.deps.source.replaceInference(chapter, declaration);
+      const committed = this.deps.source.decideInference(chapter, "committed");
+      this.runs.save(chapter, { outcome: "done", problems: [], warnings: [...run!.warnings, ...run!.problems.map(p => `作者复核后排除：${p}`), ...excludedMessages], reviewedProblems: run!.problems, reviewedExclusions, at: new Date().toISOString() });
+      return { chapter, committed };
+    });
+  }
+
+  private reviewBasis(chapter: ChapterNo): string {
+    return stableFingerprint({ meta: this.deps.source.meta, body: this.deps.source.chapterText(chapter),
+      // 连续反推本来就读取前章的待确认记录；仅确认同一内容不应迫使后章再花一次模型调用。
+      events: this.deps.source.events().filter(e => (e.envelope.chapter < chapter || isPlanOrigin(e.envelope.origin)) && e.envelope.provenance !== "rejected")
+        .map(e => ({ id: e.envelope.id, chapter: e.envelope.chapter, origin: e.envelope.origin,
+          provenance: e.envelope.origin === ORIGIN ? "inference" : e.envelope.provenance, payload: e.payload })) });
+  }
+
+  private reviewCandidate(chapter: ChapterNo, run: InferenceRun | undefined): InferenceChapterView["review"] {
+    if (run?.outcome !== "problem" || !canReviewProblems(run.problems) || run.candidate === undefined || run.candidateBasis !== this.reviewBasis(chapter)) return undefined;
+    if (c5OutputIssue(run.candidate) !== null) return undefined;
+    const parsed = parseC5(run.candidate, { ...this.accumulated(chapter).parseContextBase, chapterText: this.deps.source.chapterText(chapter) ?? "" });
+    if (parsed.errors.length || parsed.warnings.length || !Object.values(parsed.declaration).some(items => items.length)) return undefined;
+    if (crossCheckC5({ declaration: parsed.declaration, chapterText: this.deps.source.chapterText(chapter) ?? "" }).some(f => f.rule === "c5_anchor_unresolvable" && f.level === "block")) return undefined;
+    return { token: stableFingerprint({ candidate: run.candidate, problems: run.problems, basis: run.candidateBasis, at: run.at }), declaration: parsed.declaration };
   }
 
   /** 丢弃一章：待确认的记录作废，这一章记为作者已跳过，不再挡住后面的章。 */
@@ -249,12 +306,16 @@ export class InferenceService {
     const pending = inferred.filter((e) => e.envelope.provenance === "proposed");
     const state: InferenceState = formal ? "written"
       : inferred.some((e) => e.envelope.provenance === "committed") ? "confirmed"
-        : pending.length > 0 ? "pending"
+        : run?.confirmedEmptyBody === stableFingerprint(text) ? "confirmed"
+          : pending.length > 0 ? "pending"
           : run === undefined || run.outcome === "done" ? "none" : run.outcome;
+    const review = state === "problem" ? this.reviewCandidate(chapter, run) : undefined;
     return {
+      ...(review === undefined ? {} : { review }),
       chapter, words: countWords(text), state,
+      eventCount: events.filter(e => e.payload.type === "plot_event" && !isPlanOrigin(e.envelope.origin) && ["committed", "authored"].includes(e.envelope.provenance)).length,
       problems: state === "problem" || state === "failed" ? run?.problems ?? [] : [],
-      warnings: state === "pending" ? run?.warnings ?? [] : [],
+      warnings: state === "pending" || run?.reviewedProblems !== undefined ? run?.warnings ?? [] : [],
       at: run?.at ?? null,
       declaration: pending.length > 0 ? declarationOf(pending) : null,
     };
@@ -270,6 +331,7 @@ export class InferenceService {
    * 认领 planned_foreshadow_id。混成一张，模型会去「兑现」一条还没埋下的安排。
    */
   accumulated(chapter: ChapterNo): {
+    readonly references: NonNullable<Parameters<typeof inferChapterStructure>[1]["references"]>;
     readonly parseContextBase: Parameters<typeof inferChapterStructure>[1]["parseContextBase"];
     readonly openForeshadows: readonly PendingForeshadow[];
     readonly plannedForeshadows: readonly PendingForeshadow[];
@@ -293,6 +355,11 @@ export class InferenceService {
     ];
 
     return {
+      references: {
+        characters: characters.map(c => ({ id: c.id, name: c.name, aliases: c.aliases })),
+        settings: meta.settings.map(s => ({ id: s.id, name: s.name })),
+        plotLines: meta.plotLines.map(p => ({ id: p.id, label: p.label })),
+      },
       parseContextBase: {
         chapter,
         knownCharacters: new Set(characters.map((c) => c.id)),

@@ -109,11 +109,17 @@ async function route(
       method: req.method ?? "GET",
       path: url.pathname,
       query: url.searchParams,
-      body: req.method === "POST" ? await readJson(req) : undefined,
+      body: req.method === "POST" ? await readJson(req, url.pathname === "/api/import/document" ? 12 * 1024 * 1024 : MAX_BODY) : undefined,
     };
     const global = workspaceApi(workspace, apiRequest);
     if (global !== null) { send(res, global.status, global.body); return; }
     const session = selectedSession(workspace, req);
+    if (req.method === "POST" && url.pathname === "/api/providers/test") {
+      const body = apiRequest.body as { id?: unknown } | null;
+      if (typeof body?.id !== "string") throw new ChapterWriteError(400, "请选择已保存的供应商");
+      send(res, 200, await session.testProvider(workspace.providers.createClient(body.id)));
+      return;
+    }
     if (req.method === "POST" && url.pathname === "/api/conversation/stream") {
       await streamConversation(session, apiRequest.body, res);
       return;
@@ -236,8 +242,8 @@ const MAX_BODY = 4 * 1024 * 1024;
 /** 压缩包上传上限；解压后的独立上限由 workspace/backup.ts 负责。 */
 const MAX_BACKUP_BODY = 64 * 1024 * 1024;
 
-async function readJson(req: IncomingMessage): Promise<unknown> {
-  const text = (await readBody(req, MAX_BODY)).toString("utf8");
+async function readJson(req: IncomingMessage, limit = MAX_BODY): Promise<unknown> {
+  const text = (await readBody(req, limit)).toString("utf8");
   if (text.trim() === "") return undefined;
   try {
     return JSON.parse(text);

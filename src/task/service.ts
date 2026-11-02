@@ -22,6 +22,7 @@ import type { ToolContext } from "./tool-exec.js";
 import { draftStage, emptyUsage, type TaskControl } from "./execution.js";
 import { automaticGeneration } from "./automatic-revision.js";
 import { draftRevisionToken } from "./revision.js";
+import { assertGenerationBudget, callCredits } from "./generation-budget.js";
 import { checkPromisedResolutions, crossCheckC5 } from "../chapter/c5-crosscheck.js";
 import type {
   ChapterDraft,
@@ -45,6 +46,7 @@ export interface ChapterTaskServiceDeps {
   readonly control?: TaskControl;
   readonly canBeginAutomaticRevision?: (draft: ChapterDraft) => boolean;
   readonly onDraftChanged?: (draftId: DraftId) => void;
+  readonly acknowledgeUnknownUsage?: boolean;
 }
 
 interface DraftIdentity {
@@ -131,6 +133,7 @@ export class ChapterTaskService {
     const usage = { ...emptyUsage(), ...identity.execution?.usage };
     usage.unmeasuredCalls += usage.pendingCalls;
     usage.pendingCalls = 0;
+    if (this.deps.acknowledgeUnknownUsage) usage.acknowledgedUnknownCalls = usage.unmeasuredCalls + usage.unpricedCalls;
     let last = this.draftFromState(identity, initial);
     const save = (draft: ChapterDraft): ChapterDraft => {
       const request = this.deps.control?.requested;
@@ -151,6 +154,7 @@ export class ChapterTaskService {
       call: async (options) => {
         if (this.deps.control?.requested != null) throw new Error("任务已请求停止，不再发起新的模型请求");
         if (this.deps.client === undefined) throw new Error("当前步骤需要模型，请先配置写作模型再恢复任务");
+        if (identity.writeContext?.sceneWriting) assertGenerationBudget(identity.writeContext.sceneWriting, usage);
         usage.calls++;
         usage.pendingCalls++;
         save(last);
@@ -164,6 +168,11 @@ export class ChapterTaskService {
           const measured = result.message.usage;
           usage.inputTokens += measured.input_tokens + (measured.cache_read_input_tokens ?? 0) + (measured.cache_creation_input_tokens ?? 0);
           usage.outputTokens += measured.output_tokens;
+          if (identity.writeContext?.sceneWriting) {
+            const credits = callCredits(result);
+            usage.credits = (usage.credits ?? 0) + (credits ?? 0);
+            usage.unpricedCalls = (usage.unpricedCalls ?? 0) + (credits === null ? 1 : 0);
+          }
         }
         save(last);
         return result;
@@ -171,6 +180,7 @@ export class ChapterTaskService {
     };
     const graph = buildChapterGraph({
       client,
+      sceneWriting: identity.writeContext?.sceneWriting !== undefined,
       ctx,
       maxToolRounds: this.deps.maxToolRounds,
       collectedProposals: () => [...proposals],
@@ -181,7 +191,7 @@ export class ChapterTaskService {
         if (this.deps.canBeginAutomaticRevision?.(last) === false) return null;
         const draftId = this.deps.draftStore.nextDraftId(identity.chapter);
         const nextState: ChapterGraphState = {
-          ...state, write: null, declaration: null, c5Findings: [], findings: [], acceptable: false,
+          ...state, scenes: null, write: null, declaration: null, c5Findings: [], findings: [], acceptable: false,
           outcome: null, error: null, refusalMessage: null,
           generation: automaticGeneration(state.body, state.findings, state.runInput.assembleInput.volatile.beat.budget?.words),
           autoRevisionsUsed: state.autoRevisionsUsed + 1,
@@ -233,6 +243,7 @@ export class ChapterTaskService {
       draftId: identity.draftId,
       status: statusFromState(state),
       body: state.body,
+      ...(state.scenes === null ? {} : { scenes: state.scenes }),
       declaration: state.declaration,
       findings: state.findings,
       acceptable: state.acceptable,
@@ -320,6 +331,7 @@ function stateFromDraft(draft: ChapterDraft, runInput: ChapterRunInput): Chapter
     runInput,
     write,
     body: draft.body,
+    scenes: draft.scenes ?? null,
     declaration: draft.declaration,
     c5Findings: draft.declaration === null ? [] : [
       ...crossCheckC5({ declaration: draft.declaration, chapterText: draft.body }),

@@ -65,6 +65,7 @@ export function idConstraints(context: Omit<ParseContext, "chapterText">): reado
     `人物引用必须使用这些 ID，不能填写姓名：${JSON.stringify([...context.knownCharacters])}`,
     `情节线引用只能使用这些 ID 或 null：${JSON.stringify([...context.knownPlotLines])}`,
     ...(context.knownSettings === undefined ? [] : [`地点 ID：${JSON.stringify([...context.knownSettings])}`]),
+    ...(context.knownSettings?.size === 0 ? ["没有已确认地点，character_states 不要提交 location 变更。地点名称不能冒充编号；移动可记录在事件描述中，不自行创建地点ID。"] : []),
     "character_states 的 field 只支持 condition、location、vital。持有物或处境变化写在 condition 的完整现状中；location 的 from/to 用地点 ID；vital 的值只用 alive/dead/missing/unknown；无原值用 null。",
   ];
 }
@@ -184,7 +185,7 @@ export async function runChapter(
 
   // ── C5：同会话第二轮 ──
   // 追加**整个 response.content**，不能只取 text（§附录：压缩块必须保留）。
-  const catalog = quoteCatalog(chapterText);
+  const catalog = quoteCatalog(chapterText, input.parseContextBase);
   const c5Messages: Anthropic.MessageParam[] = [
     ...req.messages,
     { role: "assistant", content: c4.message.content },

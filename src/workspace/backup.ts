@@ -68,7 +68,7 @@ function decodeBase64(value: unknown): Buffer {
 
 const excluded = (path: string): boolean => {
   const name = path.split("/").at(-1) ?? "";
-  return name === ".env" || name.startsWith(".env.") || name === ".pending-write.json" || name.endsWith(".tmp");
+  return name === ".env" || name.startsWith(".env.") || name.toLowerCase() === ".model-providers.json" || name === ".pending-write.json" || name.endsWith(".tmp");
 };
 
 function collect(root: string, relative = ""): StoredFile[] {
