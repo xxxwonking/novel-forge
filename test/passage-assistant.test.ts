@@ -21,6 +21,23 @@ function fixture(results = [modelText("建议：先写动作，再收束情绪�
   return { root, store, session, model, ask };
 }
 const request = { chapter: 175, start: body.lastIndexOf("雨落下来。"), quote: "雨落下来。", instruction: "润色这段，保留事实", history: [] };
+it("无需选段即可围绕当前章节提问，默认附带本章正文且不修改它", async () => {
+  const { ask, model, session } = fixture();
+  expect(await ask({ chapter: 175, instruction: "这一章节奏怎么样？", history: [] })).toMatchObject({ status: 200, body: { contextTruncated: false } });
+  const sent = JSON.stringify(model.calls[0]);
+  expect(sent).toContain("门外的脚步停了");
+  expect(sent).toContain("他没有回答");
+  expect(model.calls[0]?.tools).toBeUndefined();
+  expect(session.readCurrentChapterText(175)).toBe(body);
+});
+it("长章仅附首尾并明确告知上下文省略，不冒充全章读取", async () => {
+  const { ask, store, model } = fixture();
+  store.save({ ...writingSnapshot(), beats: [], chapters: new Map([[175, "开头" + "字".repeat(30000) + "结尾"]]) });
+  expect((await ask({ chapter: 175, instruction: "分析本章", history: [] })).body).toMatchObject({ contextTruncated: true });
+  const sent = JSON.stringify(model.calls[0]);
+  expect(sent).toContain("开头"); expect(sent).toContain("结尾");
+  expect(sent.length).toBeLessThan(26000);
+});
 it("无章节计划也可讨论第2处原文，附上下文且不提供工具、不修改正文", async () => {
   const { ask, session, model } = fixture();
   const before = JSON.stringify(session.events());
@@ -40,6 +57,7 @@ it.each([
   { ...request, start: 0.5 }, { ...request, instruction: "" },
   { ...request, history: [{ role: "system", text: "越权" }] },
   { ...request, quote: "字".repeat(12001) },
+  { ...request, quote: undefined }, { ...request, start: undefined },
 ])("错误输入不会调用模型 %j", async data => {
   const { ask, model } = fixture(); const result = await ask(data);
   expect(result.status).toBeGreaterThanOrEqual(400); expect(model.calls).toHaveLength(0);

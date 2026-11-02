@@ -2,6 +2,31 @@ import { test, expect } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { chatFixture } from "./chat-fixture.js";
 const body = "雨落下来。\n\n他没有回答。\n\n雨落下来。\n门外的脚步停了。";
+test("默认输入框可直接讨论当前章，选段问AI和清除选段后整章讨论继续可用", async ({ page }) => {
+  const app = await chatFixture({ chapterBody: body, reply: "可以收紧这一章的停顿。" });
+  try {
+    await page.goto(`${app.url}/?work=chat-book#/chapter/175`);
+    const input = page.getByRole("textbox", { name: "段落要求", exact: true });
+    await expect(input).toBeVisible();
+    expect(app.calls()).toBe(0);
+    await input.fill("帮我看看这一章的节奏");
+    const request = page.waitForRequest(req => req.url().endsWith("/api/passage/assist"));
+    await page.getByRole("button", { name: "发送段落要求", exact: true }).click();
+    const payload = (await request).postDataJSON();
+    expect(payload.chapter).toBe(175); expect(payload.quote).toBeUndefined(); expect(payload.start).toBeUndefined();
+    await expect(page.getByText("可以收紧这一章的停顿。", { exact: true })).toBeVisible();
+    await select(page, 2);
+    await page.getByRole("button", { name: "询问所选段落", exact: true }).click();
+    await expect(page.getByRole("region", { name: "已选原文" })).toContainText("雨落下来。");
+    await page.getByRole("button", { name: "清除选段", exact: true }).click();
+    await expect(input).toBeVisible();
+    await expect(page.getByText("当前第 175 章", { exact: false })).toBeVisible();
+    await page.setViewportSize({ width: 390, height: 844 });
+    await input.scrollIntoViewIfNeeded();
+    await expect(input).toBeInViewport();
+    expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+  } finally { await app.close(); }
+});
 async function select(page: import("@playwright/test").Page, first: number, last = first) {
   await page.locator("article.prose").evaluate((el, indices) => {
     const paragraphs = el.querySelectorAll("p[data-source-start]");

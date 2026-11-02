@@ -14,10 +14,9 @@
   .chapter-assistance :is(h2,h3) { font: 500 14px/1.5 var(--sans); letter-spacing: 0; color: var(--foreground); text-transform: none; }
   .chapter-check-intro { color: var(--muted-foreground); font-size: 12px; margin-bottom: 20px; line-height: 1.8; }
   .passage-assistant { display: flex; flex-direction: column; min-width: 0; min-height: 0; flex: 1; font: 13px/1.7 var(--sans); }
-  .passage-empty { padding: 28px 22px; color: var(--muted-foreground); }
-  .passage-empty > svg { width: 24px; height: 24px; margin-bottom: 16px; }
-  .passage-empty h2 { font-size: 16px; }
-  .passage-empty p { margin-top: 12px; }
+  .passage-context { padding: 16px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+  .passage-context strong { font-size: 13px; font-weight: 500; }
+  .passage-context p { margin-top: 4px; color: var(--muted-foreground); font-size: 12px; }
   .passage-quote { margin: 12px; border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 12px; flex-shrink: 0; }
   .passage-quote > div { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
   .passage-quote strong { font-size: 12px; font-weight: 500; color: var(--muted-foreground); }
