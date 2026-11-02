@@ -357,6 +357,11 @@ export interface GateFinding {
   threshold?: number;
 }
 
+export interface PassageSource { chapter: number; draftId?: string; revisionToken?: string }
+export interface PassageSelection { start: number; quote: string }
+export interface PassageMessage { role: "user" | "assistant"; text: string }
+export interface PassageReply { text: string; truncated: boolean; stale: boolean }
+
 export interface HealthPayload {
   chapter: number;
   plan: GateFinding[];
@@ -872,6 +877,7 @@ export const api = {
   alerts: () => request<AlertsPayload>("/api/alerts"),
   chapters: () => request<ChapterListItem[]>("/api/chapters"),
   chapter: (n: number) => request<ChapterPayload>(`/api/chapter?n=${n}`),
+  assistPassage: (data: PassageSource & PassageSelection & { instruction: string; history: PassageMessage[] }) => post<PassageReply>("/api/passage/assist", data),
   health: (n: number) => request<HealthPayload>(`/api/health?n=${n}`),
   credits: () => request<CreditSummary>("/api/credits"),
   materials: () => request<{ materials: { name: string; file: string; words: number }[] }>("/api/materials"),

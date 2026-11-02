@@ -1,3 +1,5 @@
+import { SelectableProse } from "../components/SelectableProse.js";
+import { PassageAssistant, type PassageRequest } from "../components/PassageAssistant.js";
 import { useEffect, useRef, useState } from "react";
 import { Button, NumberInput, DialogFrame, ChoiceSelect, StatusTag } from "../components/controls.js";
 import { api, type TextAnchor, type ChapterTaskView, type DraftView } from "../api.js";
@@ -23,6 +25,9 @@ export function Drafts({ chapter, draftId, refresh, task, reloadTasks }: { chapt
   const [selectedProposals, setSelectedProposals] = useState<number[]>([]);
   const [editor, setEditor] = useState<"body" | "structure" | "rewrite" | "continue" | null>(null);
   const [anchor, setAnchor] = useState<TextAnchor | null>(null);
+  const [passage, setPassage] = useState<PassageRequest | null>(null);
+  const [assisting, setAssisting] = useState(false);
+  const passageId = useRef(0);
   const [runThrough, setRunThrough] = useState<number | null>(null);
   const [sceneForm, setSceneForm] = useState(initialSceneWriting);
   const runLimit = useFetch(() => api.run(), [chapter, draftId]);
@@ -150,6 +155,11 @@ export function Drafts({ chapter, draftId, refresh, task, reloadTasks }: { chapt
       {declaration.characterStates.length + declaration.relationsChanged.length + declaration.foreshadowPlanted.length + declaration.foreshadowResolved.length === 0 && <p className="muted">本稿没有提取额外状态、关系或伏笔变化。</p>}
     </section>}
     <section className="prep-section"><h2>检查结果</h2>{draft.status === "pending_check" && <p className="muted">修改已保存，原检查对本版本已过时；原结果仍可在历史版本查看。请选择检查或检查并采用。</p>}{draft.error !== null && <div className="finding" data-level="block"><strong>执行未完成</strong><p>{draft.error.detail}</p></div>}{draft.findings.length === 0 ? draft.status !== "pending_check" && <p className="muted">{draft.status === "ready" || draft.status === "adopted" ? "本次检查未发现问题。" : "尚无检查结果。"}</p> : draft.findings.map((finding, i) => <div className="finding" key={i} data-level={finding.level}><strong>{finding.level === "block" ? "需要处理" : finding.level === "warn" ? "建议核对" : "说明"}</strong><p>{finding.message}</p></div>)}</section>
-    <section className="prep-section"><div className="section-head"><h2>正文</h2>{anchor && <Button variant="ghost" size="sm" onClick={() => setAnchor(null)}>取消定位</Button>}</div>{anchor !== null && hit < 0 && <p className="finding" data-level="warn">此处记录的引用已无法在当前正文定位，需要重新核对。</p>}<article className="draft-prose" ref={prose}>{draft.body === "" ? "尚未生成正文。" : hit < 0 || anchor === null ? draft.body : <>{draft.body.slice(0, hit)}<mark>{draft.body.slice(hit, hit + anchor.quote.length)}</mark>{draft.body.slice(hit + anchor.quote.length)}</>}</article></section>
+    <section className="prep-section draft-passage-section"><div className="section-head"><h2>正文</h2>{anchor && <Button variant="ghost" size="sm" onClick={() => setAnchor(null)}>取消定位</Button>}</div>{anchor !== null && hit < 0 && <p className="finding" data-level="warn">此处记录的引用已无法在当前正文定位，需要重新核对。</p>}<div className="draft-passage-layout"><SelectableProse text={draft.body} className="draft-prose" articleRef={prose}
+      hit={passage ? { offset: passage.start, length: passage.quote.length } : anchor && hit >= 0 ? { offset: hit, length: anchor.quote.length } : null}
+      disabled={assisting} onSelect={(range, intent) => { setPassage({ ...range, intent, id: ++passageId.current }); setAnchor(null); }}>{!draft.body.trim() && <p className="muted">尚未生成正文。</p>}</SelectableProse>
+      <aside className="chapter-assistance" aria-label="草稿段落助手"><div className="chapter-assistance-tabs"><h2>段落助手</h2></div>
+        <PassageAssistant source={{ chapter, draftId, revisionToken: draft.revisionToken }} selection={passage} onClear={() => setPassage(null)} onBusy={setAssisting} />
+      </aside></div></section>
   </>;
 }

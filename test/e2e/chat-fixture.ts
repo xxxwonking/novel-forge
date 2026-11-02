@@ -1,3 +1,4 @@
+import { DraftStore } from "../../src/task/draft-store.js";
 import { createServer, type Server } from "node:http";
 import { once } from "node:events";
 import type { AddressInfo } from "node:net";
@@ -7,11 +8,12 @@ import { join, resolve } from "node:path";
 import { serve } from "../../src/server/http.js";
 import { ProjectStore } from "../../src/store/persist.js";
 import { ProviderStore } from "../../src/client/providers.js";
-import { writingSnapshot } from "../writing-fixtures.js";
+import { writingSnapshot, savedDraft } from "../writing-fixtures.js";
 import { ConversationStore } from "../../src/agent/conversation-store.js";
-export async function chatFixture(options: { legacyFailure?: boolean; holdResponse?: boolean; reply?: string } = {}) {
+export async function chatFixture(options: { legacyFailure?: boolean; holdResponse?: boolean; reply?: string; chapterBody?: string; draftBody?: string } = {}) {
   const root = mkdtempSync(join(tmpdir(), "nf-chat-browser-"));
-  new ProjectStore(join(root, "chat-book")).save(writingSnapshot());
+  new ProjectStore(join(root, "chat-book")).save({ ...writingSnapshot(), ...(options.chapterBody === undefined ? {} : { beats: [], chapters: new Map([[175, options.chapterBody]]) }) });
+  if (options.draftBody !== undefined) new DraftStore(join(root, "chat-book")).saveDraft(savedDraft({ body: options.draftBody }));
   if (options.legacyFailure)
     new ConversationStore(join(root, "chat-book")).appendExchange(
       { role: "user", text: "看看现在写到哪了", at: new Date().toISOString() },

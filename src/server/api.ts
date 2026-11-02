@@ -1,3 +1,4 @@
+import { assistPassage } from "./passage-assistant.js";
 import { convertDocument } from "../import/document.js";
 /**
  * JSON API 的路由与处理。**与 http 传输层分开**（http.ts 负责收发），
@@ -51,6 +52,10 @@ const CONTEXT_WINDOW = 60;
 
 /** HTTP 的统一入口：写章等待异步任务，其余端点沿用同步处理。 */
 export async function handleAsync(session: ProjectSession, req: ApiRequest): Promise<ApiResponse> {
+  if (req.method === "POST" && req.path === "/api/passage/assist") {
+    try { return ok(await assistPassage(session, req.body)); }
+    catch (error) { if (error instanceof ChapterWriteError) return { status: error.status, body: { error: error.message } }; throw error; }
+  }
   if (req.method === "POST" && (req.path === "/api/chapter/write" || req.path === "/api/chapter/start")) {
     return chapterWrite(session, req.body, req.path === "/api/chapter/start");
   }

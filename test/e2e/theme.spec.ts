@@ -78,6 +78,10 @@ for (const theme of ["浅色", "深色"]) {
         .getByRole("dialog")
         .getByRole("button", { name: "保存", exact: true }),
     ).toBeInViewport();
+    // Radix 的淡入中间帧会改变实际合成色；等有限动画结束后检测最终对比度。
+    await page.getByRole("dialog").evaluate(async element => {
+      await Promise.all(element.getAnimations({ subtree: true }).map(animation => animation.finished.catch(() => {})));
+    });
     const result = await new AxeBuilder({ page }).analyze();
     expect(result.violations).toEqual([]);
   });

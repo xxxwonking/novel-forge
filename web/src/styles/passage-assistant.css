@@ -1,0 +1,48 @@
+@layer components {
+  .reader-page { container-type: inline-size; container-name: chapter-page; }
+  .reader-body { grid-template-columns: minmax(0, 1fr) 360px; }
+  .reader-side.chapter-assistance { display: flex; flex-direction: column; min-height: 0; padding: 0; background: var(--background); overflow: hidden; }
+  .chapter-tabs-root { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+  .chapter-assistance-tabs { flex-shrink: 0; display: flex; gap: 4px; padding: 10px 12px; border-bottom: 1px solid var(--border); }
+  .chapter-assistance-tabs button { min-height: 36px; padding: 8px 12px; font-size: 13px; border-radius: var(--radius); color: var(--muted-foreground); }
+  .chapter-assistance-tabs button[data-state="active"] { color: var(--foreground); background: var(--secondary); }
+  .chapter-assistance-tabs button:focus-visible { outline: 2px solid var(--ring); }
+  .chapter-assistant-panel { display: flex; flex: 1; min-height: 0; }
+  .chapter-assistant-panel[hidden] { display: none; }
+  .chapter-health-panel { padding: 20px; overflow-y: auto; }
+  .chapter-health-panel[hidden] { display: none; }
+  .chapter-assistance :is(h2,h3) { font: 500 14px/1.5 var(--sans); letter-spacing: 0; color: var(--foreground); text-transform: none; }
+  .chapter-check-intro { color: var(--muted-foreground); font-size: 12px; margin-bottom: 20px; line-height: 1.8; }
+  .passage-assistant { display: flex; flex-direction: column; min-width: 0; min-height: 0; flex: 1; font: 13px/1.7 var(--sans); }
+  .passage-empty { padding: 28px 22px; color: var(--muted-foreground); }
+  .passage-empty > svg { width: 24px; height: 24px; margin-bottom: 16px; }
+  .passage-empty h2 { font-size: 16px; }
+  .passage-empty p { margin-top: 12px; }
+  .passage-quote { margin: 12px; border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 12px; flex-shrink: 0; }
+  .passage-quote > div { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .passage-quote strong { font-size: 12px; font-weight: 500; color: var(--muted-foreground); }
+  .passage-quote blockquote { max-height: 120px; overflow: auto; margin: 4px 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .passage-results { overflow-y: auto; overscroll-behavior: contain; padding: 8px 16px; min-height: 80px; flex: 1; }
+  .passage-message { padding: 12px 0; border-bottom: 1px solid var(--border); }
+  .passage-message strong { font-size: 12px; font-weight: 500; color: var(--muted-foreground); }
+  .passage-message p { margin: 8px 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .passage-composer { margin: 12px; flex-shrink: 0; }
+  .passage-composer textarea { min-height: 96px; max-height: 180px; }
+  .passage-composer > div { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px; }
+  .passage-composer small { color: var(--muted-foreground); font-size: 11px; }
+  .passage-error { margin: 0 12px; max-height: 100px; overflow: auto; }
+  .passage-selection-tools { position: fixed; z-index: 45; display: flex; align-items: center; gap: 2px; padding: 3px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--popover); color: var(--popover-foreground); box-shadow: 0 3px 12px #0002; max-width: calc(100vw - 16px); }
+  .passage-selection-tools button { min-height: 38px; }
+  .draft-passage-section { container-type: inline-size; container-name: draft-passage; }
+  .draft-passage-layout { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 24px; align-items: start; }
+  .draft-passage-layout > .chapter-assistance { position: sticky; top: 12px; height: min(760px, 85dvh); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; display: flex; flex-direction: column; }
+  .draft-passage-layout .draft-prose { margin: 0; }
+  .draft-passage-layout .draft-prose p { margin: 0 0 1em; white-space: pre-wrap; }
+  @container chapter-page (max-width: 850px) {
+    .reader-body { display: flex; flex-direction: column; overflow-y: auto; }
+    .reader-scroll { flex: none; overflow: visible; }
+    .reader-side.chapter-assistance { flex: none; min-height: 260px; height: 650px; max-height: 85dvh; border-left: 0; border-top: 1px solid var(--border); }
+  }
+  @container draft-passage (max-width: 850px) { .draft-passage-layout { grid-template-columns: minmax(0, 1fr); } .draft-passage-layout > .chapter-assistance { position: static; min-height: 300px; } }
+  @media (max-width: 720px) { .passage-selection-tools button, .chapter-assistance-tabs button { min-height: 44px; } }
+}

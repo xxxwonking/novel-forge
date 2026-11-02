@@ -3,7 +3,7 @@ import { api, type CreditSummary } from "../api.js";
 import { useFetch } from "../hooks.js";
 
 const PURPOSE_LABELS: Record<string, string> = {
-  chapter: "写章", conversation: "对话", preparation: "让 AI 起草资料", inference: "从正文反推结构", revision: "跨章返修定位", other: "其他",
+  chapter: "写章", passage_assist: "段落助手", conversation: "对话", preparation: "让 AI 起草资料", inference: "从正文反推结构", revision: "跨章返修定位", other: "其他",
 };
 const credits = (value: number): string => value.toLocaleString("zh-CN", { maximumFractionDigits: 2 });
 /** 模型调用以秒计；不到一秒的（脚本化替身）也照实写成毫秒，不取整成 0 秒。 */

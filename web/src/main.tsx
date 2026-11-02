@@ -6,6 +6,7 @@ import "./styles.css";
 import "./styles/ui.css";
 import "./styles/application.css";
 import "./styles/chat-dock.css";
+import "./styles/passage-assistant.css";
 
 const root = document.getElementById("root");
 if (root === null) throw new Error("缺少 #root");
