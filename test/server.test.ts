@@ -291,8 +291,9 @@ describe("GET /api/health", () => {
     expect(new ProjectStore(root).load()).toEqual(before);
   });
 
-  it("没有节拍表的章返回 404", () => {
-    expect(get(session(), "/api/health", "n=12").status).toBe(404);
+  it("没有节拍表但有正文仍可检查，完全不存在的章返回404", () => {
+    expect(get(session(), "/api/health", "n=12")).toMatchObject({ status: 200, body: { chapterGate: null, textGate: { words: expect.any(Number) } } });
+    expect(get(session(), "/api/health", "n=1000").status).toBe(404);
   });
 });
 

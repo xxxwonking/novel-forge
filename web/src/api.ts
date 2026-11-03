@@ -365,11 +365,13 @@ export interface PassageReply { text: string; truncated: boolean; stale: boolean
 export interface HealthPayload {
   chapter: number;
   plan: GateFinding[];
+  textGate: { findings: GateFinding[]; words: number; thresholds: Record<string, number> } | null;
+  unavailable: { plan: string | null; density: string | null; crossChapter: string | null };
   chapterGate: {
     findings: GateFinding[];
     words: number;
     thresholds: Record<string, number>;
-    density: number;
+    density: number | null;
   } | null;
   crossChapter: GateFinding[];
 }

@@ -53,6 +53,19 @@ export interface ChapterGateResult {
   readonly density: number;
 }
 
+/** 不依赖章节计划、预算或结构声明的正文规则，也供导入旧稿使用。 */
+export function gateText(input: Pick<ChapterGateInput, "chapterText" | "profile">, rules: Rules): Omit<ChapterGateResult, "density"> {
+  const words = countWords(input.chapterText);
+  const thresholds = thresholdsForWords(words, input.profile, rules);
+  const findings = [
+    ...checkFatigueWords(input.chapterText, thresholds, input.profile, rules),
+    ...checkInterjections(input.chapterText, thresholds, rules),
+    ...checkZeroTolerance(input.chapterText, rules),
+    ...checkRepetition(input.chapterText, rules),
+  ];
+  return { words, thresholds, findings };
+}
+
 /**
  * 章内校验全套。
  *
@@ -60,16 +73,12 @@ export interface ChapterGateResult {
  * 顺序直接决定 UI 的展示顺序，而字数与密度是用户最先想看的。
  */
 export function gateChapter(input: ChapterGateInput, rules: Rules): ChapterGateResult {
-  const words = countWords(input.chapterText);
-  const thresholds = thresholdsForWords(words, input.profile, rules);
+  const { words, thresholds, findings: textFindings } = gateText(input, rules);
   const density = measuredDensity(input.declaredEventWeights, words, rules);
   const findings: GateFinding[] = [
     ...checkWordCount(words, input.budget, findingsContext(input)),
     ...checkDensity(density, input.budget, words),
-    ...checkFatigueWords(input.chapterText, thresholds, input.profile, rules),
-    ...checkInterjections(input.chapterText, thresholds, rules),
-    ...checkZeroTolerance(input.chapterText, rules),
-    ...checkRepetition(input.chapterText, rules),
+    ...textFindings,
     // 声音检查放在既有检查之后：findings 顺序直接决定体检面板的展示顺序，
     // 字数与密度是作者最先想看的，不该被人物级提示挤下去。
     ...(input.characters === undefined ? [] : gateVoice({ chapterText: input.chapterText, characters: input.characters }, rules)),

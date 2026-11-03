@@ -32,7 +32,7 @@ export interface ReaderProps {
 
 export function Reader({ chapter, quote }: ReaderProps): React.ReactElement {
   const text = useFetch(() => api.chapter(chapter), [chapter]);
-  const health = useFetch(() => text.data?.beat ? api.health(chapter) : Promise.resolve(null), [chapter, text.data?.beat]);
+  const health = useFetch(() => api.health(chapter), [chapter]);
   const list = useFetch(() => api.chapters(), []);
   const anchor = useFetch(
     () =>
@@ -140,7 +140,7 @@ export function Reader({ chapter, quote }: ReaderProps): React.ReactElement {
               <PassageAssistant source={{ chapter }} selection={selection} onClear={() => setSelection(null)} onBusy={setAssisting} />
             </Tabs.Content>
             <Tabs.Content value="health" forceMount hidden={panel !== "health"} className="chapter-health-panel">
-              <p className="chapter-check-intro">原「体检」是规则检查：核对章节计划、字数、事件密度，以及伏笔和情节线的跨章状态。它不评价文采；润色请使用段落助手。</p>
+              <p className="chapter-check-intro">体检会检查疲劳词、感叹词、套话与重复结构；有计划和已确认结构记录时，再核对预算、事件密度与跨章关联。无需调用 AI，也不会修改正文。</p>
               {health.loading ? <p role="status">正在读取章节检查…</p> : health.error ? <div role="alert"><p>检查暂时无法读取：{health.error}</p><Button onClick={health.reload}>重试检查</Button></div> : <Health health={health.data} />}
             </Tabs.Content>
           </Tabs.Root>
@@ -155,37 +155,34 @@ function Health({ health }: { health: HealthPayload | null }): React.ReactElemen
     return (
       <>
         <h2>章节检查</h2>
-        <p className="muted">这一章尚未建立章节计划，暂不能核对字数预算和计划执行情况。段落讨论、润色和改写建议仍可直接使用。</p>
+        <p className="muted">尚未读取到检查结果。</p>
       </>
     );
   }
 
-  const groups: readonly { title: string; findings: GateFinding[] }[] = [
-    { title: "章节计划", findings: health.plan },
-    { title: "本章规则检查", findings: health.chapterGate?.findings ?? [] },
-    { title: "跨章关联检查", findings: health.crossChapter },
+  const groups: readonly { title: string; findings: GateFinding[]; unavailable: string | null; note?: string }[] = [
+    { title: "基础正文检查", findings: health.textGate?.findings ?? [], unavailable: health.textGate === null ? "尚无正文，暂不能进行文本检查。" : health.textGate.words === 0 ? "正文没有可计数的内容，暂不能评估文本质量。" : null },
+    { title: "章节计划与预算", findings: [...health.plan, ...(health.chapterGate?.findings.filter(finding => /^(word_count|density)_/.test(finding.rule)) ?? [])], unavailable: health.unavailable.plan,
+      ...(health.unavailable.density === null ? {} : { note: health.unavailable.density }) },
+    { title: "跨章关联检查", findings: health.crossChapter, unavailable: health.unavailable.crossChapter, note: "仅依据截至本章的已确认结构记录，不代表未记录的情节也已核对。" },
   ];
 
   return (
     <>
       <h2>章节检查</h2>
-      {health.chapterGate !== null && (
+      {health.textGate !== null && (
         <div className="reader-metrics">
-          <div><span>{health.chapterGate.words}</span><small>字（只计汉字与西文词）</small></div>
-          <div><span>{health.chapterGate.density.toFixed(2)}</span><small>加权事件密度 / 千字</small></div>
-          <p className="muted reader-thresholds">
-            {Object.entries(health.chapterGate.thresholds)
-              .map(([k, v]) => `${k} ≤ ${v}`)
-              .join("　")}
-          </p>
+          <div><span>{health.textGate.words}</span><small>字（只计汉字与西文词）</small></div>
+          {health.chapterGate?.density != null && <div><span>{health.chapterGate.density.toFixed(2)}</span><small>加权事件密度 / 千字</small></div>}
         </div>
       )}
 
       {groups.map((g) => (
         <div key={g.title} className="reader-group">
           <h3>{g.title}</h3>
-          {g.findings.length === 0 ? (
-            <p className="muted reader-none">无</p>
+          {g.note && <p className="muted">{g.note}</p>}
+          {g.unavailable !== null ? <p className="muted reader-none">暂不可检查：{g.unavailable}</p> : g.findings.length === 0 ? (
+            <p className="muted reader-none">本次已执行的规则未发现问题。</p>
           ) : (
             <div className="findings">
               {g.findings.map((f, i) => (

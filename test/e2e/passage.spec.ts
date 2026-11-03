@@ -57,7 +57,7 @@ test("无计划章选跨段原文，片段和上下文经真实API交给只读AI
     await page.getByRole("button", { name: "复制段落建议" }).click();
     await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toContain("停下的脚步");
     await page.getByRole("tab", { name: "章节检查", exact: true }).click();
-    await expect(page.getByText("这一章尚未建立章节计划", { exact: false })).toBeVisible();
+    await expect(page.getByText("尚未建立章节计划", { exact: false })).toBeVisible();
     await page.getByRole("tab", { name: "段落助手", exact: true }).click();
     await expect(page.getByText("可以让停下的脚步回应沉默，使情绪落在动作上。", { exact: true })).toBeVisible();
     const response = await page.request.get(`${app.url}/api/chapter?n=175`, { headers: { "x-novel-project": "chat-book" } });
