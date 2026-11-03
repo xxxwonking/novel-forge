@@ -540,6 +540,8 @@ export class ProjectSession {
 
   editDraft(options: DraftEditOptions): ChapterDraft { return this.revisions.edit(options); }
 
+  applyPassage(input: unknown): ChapterDraft { return this.revisions.applyPassage(input); }
+
   correctDraft(options: DraftCorrectionOptions): ChapterDraft { return this.revisions.correct(options); }
 
   reviseDraft(options: DraftRewriteOptions): ChapterDraft { return this.revisions.rewrite(options); }

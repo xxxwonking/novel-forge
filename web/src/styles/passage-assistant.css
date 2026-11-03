@@ -25,6 +25,11 @@
   .passage-message { padding: 12px 0; border-bottom: 1px solid var(--border); }
   .passage-message strong { font-size: 12px; font-weight: 500; color: var(--muted-foreground); }
   .passage-message p { margin: 8px 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .passage-candidate { padding: 16px 0; border-top: 1px solid var(--border); }
+  .passage-candidate h2 { font-size: 14px; font-weight: 500; }
+  .passage-candidate blockquote { white-space: pre-wrap; overflow-wrap: anywhere; margin: 8px 0; }
+  .passage-candidate textarea { margin: 8px 0; min-height: 140px; }
+  .passage-candidate .row { flex-wrap: wrap; }
   .passage-composer { margin: 12px; flex-shrink: 0; }
   .passage-composer textarea { min-height: 96px; max-height: 180px; }
   .passage-composer > div { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px; }

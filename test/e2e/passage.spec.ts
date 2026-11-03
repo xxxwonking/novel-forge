@@ -38,6 +38,51 @@ async function select(page: import("@playwright/test").Page, first: number, last
   }, [first, last]);
 }
 
+test("选段候选可编辑和核对，保存新版本不覆盖导入原文", async ({ page }) => {
+  const app = await chatFixture({ chapterBody: body, reply: JSON.stringify({ replacement: "雨水敲着窗。", explanation: "保留雨声，调整节奏。" }) });
+  try {
+    await page.goto(`${app.url}/?work=chat-book#/chapter/175`);
+    await select(page, 2);
+    await page.getByRole("button", { name: "润色所选段落", exact: true }).click();
+    await page.getByRole("button", { name: "生成替代候选", exact: true }).click();
+    const candidate = page.getByRole("textbox", { name: "替代正文", exact: true });
+    await expect(candidate).toHaveValue("雨水敲着窗。");
+    await candidate.fill("雨水接连敲着窗。");
+    expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+    await expect(page.getByRole("region", { name: "修改前后" })).toContainText("雨落下来。");
+    await page.getByRole("button", { name: "确认选段并保存新版本", exact: true }).click();
+    await expect(page).toHaveURL(/#\/draft\/175\/ch175d2$/);
+    const headers = { "x-novel-project": "chat-book" };
+    expect((await (await page.request.get(`${app.url}/api/chapter?n=175`, { headers })).json()).text).toBe(body);
+    const draft = await (await page.request.get(`${app.url}/api/chapter/draft?n=175&id=ch175d2`, { headers })).json();
+    expect(draft.body).toBe(body.slice(0, body.lastIndexOf("雨落下来。")) + "雨水接连敲着窗。\n门外的脚步停了。");
+    expect(draft.status).toBe("pending_check");
+    await page.getByText("查看修改前后", { exact: true }).click();
+    await page.getByRole("button", { name: "恢复修改前正文为新稿", exact: true }).click();
+    await expect(page).toHaveURL(/#\/draft\/175\/ch175d3$/);
+    const restored = await (await page.request.get(`${app.url}/api/chapter/draft?n=175&id=ch175d3`, { headers })).json();
+    expect(restored.body).toBe(body);
+    expect(restored.status).toBe("pending_check");
+  } finally { await app.close(); }
+});
+
+test("正文编辑刷新后可显式恢复缓冲，保存新稿后清理缓冲", async ({ page }) => {
+  const app = await chatFixture({ draftBody: body });
+  try {
+    await page.goto(`${app.url}/?work=chat-book#/draft/3/ch3d1`);
+    await page.getByRole("button", { name: "修改正文", exact: true }).click();
+    await page.getByRole("textbox", { name: "编辑正文", exact: true }).fill(body + "\n新增未保存的句子。");
+    await expect(page.getByText("编辑缓冲已保存在此浏览器", { exact: true })).toBeVisible();
+    await page.reload();
+    await page.getByRole("button", { name: "修改正文", exact: true }).click();
+    await page.getByRole("button", { name: "恢复未保存编辑", exact: true }).click();
+    await expect(page.getByRole("textbox", { name: "编辑正文", exact: true })).toHaveValue(body + "\n新增未保存的句子。");
+    await page.getByRole("button", { name: "保存新版本", exact: true }).click();
+    await expect(page).toHaveURL(/#\/draft\/3\/ch3d2$/);
+    expect(await page.evaluate(() => Object.keys(localStorage).filter(k => k.startsWith("novel-forge:editor:")))).toEqual([]);
+  } finally { await app.close(); }
+});
+
 test("无计划章选跨段原文，片段和上下文经真实API交给只读AI；检查说明清楚", async ({ page, context }) => {
   const app = await chatFixture({ chapterBody: body, reply: "可以让停下的脚步回应沉默，使情绪落在动作上。" });
   try {

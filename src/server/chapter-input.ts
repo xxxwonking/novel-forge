@@ -102,7 +102,7 @@ export function buildChapterRunInput(
   session: ChapterSource,
   chapter: ChapterNo,
   options: ChapterInputOptions = {},
-): ChapterRunInput {
+): ChapterRunInput & { assembleInput: ChapterRunInput["assembleInput"] & { volatile: ChapterRunInput["assembleInput"]["volatile"] & { beat: ChapterBeat } } } {
   validateChapterNumber(chapter);
   if (options.authorRequest !== undefined && (typeof options.authorRequest !== "string" || !options.authorRequest.trim())) {
     throw new ChapterWriteError(400, "authorRequest 必须是非空文本");
@@ -320,5 +320,30 @@ export function buildChapterReadSource(session: ChapterSource, chapter: ChapterN
     },
     listOpenForeshadows: (weight) => JSON.stringify(ctx.projections.foreshadows
       .filter((f) => f.status === "open" && (weight === "all" || f.weight === weight))),
+  };
+}
+
+/** 已有作者正文的检查不要求补写一个虚构计划；新章生成仍走 buildChapterRunInput。 */
+export function buildChapterReviewInput(session: ChapterSource, chapter: ChapterNo): ChapterRunInput {
+  if (session.beatFor(chapter) !== undefined) return buildChapterRunInput(session, chapter);
+  const ctx = readContext(session, chapter);
+  return {
+    chapter,
+    assembleInput: {
+      l1: { setting: ctx.meta.setting, discipline: ctx.meta.discipline },
+      l2: buildL2Snapshot({ currentChapter: chapter - 1, characters: ctx.characters, chapterSynopses: ctx.chapterSynopses,
+        volumeSummaries: [], pendingAppend: [], foreshadows: ctx.projections.foreshadows.filter(f => f.status !== "planned"),
+        plotLines: ctx.projections.plotLines, dueSoonWindow: session.rules.crossChapter.foreshadowDueSoon }),
+      l3: { characters: [], settings: [], volumeBoundary: null, plantedExcerpts: [], trimStage: "none", overflowNote: null },
+      volatile: { beat: null, previous: null, resolves: [], avoid: [], task: "仅检查作者提供的正文；没有计划，不生成正文或推断写作意图。" },
+    },
+    parseContextBase: { chapter, knownCharacters: new Set(ctx.characters.map(c => c.id)),
+      knownSettings: new Set(ctx.meta.settings.map(s => s.id)),
+      knownForeshadows: new Set(ctx.projections.foreshadows.filter(f => f.status === "open").map(f => f.id)),
+      foreshadows: ctx.projections.foreshadows.map(f => ({ id: f.id, label: f.label, status: f.status, intent: f.intent })),
+      knownPlotLines: new Set(ctx.meta.plotLines.map(p => p.id)), allocateForeshadowId: foreshadowAllocator(session) },
+    promisedResolutions: [], patchWords: session.rules.resolutionPatchWords,
+    gate: { profile: ctx.meta.profile, rules: session.rules, review: session.reviewSettings,
+      canon: canonFacts(ctx.meta.setting, ctx.meta.settings, ctx.characters) },
   };
 }

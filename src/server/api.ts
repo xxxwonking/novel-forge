@@ -47,6 +47,10 @@ const CONTEXT_WINDOW = 60;
 
 /** HTTP 的统一入口：写章等待异步任务，其余端点沿用同步处理。 */
 export async function handleAsync(session: ProjectSession, req: ApiRequest): Promise<ApiResponse> {
+  if (req.method === "POST" && req.path === "/api/passage/apply") {
+    try { return ok(toDraftView(session.applyPassage(req.body), session)); }
+    catch (error) { if (error instanceof ChapterWriteError) return { status: error.status, body: { error: error.message } }; throw error; }
+  }
   if (req.method === "POST" && req.path === "/api/passage/assist") {
     try { return ok(await assistPassage(session, req.body)); }
     catch (error) { if (error instanceof ChapterWriteError) return { status: error.status, body: { error: error.message } }; throw error; }

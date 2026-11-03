@@ -360,7 +360,7 @@ export interface GateFinding {
 export interface PassageSource { chapter: number; draftId?: string; revisionToken?: string }
 export interface PassageSelection { start: number; quote: string }
 export interface PassageMessage { role: "user" | "assistant"; text: string }
-export interface PassageReply { text: string; truncated: boolean; stale: boolean; contextTruncated: boolean }
+export interface PassageReply { text: string; truncated: boolean; stale: boolean; contextTruncated: boolean; sourceToken: string; replacement: string | null }
 
 export interface HealthPayload {
   chapter: number;
@@ -879,7 +879,8 @@ export const api = {
   alerts: () => request<AlertsPayload>("/api/alerts"),
   chapters: () => request<ChapterListItem[]>("/api/chapters"),
   chapter: (n: number) => request<ChapterPayload>(`/api/chapter?n=${n}`),
-  assistPassage: (data: PassageSource & (PassageSelection | { start?: never; quote?: never }) & { instruction: string; history: PassageMessage[] }) => post<PassageReply>("/api/passage/assist", data),
+  assistPassage: (data: PassageSource & (PassageSelection | { start?: never; quote?: never }) & { instruction: string; history: PassageMessage[]; mode?: "discussion" | "replacement" }) => post<PassageReply>("/api/passage/assist", data),
+  applyPassage: (data: PassageSource & PassageSelection & { sourceToken: string; replacement: string; requestId: string }) => post<DraftView>("/api/passage/apply", data),
   health: (n: number) => request<HealthPayload>(`/api/health?n=${n}`),
   credits: () => request<CreditSummary>("/api/credits"),
   materials: () => request<{ materials: { name: string; file: string; words: number }[] }>("/api/materials"),

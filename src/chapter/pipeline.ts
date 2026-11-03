@@ -237,7 +237,7 @@ export async function runChapter(
   // 顺序不能反：C7 的分流依赖 C6 算出的实际字数，而 C6 的字数越界只报
   // warn，最终级别由 C7 定（回收章收束未完成时超额是 pass 而非 block）。
   const beat = input.assembleInput.volatile.beat;
-  if (input.gate === undefined || beat.budget === null) {
+  if (input.gate === undefined || beat === null || beat.budget === null) {
     return {
       kind: "ok",
       chapterText,

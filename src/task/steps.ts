@@ -19,7 +19,7 @@ import { quoteCatalog } from "../chapter/quote-catalog.js";
 import { parseC5, type ParseResult } from "../chapter/c5-schema.js";
 import { c5OutputIssue } from "../chapter/c5-validation.js";
 import { checkPromisedResolutions, crossCheckC5 } from "../chapter/c5-crosscheck.js";
-import { gateChapter, type ChapterGateResult } from "../gate/code-channel.js";
+import { gateText, gateChapter, type ChapterGateResult } from "../gate/code-channel.js";
 import { groupSpeech, type VoiceCharacter } from "../gate/voice-channel.js";
 import { buildVoiceTask, parseVoiceVerdict, VOICE_VERDICT_SCHEMA } from "../gate/voice-model.js";
 import { buildSemanticTask, parseSemanticVerdict, SEMANTIC_VERDICT_SCHEMA } from "../gate/semantics-channel.js";
@@ -331,7 +331,12 @@ export function checkChapter(
   c5Findings: readonly GateFinding[],
 ): CheckResult {
   const beat = input.assembleInput.volatile.beat;
-  if (input.gate === undefined || beat.budget === null) {
+  if (beat === null && input.gate !== undefined) {
+    const findings: GateFinding[] = [...c5Findings, ...gateText({ chapterText, profile: input.gate.profile }, input.gate.rules).findings,
+      { rule: "plan_unavailable", level: "info", message: "未提供章节计划：本次只检查正文与结构记录，未评估计划兑现、字数预算和事件密度。" }];
+    return { findings, acceptable: canAccept(findings), gate: null, route: null };
+  }
+  if (input.gate === undefined || beat === null || beat.budget === null) {
     return { findings: c5Findings, acceptable: canAccept(c5Findings), gate: null, route: null };
   }
 

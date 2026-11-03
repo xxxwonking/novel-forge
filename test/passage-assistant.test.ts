@@ -93,3 +93,21 @@ it("模型拒绝或连接错误不伪装成功", async () => {
   expect(await ask(request)).toMatchObject({ status: 502, body: { error: expect.stringContaining("测试中转断开") } });
   expect(model.calls).toHaveLength(1);
 });
+
+it("替代候选与解释分开并附带整章来源指纹", async () => {
+  const { ask, model } = fixture([modelText(JSON.stringify({ replacement: "雨水敲着窗。", explanation: "用声音承接下一句。" }))]);
+  expect(await ask({ ...request, mode: "replacement" })).toMatchObject({ status: 200, body: {
+    replacement: "雨水敲着窗。", text: "用声音承接下一句。", sourceToken: expect.stringMatching(/^[a-f0-9]{64}$/u),
+  } });
+  expect(model.calls[0]?.outputSchema).toBeDefined();
+});
+it("替代模式拒绝未选段、无效结构与截断结果", async () => {
+  const { ask, model } = fixture([modelText("解释不是替代文字")]);
+  expect((await ask({ chapter: 175, instruction: "改写", mode: "replacement" })).status).toBe(400);
+  expect(model.calls).toHaveLength(0);
+  expect((await ask({ ...request, mode: "replacement" })).status).toBe(502);
+  const response = modelText('{"replacement":"未完成');
+  if (response.kind !== "ok") throw new Error("fixture");
+  const cut = fixture([{ kind: "max_tokens", message: response.message }]);
+  expect((await cut.ask({ ...request, mode: "replacement" })).body).toMatchObject({ truncated: true, replacement: null });
+});

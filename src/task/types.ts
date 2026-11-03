@@ -160,6 +160,8 @@ export interface DraftReview {
 
 /** 可序列化的写章来源校验；不保存带函数和 Set 的 runInput。旧草稿可缺。 */
 export interface DraftWriteContext {
+  /** 候选基于正式原文创建，采用前必须仍与该正文一致。 */
+  readonly formalSourceToken?: string;
   readonly fingerprint: string;
   readonly sceneWriting?: SceneWritingOptions;
   /** 新写章时冻结的自动修订额度；缺省的历史任务不追加额度。 */

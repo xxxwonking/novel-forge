@@ -47,6 +47,8 @@ npm run serve
 
 后续交付顺序与验收条件见[产品路线](docs/superpowers/plans/2026-11-01-product-completion-roadmap.md)，本次分场实现与真实验收见[报告](docs/reports/2026-11-01-bounded-scene-generation.md)。
 
+章节旁的段落助手支持“生成替代候选”：选中文字后填写要求，核对并编辑候选，确认后保存为新版本，再检查/采用。导入的无计划章节也适用；不自动覆盖正式原文。修改前后面板可恢复旧正文为新稿；“修改正文”会在本浏览器保留编辑缓冲，刷新后可选择恢复。项目许可证及多人在线能力目前待定。
+
 当前编辑闭环、结构复核和开源交付的后续优先级见[下一阶段计划](docs/superpowers/plans/2026-11-03-open-source-next.md)。其中未勾选项尚未实现，历史计划的PR状态以较新的MEMORY记录为准。
 
 ## 开发与检查

@@ -4,7 +4,7 @@ import { ChapterTaskService } from "../task/service.js";
 import type { DraftStore } from "../task/draft-store.js";
 import type { ChapterDraft, ChapterTaskView, DraftId } from "../task/types.js";
 import { taskView, type TaskControl } from "../task/execution.js";
-import { authoredSession, draftRevisionToken } from "../task/revision.js";
+import { authoredSession, draftRevisionToken, stableFingerprint } from "../task/revision.js";
 import { automaticRevisionLimit } from "../task/automatic-revision.js";
 import { parseSceneWriting } from "../task/generation-budget.js";
 import type { SceneWritingOptions } from "../task/types.js";
@@ -13,7 +13,7 @@ import { validateDraftReference, type DraftCheckOptions } from "./draft-revision
 import type { ChapterNo } from "../types/primitives.js";
 import type { ProjectSession } from "./state.js";
 import {
-  buildChapterRunInput, buildChapterReadSource, chapterInputFingerprint,
+  buildChapterRunInput, buildChapterReviewInput, buildChapterReadSource, chapterInputFingerprint,
   ChapterWriteError, validateChapterNumber, type ChapterInputOptions,
 } from "./chapter-input.js";
 
@@ -106,7 +106,7 @@ export class ChapterWriter {
     if (!draft.body.trim()) throw new ChapterWriteError(409, "正文尚未完成，不能开始检查");
     if (draft.error?.step === "C4") throw new ChapterWriteError(409, "正文还不完整，请先继续完成或手动补全并保存新版本");
     const source = this.session.chapterSource(draft.writeContext?.proposalId);
-    const input = buildChapterRunInput(source, draft.chapter);
+    const input = buildChapterReviewInput(source, draft.chapter);
     this.drafts.saveDraft({
       ...draft, status: "pending_check", error: null, acceptable: false, findings: [],
       session: draft.session ?? authoredSession(input),
@@ -187,7 +187,7 @@ export class ChapterWriter {
     }
     if (draft?.status === "adopted" || draft?.status === "discarded") return Promise.resolve(draft);
     if (draft?.execution?.status === "ended") throw new ChapterWriteError(409, "本次任务已结束；已有结果仍保留，继续创作请明确另起任务");
-    if (options.chapter !== this.session.nextChapter && options.chapter !== this.session.currentChapter) {
+    if (draft?.revision === undefined && options.chapter !== this.session.nextChapter && options.chapter !== this.session.currentChapter) {
       throw new ChapterWriteError(409, `当前可写第 ${this.session.nextChapter} 章，或为最新已采用章另建版本；请先处理当前章节`);
     }
     if (draft !== undefined) {
@@ -199,7 +199,8 @@ export class ChapterWriter {
     const proposalId = options.proposalId ?? draft?.writeContext?.proposalId;
     const authorRequest = draft?.writeContext?.authorRequest ?? options.authorRequest;
     const source = this.session.chapterSource(proposalId);
-    const input = buildChapterRunInput(source, options.chapter, {
+    const input = draft?.session !== null && draft?.revision !== undefined && draft.generation === undefined
+      ? buildChapterReviewInput(source, options.chapter) : buildChapterRunInput(source, options.chapter, {
       ...(maxOutputTokens === undefined ? {} : { maxOutputTokens }),
       ...(authorRequest === undefined ? {} : { authorRequest }),
     });
@@ -217,7 +218,7 @@ export class ChapterWriter {
     const autoRevisionLimit = draft === undefined ? automaticRevisionLimit(this.session.rules.task.maxAutoRevisions)
       : draft.writeContext?.autoRevisionLimit ?? 0;
     const sceneWriting = draft?.writeContext?.sceneWriting ?? options.sceneWriting;
-    const context = { fingerprint, autoRevisionLimit, ...(sceneWriting === undefined ? {} : { sceneWriting }), ...(requestId === undefined ? {} : { requestId }), ...(maxOutputTokens === undefined ? {} : { maxOutputTokens }), ...(proposalId === undefined ? {} : { proposalId }), ...(authorRequest === undefined ? {} : { authorRequest }) };
+    const context = { fingerprint, autoRevisionLimit, ...(draft?.writeContext?.formalSourceToken === undefined ? {} : { formalSourceToken: draft.writeContext.formalSourceToken }), ...(sceneWriting === undefined ? {} : { sceneWriting }), ...(requestId === undefined ? {} : { requestId }), ...(maxOutputTokens === undefined ? {} : { maxOutputTokens }), ...(proposalId === undefined ? {} : { proposalId }), ...(authorRequest === undefined ? {} : { authorRequest }) };
     const draftId = draft?.draftId ?? this.drafts.nextDraftId(options.chapter);
     const operation = draft === undefined ? service.run(input, context) : service.resume(input, draftId, context);
     const promise = operation.then((result) => {
@@ -248,6 +249,7 @@ export class ChapterWriter {
 
   private basisChanged(draft: ChapterDraft): boolean {
     if (draft.baseVersion !== this.drafts.workVersion()) return true;
+    if (draft.writeContext?.formalSourceToken !== undefined && draft.writeContext.formalSourceToken !== stableFingerprint(this.session.readCurrentChapterText(draft.chapter) ?? null)) return true;
     if (draft.writeContext === undefined) return false;
     try {
       return draft.writeContext.fingerprint !== chapterInputFingerprint(this.session.chapterSource(draft.writeContext.proposalId), draft.chapter);

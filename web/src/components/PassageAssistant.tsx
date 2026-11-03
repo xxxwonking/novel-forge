@@ -13,29 +13,48 @@ export function PassageAssistant({ source, selection, onClear, onBusy }: {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState<number | null>(null);
+  const [candidate, setCandidate] = useState<{ source: PassageSource; selection: PassageSelection; sourceToken: string; text: string } | null>(null);
+  const receipt = useRef<{ content: string; id: string } | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const generation = useRef(0);
   const sending = useRef(false);
   const results = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     generation.current++;
-    setMessages([]); setError(null); setCopied(null);
+    setMessages([]); setError(null); setCopied(null); setCandidate(null);
     setInput(selection?.intent === "polish" ? "请润色所选段落，保留原有事实、视角和叙述风格，直接给出替代文字。" : selection?.intent === "rewrite" ? "请改写所选段落，保留原有事实与视角。我的具体要求是：" : "");
     if (selection) requestAnimationFrame(() => { inputRef.current?.focus({ preventScroll: true }); inputRef.current?.scrollIntoView({ block: "nearest" }); });
   }, [selection?.id]);
   useEffect(() => () => { generation.current++; }, []);
-  useEffect(() => { results.current?.scrollTo({ top: results.current.scrollHeight }); }, [messages.length, busy]);
-  const send = async () => {
+  useEffect(() => {
+    if (candidate) results.current?.querySelector(".passage-candidate")?.scrollIntoView({ block: "nearest" });
+    else results.current?.scrollTo({ top: results.current.scrollHeight });
+  }, [messages.length, busy, candidate !== null]);
+  const send = async (mode: "discussion" | "replacement" = "discussion") => {
     if (sending.current || !input.trim()) return;
     const ticket = generation.current, instruction = input.trim();
     sending.current = true; setBusy(true); onBusy(true); setError(null);
     try {
-      const reply = await api.assistPassage({ ...source, ...(selection ? { start: selection.start, quote: selection.quote } : {}), instruction,
+      const reply = await api.assistPassage({ ...source, ...(selection ? { start: selection.start, quote: selection.quote } : {}), instruction, mode,
         history: messages.slice(-4).map(({ role, text }) => ({ role, text: text.slice(0, 6000) })) });
       if (ticket !== generation.current) return;
       const warning = [reply.stale && "正文已发生变化，请重新读取原文后核对建议。", reply.truncated && "这条回复被截断，尚未完整生成。", reply.contextTruncated && "本章较长，本次只参考开头和结尾；可选中中间段落继续提问。"].filter(Boolean).join(" ");
       setMessages(previous => [...previous, { role: "user", text: instruction }, { role: "assistant", text: reply.text, ...(warning ? { warning } : {}) }]);
+      if (mode === "replacement") setCandidate(reply.replacement && selection && !reply.stale && !reply.truncated ? { source: { ...source }, selection: { start: selection.start, quote: selection.quote }, sourceToken: reply.sourceToken, text: reply.replacement } : null);
       setInput("");
+    } catch (cause) { if (ticket === generation.current) setError(cause instanceof Error ? cause.message : String(cause)); }
+    finally { sending.current = false; if (ticket === generation.current) { setBusy(false); onBusy(false); } }
+  };
+  const saveCandidate = async () => {
+    if (!candidate || sending.current || !candidate.text.trim()) return;
+    const ticket = generation.current;
+    sending.current = true; setBusy(true); onBusy(true); setError(null);
+    const payload = { ...candidate.source, ...candidate.selection, sourceToken: candidate.sourceToken, replacement: candidate.text };
+    const content = JSON.stringify(payload);
+    if (receipt.current?.content !== content) receipt.current = { content, id: crypto.randomUUID() };
+    try {
+      const draft = await api.applyPassage({ ...payload, requestId: receipt.current.id });
+      if (ticket === generation.current) window.location.hash = `/draft/${draft.chapter}/${draft.draftId}`;
     } catch (cause) { if (ticket === generation.current) setError(cause instanceof Error ? cause.message : String(cause)); }
     finally { sending.current = false; if (ticket === generation.current) { setBusy(false); onBusy(false); } }
   };
@@ -55,12 +74,20 @@ export function PassageAssistant({ source, selection, onClear, onBusy }: {
           }}><Copy aria-hidden="true" /></Button>}
         </div>)}
         {busy && <p role="status">{selection ? "正在结合所选段落思考…" : "正在结合当前章节思考…"}</p>}
+        {candidate && <section className="passage-candidate" aria-label="修改前后">
+          <h2>核对替代文字</h2><p className="muted">只替换下列选段，保存后仍需检查并采用。</p>
+          <details><summary>修改前</summary><blockquote>{candidate.selection.quote}</blockquote></details>
+          <label>修改后<Textarea aria-label="替代正文" rows={6} maxLength={24000} disabled={busy} value={candidate.text} onChange={event => setCandidate({ ...candidate, text: event.target.value })} /></label>
+          <div className="row"><Button variant="default" disabled={busy || !candidate.text.trim() || candidate.text === candidate.selection.quote} onClick={() => void saveCandidate()}>确认选段并保存新版本</Button>
+            <Button disabled={busy} variant="ghost" onClick={() => setCandidate(null)}>放弃候选</Button></div>
+        </section>}
       </div>
       {error && <p className="finding passage-error" data-level="block" role="alert">{error}（原文未修改，可重试。）</p>}
-      <div className="passage-composer"><Textarea ref={inputRef} aria-label="段落要求" value={input} maxLength={4000} rows={3} disabled={busy}
+      {candidate === null && <div className="passage-composer"><Textarea ref={inputRef} aria-label="段落要求" value={input} maxLength={4000} rows={3} disabled={busy}
         placeholder={selection ? "例如：减少解释，用动作表现紧张…" : "聊聊这一章，或说说你想怎么改…"} onChange={event => setInput(event.target.value)}
         onKeyDown={event => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void send(); } }} />
         <div><small>{copied !== null ? "建议已复制；原文未修改" : "建议不会直接替换正文"}</small><Button variant="default" size="icon" aria-label="发送段落要求" disabled={busy || !input.trim()} loading={busy} onClick={() => void send()}><ArrowUp aria-hidden="true" /></Button></div>
-      </div>
+        {selection && <Button disabled={busy || !input.trim()} onClick={() => void send("replacement")}>生成替代候选</Button>}
+      </div>}
   </section>;
 }
