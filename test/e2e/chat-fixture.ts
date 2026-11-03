@@ -10,7 +10,7 @@ import { ProjectStore } from "../../src/store/persist.js";
 import { ProviderStore } from "../../src/client/providers.js";
 import { writingSnapshot, savedDraft } from "../writing-fixtures.js";
 import { ConversationStore } from "../../src/agent/conversation-store.js";
-export async function chatFixture(options: { legacyFailure?: boolean; holdResponse?: boolean; reply?: string; chapterBody?: string; draftBody?: string } = {}) {
+export async function chatFixture(options: { legacyFailure?: boolean; holdResponse?: boolean; reply?: string; chapterBody?: string; draftBody?: string; toolCall?: { name: string; arguments: Record<string, unknown> } } = {}) {
   const root = mkdtempSync(join(tmpdir(), "nf-chat-browser-"));
   new ProjectStore(join(root, "chat-book")).save({ ...writingSnapshot(), ...(options.chapterBody === undefined ? {} : { beats: [], chapters: new Map([[175, options.chapterBody]]) }) });
   if (options.draftBody !== undefined) new DraftStore(join(root, "chat-book")).saveDraft(savedDraft({ body: options.draftBody }));
@@ -50,9 +50,9 @@ export async function chatFixture(options: { legacyFailure?: boolean; holdRespon
           {
             message: {
               role: "assistant",
-              content: options.reply ?? "模型已回复，计划仍由你确认。",
+              ...(options.toolCall && calls === 1 ? { content: null, tool_calls: [{ id: "test-tool-1", type: "function", function: { name: options.toolCall.name, arguments: JSON.stringify(options.toolCall.arguments) } }] } : { content: options.reply ?? "模型已回复，计划仍由你确认。" }),
             },
-            finish_reason: "stop",
+            finish_reason: options.toolCall && calls === 1 ? "tool_calls" : "stop",
           },
         ],
         usage: { prompt_tokens: 8, completion_tokens: 5 },

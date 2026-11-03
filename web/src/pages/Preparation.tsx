@@ -186,7 +186,9 @@ export function Preparation({ refresh, proposalId }: { refresh: () => void; prop
 }
 
 function AuthorForm({ view, onSaved }: { view: PreparationPayload; onSaved: (proposal: PreparationProposal) => void }): React.ReactElement {
-  const initial = view.confirmed.setting;
+  // 数据刷新只更新外部视图；编辑内容与提交凭据必须属于同一个源版本。
+  const [source] = useState(view);
+  const initial = source.confirmed.setting;
   const [values, setValues] = useState({ title: initial.title, premise: initial.premise, centralConflict: initial.centralConflict, openingSituation: initial.openingSituation, writingRules: view.confirmed.discipline.rules.join("\n") });
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -196,9 +198,9 @@ function AuthorForm({ view, onSaved }: { view: PreparationPayload; onSaved: (pro
     const { writingRules, ...setting } = values;
     const changed = Object.fromEntries(Object.entries(setting).filter(([key, value]) => value !== initial[key as keyof typeof setting]));
     const rules = writingRules.split("\n").map((line) => line.trim()).filter(Boolean);
-    const changes = { ...(Object.keys(changed).length > 0 ? { setting: changed } : {}), ...(writingRules === view.confirmed.discipline.rules.join("\n") ? {} : { writingRules: rules }) };
+    const changes = { ...(Object.keys(changed).length > 0 ? { setting: changed } : {}), ...(writingRules === source.confirmed.discipline.rules.join("\n") ? {} : { writingRules: rules }) };
     if (Object.keys(changes).length === 0) { setError("没有需要保存的修改。"); setBusy(false); return; }
-    void api.recordAuthorDetails({ summary: "作者修改基本设定与写作偏好", baseFingerprint: view.fingerprint, changes }).then(onSaved).catch((e: Error) => setError(e.message)).finally(() => setBusy(false));
+    void api.recordAuthorDetails({ summary: "作者修改基本设定与写作偏好", baseFingerprint: source.fingerprint, changes }).then(onSaved).catch((e: Error) => setError(e.message)).finally(() => setBusy(false));
   }}><fieldset disabled={busy}>{(Object.keys(labels) as (keyof typeof values)[]).map((key) => <label key={key}>{labels[key]}{key === "title" ? <Input required value={values[key]} onChange={(e) => setValues({ ...values, [key]: e.target.value })} /> : <Textarea required={key === "premise"} rows={key === "writingRules" ? 6 : 3} value={values[key]} onChange={(e) => setValues({ ...values, [key]: e.target.value })} />}</label>)}{error && <p role="alert" className="finding" data-level="block">{error}</p>}<Button variant="default" type="submit" loading={busy}>保存作者设定</Button></fieldset></form>;
 }
 

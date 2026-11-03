@@ -47,6 +47,8 @@ npm run serve
 
 后续交付顺序与验收条件见[产品路线](docs/superpowers/plans/2026-11-01-product-completion-roadmap.md)，本次分场实现与真实验收见[报告](docs/reports/2026-11-01-bounded-scene-generation.md)。
 
+当前编辑闭环、结构复核和开源交付的后续优先级见[下一阶段计划](docs/superpowers/plans/2026-11-03-open-source-next.md)。其中未勾选项尚未实现，历史计划的PR状态以较新的MEMORY记录为准。
+
 ## 开发与检查
 
 开发时在两个终端分别运行 `npm run serve` 和 `npm run web`，再打开 `http://localhost:5173`。Vite 将 API 请求转发到本地服务的 5174 端口，并保留浏览器 Host（`changeOrigin: false`），使请求通过后端的同源检查。

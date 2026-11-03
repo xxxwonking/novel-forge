@@ -13,7 +13,7 @@ import { Button } from "./components/ui/button.js";
 import { Sheet, SheetTrigger, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "./components/ui/sheet.js";
 import { ProjectNavigation } from "./components/ProjectNavigation.js";
 import { api, selectedProjectId, type Alert, type AlertAction, type PlanningAction } from "./api.js";
-import { useFetch, usePolling, useRoute, useToast } from "./hooks.js";
+import { ProjectRefreshContext, useFetch, usePolling, useRoute, useToast } from "./hooks.js";
 import { TaskPanel } from "./components/TaskPanel.js";
 import { ErrorBoundary } from "./components/ErrorBoundary.js";
 import type { ChapterTaskView } from "./api.js";
@@ -196,6 +196,7 @@ function ProjectApp({ projectId }: { projectId: string }): React.ReactElement {
           // 按路由重置：换一页就该重新试一次，否则一处出错会粘住整个会话。
           // 只包住内容区，导航栏留在外面 —— 出错时作者仍然走得掉。
           <ErrorBoundary key={route} onReset={refresh}>
+            <ProjectRefreshContext.Provider value={nonce}>
             <Routed
               route={route}
               overview={overview.data}
@@ -209,6 +210,7 @@ function ProjectApp({ projectId }: { projectId: string }): React.ReactElement {
               onPlanningAction={onPlanningAction}
               projectId={projectId}
             />
+            </ProjectRefreshContext.Provider>
           </ErrorBoundary>
         )}
       </div>

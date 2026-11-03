@@ -39,6 +39,7 @@ const text = (values: readonly string[]): string => values.join("\n");
 
 /** 保存入口共用：指纹取自打开表单那一刻的视图，提交时由服务端再核对一次。 */
 function useSave(fingerprint: string, onSaved: (proposal: PreparationProposal) => void, candidate = false) {
+  const [sourceFingerprint] = useState(fingerprint);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const receipt = useRef<{ content: string; id: string } | null>(null);
@@ -49,7 +50,7 @@ function useSave(fingerprint: string, onSaved: (proposal: PreparationProposal) =
     // 同一份改动重试复用编号；内容变了才是新一次意图。
     if (receipt.current?.content !== content) receipt.current = { content, id: crypto.randomUUID() };
     try {
-      onSaved(await (candidate ? api.proposeAuthorDetails : api.recordAuthorDetails)({ summary, baseFingerprint: fingerprint, changes }));
+      onSaved(await (candidate ? api.proposeAuthorDetails : api.recordAuthorDetails)({ summary, baseFingerprint: sourceFingerprint, changes }));
     } catch (e) { setError((e as Error).message); }
     finally { setBusy(false); }
   };
