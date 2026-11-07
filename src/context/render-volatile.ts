@@ -46,7 +46,7 @@ export interface AvoidInstruction {
 
 export interface VolatileInput {
   readonly previous: PreviousChapter | null;
-  readonly beat: ChapterBeat;
+  readonly beat: ChapterBeat | null;
   readonly resolves: readonly ResolveInstruction[];
   readonly avoid: readonly AvoidInstruction[];
   /** 仅本章要埋设的作者规划，不是已发生事实或本章要兑现的承诺。 */
@@ -113,7 +113,7 @@ export function renderVolatile(input: VolatileInput): string {
   }
 
   lines.push("# 本章节拍");
-  lines.push(renderPlan(input.beat));
+  lines.push(input.beat === null ? "未提供章节计划。本轮只核对作者正文，不推断预算或计划承诺。" : renderPlan(input.beat));
 
   if ((input.fulfilledResolutions?.length ?? 0) > 0) {
     lines.push("", "# 原计划中已提前完成的回收");
@@ -151,7 +151,7 @@ export function renderVolatile(input: VolatileInput): string {
     lines.push("这些是读者不该察觉的暗线，本章不要点明，也不要让角色讨论。");
   }
 
-  if (input.beat.budget !== null) {
+  if (input.beat !== null && input.beat.budget !== null) {
     lines.push("");
     lines.push("# 本章预算");
     lines.push(renderBudget(input.beat.budget));

@@ -34,10 +34,10 @@ export interface ViewPageProps {
 }
 
 export function ViewPage({ kind, title, onJump, highlight }: ViewPageProps): React.ReactElement {
-  const { data, error, loading } = useFetch(() => api.views(), [kind]);
+  const { data, error } = useFetch(() => api.views(), [kind]);
 
   if (error !== null) return <div className="empty">读取失败：{error}</div>;
-  if (loading || data === null) return <div className="empty">载入中</div>;
+  if (data === null) return <div className="empty">载入中</div>;
 
   return (
     <>

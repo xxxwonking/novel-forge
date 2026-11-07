@@ -1,3 +1,5 @@
+import { chapterHealth } from "./chapter-health.js";
+import { assistPassage } from "./passage-assistant.js";
 import { convertDocument } from "../import/document.js";
 /**
  * JSON API 的路由与处理。**与 http 传输层分开**（http.ts 负责收发），
@@ -12,14 +14,8 @@ import { acknowledgeAlert, ignoreAlert, initialAlertState, unacknowledgeAlert } 
 import { anchorContext, resolveAnchor } from "../anchor/resolve.js";
 import { searchWork } from "../search/service.js";
 import type { ImportFile } from "../import/split.js";
-import { gateChapter } from "../gate/code-channel.js";
-import { gateCrossChapter } from "../gate/cross-chapter.js";
-import { validatePlan } from "../beat/validate.js";
-import { deriveBudget } from "../beat/derive.js";
 import type { AlertAction, AlertState } from "../types/projections.js";
 import type { AlertId, ChapterNo, TextAnchor } from "../types/primitives.js";
-import { isPlanOrigin } from "../types/events.js";
-import type { EventWeight } from "../types/events.js";
 import { ChapterWriteError } from "./chapter-input.js";
 import type { ChapterWriteOptions } from "./chapter-writer.js";
 import { countWords } from "../text/measure.js";
@@ -51,6 +47,14 @@ const CONTEXT_WINDOW = 60;
 
 /** HTTP 的统一入口：写章等待异步任务，其余端点沿用同步处理。 */
 export async function handleAsync(session: ProjectSession, req: ApiRequest): Promise<ApiResponse> {
+  if (req.method === "POST" && req.path === "/api/passage/apply") {
+    try { return ok(toDraftView(session.applyPassage(req.body), session)); }
+    catch (error) { if (error instanceof ChapterWriteError) return { status: error.status, body: { error: error.message } }; throw error; }
+  }
+  if (req.method === "POST" && req.path === "/api/passage/assist") {
+    try { return ok(await assistPassage(session, req.body)); }
+    catch (error) { if (error instanceof ChapterWriteError) return { status: error.status, body: { error: error.message } }; throw error; }
+  }
   if (req.method === "POST" && (req.path === "/api/chapter/write" || req.path === "/api/chapter/start")) {
     return chapterWrite(session, req.body, req.path === "/api/chapter/start");
   }
@@ -396,64 +400,8 @@ function health(session: ProjectSession, query: URLSearchParams): ApiResponse {
   const n = intParam(query, "n");
   if (n === null) return bad("缺少参数 n");
 
-  const beat = session.beatFor(n);
-  if (beat === undefined) return missing(`第 ${n} 章没有节拍表`);
-
-  const text = session.chapterText(n);
-  const { projections } = session.derived;
-
-  const crossChapter = gateCrossChapter(
-    {
-      currentChapter: n,
-      foreshadows: projections.foreshadows,
-      plotLines: projections.plotLines,
-      arcs: projections.arcs,
-    },
-    session.rules,
-  );
-
-  if (text === undefined) {
-    // 还没写正文时只能给规划期的结论。
-    return ok({
-      chapter: n,
-      plan: validatePlan(beat.plan, session.rules),
-      chapterGate: null,
-      crossChapter,
-    });
-  }
-
-  const declaredWeights = declaredEventWeights(session, n);
-  const gate = gateChapter(
-    {
-      chapterText: text,
-      plan: beat.plan,
-      budget: beat.budget ?? deriveBudget(beat.plan, session.meta.profile, session.rules, { now: beat.updatedAt }),
-      profile: session.meta.profile,
-      declaredEventWeights: declaredWeights,
-    },
-    session.rules,
-  );
-
-  return ok({
-    chapter: n,
-    plan: validatePlan(beat.plan, session.rules),
-    chapterGate: gate,
-    crossChapter,
-  });
-}
-
-/** 该章 C5 声明的事件权重。密度校验的是写出来的东西，不是计划的。 */
-function declaredEventWeights(session: ProjectSession, chapter: ChapterNo): readonly EventWeight[] {
-  return session
-    .events()
-    .filter(
-      (e) =>
-        e.envelope.chapter === chapter &&
-        e.payload.type === "plot_event" &&
-        !isPlanOrigin(e.envelope.origin) &&
-        (e.envelope.provenance === "committed" || e.envelope.provenance === "authored"),
-    )
-    .map((e) => (e.payload as { weight: EventWeight }).weight);
+  const result = chapterHealth(session, n);
+  return result === null ? missing(`第 ${n} 章没有正文或章节计划`) : ok(result);
 }
 
 /** 点击图上元素 → 拿到定位与上下文。stale 时返回降级信息而非 404。 */

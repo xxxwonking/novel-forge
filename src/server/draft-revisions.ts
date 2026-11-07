@@ -2,7 +2,7 @@
 import type { DraftStore } from "../task/draft-store.js";
 import type { ChapterDraft, DraftGeneration, DraftRevision } from "../task/types.js";
 import { authoredSession, draftRevisionToken, stableFingerprint } from "../task/revision.js";
-import { buildChapterRunInput, chapterInputFingerprint, ChapterWriteError, validateChapterNumber } from "./chapter-input.js";
+import { buildChapterRunInput, buildChapterReviewInput, chapterInputFingerprint, ChapterWriteError, validateChapterNumber } from "./chapter-input.js";
 import type { ProjectSession } from "./state.js";
 import type { ChapterWriter } from "./chapter-writer.js";
 import { correctDeclaration, type StructureCorrection } from "../chapter/c5-correction.js";
@@ -38,6 +38,54 @@ export function validateDraftReference(options: DraftReference): void {
 export class DraftRevisions {
   constructor(private readonly session: ProjectSession, private readonly store: DraftStore, private readonly writer: ChapterWriter) {}
 
+  applyPassage(input: unknown): ChapterDraft {
+    if (!input || typeof input !== "object" || Array.isArray(input)) throw new ChapterWriteError(400, "请选择要替换的原文");
+    const data = input as Record<string, unknown>;
+    const chapter = data.chapter as number;
+    validateChapterNumber(chapter);
+    const { start, quote, replacement, sourceToken } = data;
+    if (!Number.isSafeInteger(start) || (start as number) < 0 || typeof quote !== "string" || !quote.trim() || quote.length > 12000 ||
+      typeof replacement !== "string" || !replacement.trim() || replacement.length > 24000 || typeof sourceToken !== "string" || !/^[a-f0-9]{64}$/u.test(sourceToken))
+      throw new ChapterWriteError(400, "原文、来源凭据或替代文字无效");
+    if (data.requestId === undefined) throw new ChapterWriteError(400, "保存新版本需要请求编号");
+    const fingerprint = stableFingerprint(["passage", chapter, data.draftId ?? null, data.revisionToken ?? null, sourceToken, start, quote, replacement]);
+    const previous = this.receipt(data.requestId as string, fingerprint);
+    if (previous) return previous;
+    return this.store.transaction(() => {
+      let source: ChapterDraft | undefined;
+      if (data.draftId !== undefined) {
+        const ref = { chapter, draftId: data.draftId as string, revisionToken: data.revisionToken as string };
+        validateDraftReference(ref);
+        source = this.source(ref);
+        this.writer.assertFresh(source);
+      }
+      const original = source?.body ?? this.session.readCurrentChapterText(chapter);
+      if (original === undefined) throw new ChapterWriteError(404, "本章正文不存在");
+      if (stableFingerprint(original) !== sourceToken || original.slice(start as number, (start as number) + quote.length) !== quote)
+        throw new ChapterWriteError(409, "原文已变化，请重新选段；本次未保存新稿");
+      if (source === undefined) {
+        const id = this.session.currentAdoptedDraftId(chapter);
+        source = id === undefined ? undefined : this.store.loadDraft(chapter, id);
+        if (source !== undefined && source.body !== original) throw new ChapterWriteError(409, "正式正文与版本记录不一致，请重新读取后核对");
+        if (source === undefined) {
+          const now = new Date().toISOString();
+          source = { chapter, draftId: this.store.nextDraftId(chapter), status: "adopted", body: original,
+            declaration: this.session.revise.adoptedDeclaration(chapter), findings: [], acceptable: false, proposals: [], session: null, error: null,
+            baseVersion: this.store.workVersion(), baseAdoptedThrough: this.session.currentChapter, createdAt: now, updatedAt: now };
+          this.store.saveDraft(source);
+        }
+      }
+      const next = this.create({ chapter, draftId: source.draftId, revisionToken: draftRevisionToken(source),
+        body: original.slice(0, start as number) + replacement + original.slice((start as number) + quote.length), requestId: data.requestId as string },
+      source, "应用段落候选（仅替换所选原文）", "manual", null, fingerprint);
+      let occurrence = 0, position = original.indexOf(quote);
+      while (position >= 0 && position < (start as number)) { occurrence++; position = original.indexOf(quote, position + 1); }
+      const scoped: ChapterDraft = { ...next, revision: { ...next.revision!, scope: { start: start as number, end: (start as number) + quote.length, quote, occurrence } } };
+      this.store.saveDraft(scoped);
+      return scoped;
+    });
+  }
+
   edit(options: DraftEditOptions): ChapterDraft {
     validateDraftReference(options);
     if (typeof options.body !== "string" || options.body.trim() === "") throw new ChapterWriteError(400, "正文不能为空");
@@ -58,7 +106,7 @@ export class DraftRevisions {
     if (previous !== undefined) return previous;
     const source = this.source(options);
     if (source.declaration === null) throw new ChapterWriteError(409, "尚无结构记录，请先完成结构核对");
-    const input = buildChapterRunInput(this.session.chapterSource(source.status === "adopted" ? undefined : source.writeContext?.proposalId), source.chapter);
+    const input = buildChapterReviewInput(this.session.chapterSource(source.status === "adopted" ? undefined : source.writeContext?.proposalId), source.chapter);
     const declaration = correctDeclaration(source.declaration, options.changes, { ...input.parseContextBase, chapterText: source.body });
     return this.create({ ...options, body: source.body }, source, options.summary.trim(), "structure", declaration, requestFingerprint);
   }
@@ -88,15 +136,19 @@ export class DraftRevisions {
     const proposalId = source.status === "adopted" ? undefined : source.writeContext?.proposalId;
     const basis = this.session.chapterSource(proposalId);
     const maxOutputTokens = source.writeContext?.maxOutputTokens;
-    const input = buildChapterRunInput(basis, source.chapter, maxOutputTokens === undefined ? {} : { maxOutputTokens });
+    const input = generation === undefined ? buildChapterReviewInput(basis, source.chapter) : buildChapterRunInput(basis, source.chapter, maxOutputTokens === undefined ? {} : { maxOutputTokens });
     const fingerprint = chapterInputFingerprint(basis, source.chapter);
     const now = new Date().toISOString();
+    // 导入原文基线可能仍在同一文件事务中，目录扫描尚不可见。
+    const nextId = this.store.nextDraftId(source.chapter);
+    const draftId = nextId === source.draftId ? `ch${source.chapter}d${Number(source.draftId.split("d")[1]) + 1}` : nextId;
     const draft: ChapterDraft = {
-      chapter: source.chapter, draftId: this.store.nextDraftId(source.chapter), status: generation === undefined ? "pending_check" : "writing",
+      chapter: source.chapter, draftId, status: generation === undefined ? "pending_check" : "writing",
       body: options.body, declaration, findings: [], acceptable: false, error: null,
       proposals: source.proposals.filter((_, index) => !source.proposalAdoption?.selected.includes(index)), session: generation === undefined ? authoredSession(input) : null,
       ...(generation === undefined ? {} : { generation }),
       writeContext: { fingerprint,
+        ...(this.session.readCurrentChapterText(source.chapter) === undefined ? {} : { formalSourceToken: stableFingerprint(this.session.readCurrentChapterText(source.chapter)) }),
         ...(proposalId === undefined ? {} : { proposalId }), ...(maxOutputTokens === undefined ? {} : { maxOutputTokens }) },
       revision: { kind, sourceDraftId: source.draftId, sourceToken: options.revisionToken, summary,
         rebased: source.status === "stale" || (source.status !== "adopted" && (source.baseVersion !== this.store.workVersion() || (source.writeContext !== undefined && source.writeContext.fingerprint !== fingerprint))),

@@ -97,10 +97,11 @@ function useReturnFocus(preferred?: React.RefObject<HTMLElement | null>) {
     onCloseAutoFocus: (event: Event) => {
       event.preventDefault();
       // 路线选择器可能直接打开另一层编辑器，不抢走新弹层的焦点。
-      if (!document.querySelector('[data-slot="dialog-content"], [data-slot="sheet-content"], [data-slot="alert-dialog-content"]')) {
-        const element = preferred?.current?.isConnected ? preferred.current : target.current;
-        if (element?.isConnected) element.focus({ preventScroll: true });
-      }
+      const element = preferred?.current?.isConnected ? preferred.current : target.current;
+      const top = [...document.querySelectorAll('[data-slot="dialog-content"], [data-slot="sheet-content"], [data-slot="alert-dialog-content"]')]
+        .filter(dialog => dialog.getAttribute("data-state") !== "closed").at(-1);
+      // 允许归还到下层弹窗里的触发按钮，但不能把焦点抢出新打开的弹窗。
+      if (element?.isConnected && (!top || top.contains(element))) element.focus({ preventScroll: true });
     },
   };
 }

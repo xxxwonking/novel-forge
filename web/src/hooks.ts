@@ -1,4 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { createContext, useContext, useCallback, useEffect, useRef, useState } from "react";
+
+/** 主内容区的数据刷新版本；不包裹通用对话，避免刷新重置其会话请求。 */
+export const ProjectRefreshContext = createContext(0);
 
 /** 已提交的操作可在后台完成；迟到响应只能更新发起它的页面。 */
 export function useRouteActive(): () => boolean {
@@ -19,6 +22,7 @@ export function useFetch<T>(fn: () => Promise<T>, deps: readonly unknown[] = [])
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [nonce, setNonce] = useState(0);
+  const projectRefresh = useContext(ProjectRefreshContext);
 
   // fn 每次渲染都是新函数（调用处写的是箭头函数），放进依赖会死循环。
   // 依赖由调用方通过 deps 显式给出。
@@ -46,7 +50,7 @@ export function useFetch<T>(fn: () => Promise<T>, deps: readonly unknown[] = [])
       alive = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nonce, ...deps]);
+  }, [nonce, projectRefresh, ...deps]);
 
   return { data, error, loading, reload: useCallback(() => setNonce((n) => n + 1), []) };
 }

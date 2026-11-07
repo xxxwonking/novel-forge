@@ -280,6 +280,11 @@ export class ProjectSession {
     return this.chapters.get(chapter);
   }
 
+  /** 长耗时的选段讨论需要核对磁盘上的最新原文。 */
+  readCurrentChapterText(chapter: ChapterNo): string | undefined {
+    return this.store.readChapter(chapter);
+  }
+
   chapterNumbers(): readonly ChapterNo[] {
     return [...this.chapters.keys()].sort((x, y) => x - y);
   }
@@ -534,6 +539,8 @@ export class ProjectSession {
   startChapter(options: ChapterWriteOptions): ChapterDraft { return this.writer.start(options); }
 
   editDraft(options: DraftEditOptions): ChapterDraft { return this.revisions.edit(options); }
+
+  applyPassage(input: unknown): ChapterDraft { return this.revisions.applyPassage(input); }
 
   correctDraft(options: DraftCorrectionOptions): ChapterDraft { return this.revisions.correct(options); }
 

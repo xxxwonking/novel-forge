@@ -8,12 +8,12 @@ import { ThemeSwitcher } from "./components/ThemeSwitcher.js";
  */
 
 import { lazy, Suspense, useCallback, useEffect, useState } from "react";
-import { ArrowLeft, Menu } from "lucide-react";
+import { ArrowLeft, Menu, MessagesSquare } from "lucide-react";
 import { Button } from "./components/ui/button.js";
 import { Sheet, SheetTrigger, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "./components/ui/sheet.js";
 import { ProjectNavigation } from "./components/ProjectNavigation.js";
 import { api, selectedProjectId, type Alert, type AlertAction, type PlanningAction } from "./api.js";
-import { useFetch, usePolling, useRoute, useToast } from "./hooks.js";
+import { ProjectRefreshContext, useFetch, usePolling, useRoute, useToast } from "./hooks.js";
 import { TaskPanel } from "./components/TaskPanel.js";
 import { ErrorBoundary } from "./components/ErrorBoundary.js";
 import type { ChapterTaskView } from "./api.js";
@@ -62,12 +62,27 @@ function ProjectApp({ projectId }: { projectId: string }): React.ReactElement {
   const [toast, showToast] = useToast();
   const [nonce, setNonce] = useState(0);
   const [navOpen, setNavOpen] = useState(false);
+  const path = route.split("?")[0] ?? route;
+  const fullChat = path === "/chat";
+  const dockAvailable = ["/preparation", "/plotboard", "/plotlines", "/foreshadow", "/arcs", "/relations", "/revision"].includes(path) || path.startsWith("/chapter/") || path.startsWith("/draft/");
+  const [chatMounted, setChatMounted] = useState(fullChat);
+  const [dockOpen, setDockOpen] = useState(false);
+  const chatQuery = new URLSearchParams(fullChat ? route.split("?")[1] : "");
+  const requestedMode = chatQuery.get("mode");
+  useEffect(() => { if (fullChat) setChatMounted(true); }, [fullChat]);
+  const closeDock = () => {
+    setDockOpen(false);
+    requestAnimationFrame(() => document.getElementById("chat-dock-trigger")?.focus());
+  };
   const [planningAction, setPlanningAction] = useState<{ title: string; alertId?: string; action: EditablePlanningAction } | null>(null);
 
   const overview = useFetch(() => api.overview(), [nonce]);
   const tasks = usePolling(api.chapterTasks);
 
-  useEffect(() => setNavOpen(false), [route]);
+  useEffect(() => {
+    setNavOpen(false);
+    if (window.innerWidth < 1200) setDockOpen(false);
+  }, [route]);
   useEffect(() => {
     const desktop = window.matchMedia("(min-width: 721px)");
     const closeOnDesktop = () => { if (desktop.matches) setNavOpen(false); };
@@ -170,13 +185,18 @@ function ProjectApp({ projectId }: { projectId: string }): React.ReactElement {
       </Sheet>
       <aside className="app-rail" aria-label="作品侧栏"><nav aria-label="作品导航"><ProjectNavigation {...navigation} onNavigate={navigate} /></nav></aside>
 
-      <main className="main" id="project-content" tabIndex={-1}>
+      <main className="project-workspace" id="project-content" tabIndex={-1} data-chat-full={fullChat}>
+      <div className="main">
+        {dockAvailable && <div className="workspace-tools"><Button id="chat-dock-trigger" size="sm" variant="ghost"
+          aria-label={dockOpen ? "隐藏 AI 助手" : "打开 AI 助手"} aria-expanded={dockOpen}
+          onClick={() => { setChatMounted(true); setDockOpen(open => !open); }}><MessagesSquare aria-hidden="true" />AI 助手</Button></div>}
         <TaskPanel tasks={tasks.data ?? []} error={tasks.error} route={route} reload={tasks.reload} />
         {overview.error !== null && <div className="empty">读取失败：{overview.error}</div>}
-        {overview.data !== null && (
+        {overview.data !== null && !fullChat && (
           // 按路由重置：换一页就该重新试一次，否则一处出错会粘住整个会话。
           // 只包住内容区，导航栏留在外面 —— 出错时作者仍然走得掉。
           <ErrorBoundary key={route} onReset={refresh}>
+            <ProjectRefreshContext.Provider value={nonce}>
             <Routed
               route={route}
               overview={overview.data}
@@ -190,8 +210,18 @@ function ProjectApp({ projectId }: { projectId: string }): React.ReactElement {
               onPlanningAction={onPlanningAction}
               projectId={projectId}
             />
+            </ProjectRefreshContext.Provider>
           </ErrorBoundary>
         )}
+      </div>
+      {(chatMounted || fullChat) && <ErrorBoundary onReset={refresh}><Suspense fallback={<div role="status">正在打开对话…</div>}>
+        <Chat onJump={(chapter, quote) => { setDockOpen(window.innerWidth >= 1200); onJump(chapter, quote); }} refresh={refresh}
+          presentation={fullChat ? "full" : dockAvailable && dockOpen ? "dock" : "hidden"}
+          onClose={closeDock} onExpand={() => go("/chat")}
+          onOpenDraft={(chapter, id) => { setDockOpen(window.innerWidth >= 1200); go("/draft/" + chapter + "/" + id); }}
+          initialPrompt={chatQuery.get("prompt") ?? ""}
+          initialMode={requestedMode === "planning" || requestedMode === "normal" ? requestedMode : undefined} />
+      </Suspense></ErrorBoundary>}
       </main>
 
       {toast !== null && <div className="toast">{toast}</div>}
@@ -228,10 +258,6 @@ function RouteContent({ route, overview, onAction, onIgnore, onJump, refresh, ta
   const query = new URLSearchParams(search ?? "");
   if (path === "/plotboard") return <Suspense fallback={<div className="empty" role="status">正在打开剧情白板…</div>}><PlotBoard projectId={projectId} onJump={onJump} /></Suspense>;
 
-  if (path === "/chat") {
-    const mode = query.get("mode");
-    return <Chat onJump={onJump} refresh={refresh} initialPrompt={query.get("prompt") ?? ""} initialMode={mode === "planning" || mode === "normal" ? mode : undefined} />;
-  }
   if (path === "/preparation") {
     return <Preparation key={query.get("proposal") ?? "confirmed"} refresh={refresh} proposalId={query.get("proposal")} />;
   }

@@ -1,3 +1,6 @@
+import { Tabs } from "radix-ui";
+import { SelectableProse } from "../components/SelectableProse.js";
+import { PassageAssistant, type PassageRequest } from "../components/PassageAssistant.js";
 /**
  * 正文页 —— 「点击看原文」的落点（§12.9 M3）。
  *
@@ -29,7 +32,7 @@ export interface ReaderProps {
 
 export function Reader({ chapter, quote }: ReaderProps): React.ReactElement {
   const text = useFetch(() => api.chapter(chapter), [chapter]);
-  const health = useFetch(() => api.health(chapter).catch(() => null), [chapter]);
+  const health = useFetch(() => api.health(chapter), [chapter]);
   const list = useFetch(() => api.chapters(), []);
   const anchor = useFetch(
     () =>
@@ -42,6 +45,10 @@ export function Reader({ chapter, quote }: ReaderProps): React.ReactElement {
   const markRef = useRef<HTMLElement | null>(null);
   const scroller = useRef<HTMLDivElement | null>(null);
   const [progress, setProgress] = useState(0);
+  const [selection, setSelection] = useState<PassageRequest | null>(null);
+  const [panel, setPanel] = useState("assistant");
+  const [assisting, setAssisting] = useState(false);
+  const selectionId = useRef(0);
 
   useEffect(() => {
     markRef.current?.scrollIntoView({ block: "center" });
@@ -116,28 +123,27 @@ export function Reader({ chapter, quote }: ReaderProps): React.ReactElement {
 
       <div className="reader-body">
         <div className="reader-scroll" ref={scroller} onScroll={onScroll}>
-          <article className="prose">
-            {paragraphsOf(text.data.text, hit).map((p, i) => (
-              <p key={i}>
-                {p.map((seg, j) =>
-                  seg.marked ? (
-                    <mark key={j} ref={markRef}>
-                      {seg.text}
-                    </mark>
-                  ) : (
-                    <span key={j}>{seg.text}</span>
-                  ),
-                )}
-              </p>
-            ))}
+          <SelectableProse className="prose" text={text.data.text} hit={selection ? { offset: selection.start, length: selection.quote.length } : hit} markRef={markRef} disabled={assisting}
+            onSelect={(range, intent) => { setSelection({ ...range, intent, id: ++selectionId.current }); setPanel("assistant"); }}>
             <div className="reader-end">
               {next === undefined ? <span className="muted">已是最后一章</span> : <Button onClick={() => go(next.chapter)}>继续读第 {next.chapter} 章 →</Button>}
             </div>
-          </article>
+          </SelectableProse>
         </div>
 
-        <aside className="reader-side" aria-label="章节体检">
-          <Health health={health.data} />
+        <aside className="reader-side chapter-assistance" aria-label="章节辅助">
+          <Tabs.Root value={panel} onValueChange={setPanel} className="chapter-tabs-root">
+            <Tabs.List className="chapter-assistance-tabs" aria-label="章节辅助功能">
+              <Tabs.Trigger value="assistant">段落助手</Tabs.Trigger><Tabs.Trigger value="health">章节检查</Tabs.Trigger>
+            </Tabs.List>
+            <Tabs.Content value="assistant" forceMount hidden={panel !== "assistant"} className="chapter-assistant-panel">
+              <PassageAssistant source={{ chapter }} selection={selection} onClear={() => setSelection(null)} onBusy={setAssisting} />
+            </Tabs.Content>
+            <Tabs.Content value="health" forceMount hidden={panel !== "health"} className="chapter-health-panel">
+              <p className="chapter-check-intro">体检会检查疲劳词、感叹词、套话与重复结构；有计划和已确认结构记录时，再核对预算、事件密度与跨章关联。无需调用 AI，也不会修改正文。</p>
+              {health.loading ? <p role="status">正在读取章节检查…</p> : health.error ? <div role="alert"><p>检查暂时无法读取：{health.error}</p><Button onClick={health.reload}>重试检查</Button></div> : <Health health={health.data} />}
+            </Tabs.Content>
+          </Tabs.Root>
         </aside>
       </div>
     </div>
@@ -148,38 +154,35 @@ function Health({ health }: { health: HealthPayload | null }): React.ReactElemen
   if (health === null) {
     return (
       <>
-        <h2>体检</h2>
-        <p className="muted">这一章没有节拍表，无法体检。</p>
+        <h2>章节检查</h2>
+        <p className="muted">尚未读取到检查结果。</p>
       </>
     );
   }
 
-  const groups: readonly { title: string; findings: GateFinding[] }[] = [
-    { title: "节拍表（V2）", findings: health.plan },
-    { title: "章内（C6 代码通道）", findings: health.chapterGate?.findings ?? [] },
-    { title: "跨章（C6）", findings: health.crossChapter },
+  const groups: readonly { title: string; findings: GateFinding[]; unavailable: string | null; note?: string }[] = [
+    { title: "基础正文检查", findings: health.textGate?.findings ?? [], unavailable: health.textGate === null ? "尚无正文，暂不能进行文本检查。" : health.textGate.words === 0 ? "正文没有可计数的内容，暂不能评估文本质量。" : null },
+    { title: "章节计划与预算", findings: [...health.plan, ...(health.chapterGate?.findings.filter(finding => /^(word_count|density)_/.test(finding.rule)) ?? [])], unavailable: health.unavailable.plan,
+      ...(health.unavailable.density === null ? {} : { note: health.unavailable.density }) },
+    { title: "跨章关联检查", findings: health.crossChapter, unavailable: health.unavailable.crossChapter, note: "仅依据截至本章的已确认结构记录，不代表未记录的情节也已核对。" },
   ];
 
   return (
     <>
-      <h2>体检</h2>
-      {health.chapterGate !== null && (
+      <h2>章节检查</h2>
+      {health.textGate !== null && (
         <div className="reader-metrics">
-          <div><span>{health.chapterGate.words}</span><small>字（只计汉字与西文词）</small></div>
-          <div><span>{health.chapterGate.density.toFixed(2)}</span><small>加权事件密度 / 千字</small></div>
-          <p className="muted reader-thresholds">
-            {Object.entries(health.chapterGate.thresholds)
-              .map(([k, v]) => `${k} ≤ ${v}`)
-              .join("　")}
-          </p>
+          <div><span>{health.textGate.words}</span><small>字（只计汉字与西文词）</small></div>
+          {health.chapterGate?.density != null && <div><span>{health.chapterGate.density.toFixed(2)}</span><small>加权事件密度 / 千字</small></div>}
         </div>
       )}
 
       {groups.map((g) => (
         <div key={g.title} className="reader-group">
           <h3>{g.title}</h3>
-          {g.findings.length === 0 ? (
-            <p className="muted reader-none">无</p>
+          {g.note && <p className="muted">{g.note}</p>}
+          {g.unavailable !== null ? <p className="muted reader-none">暂不可检查：{g.unavailable}</p> : g.findings.length === 0 ? (
+            <p className="muted reader-none">本次已执行的规则未发现问题。</p>
           ) : (
             <div className="findings">
               {g.findings.map((f, i) => (
@@ -197,46 +200,4 @@ function Health({ health }: { health: HealthPayload | null }): React.ReactElemen
       ))}
     </>
   );
-}
-
-interface Segment {
-  text: string;
-  marked: boolean;
-}
-
-/**
- * 按段落切分，并把命中区间标出来。
- *
- * 段落切分要与后端的 `paragraphs()` 口径一致（按换行、去空段），否则 offset
- * 落在哪一段会算错。这里做法是先按 offset 切成三段再分段落 —— 避免自己去
- * 累加每段长度，那种算法在段落里含换行时容易差一个字符。
- */
-function paragraphsOf(text: string, hit: { offset: number; length: number } | null): Segment[][] {
-  if (hit === null || hit.offset < 0 || hit.offset + hit.length > text.length) {
-    return splitParagraphs(text).map((p) => [{ text: p, marked: false }]);
-  }
-
-  const before = text.slice(0, hit.offset);
-  const inside = text.slice(hit.offset, hit.offset + hit.length);
-  const after = text.slice(hit.offset + hit.length);
-
-  const out: Segment[][] = splitParagraphs(before).map((p) => [{ text: p, marked: false }]);
-  const tail = out.pop() ?? [];
-
-  // 命中段落 = before 的最后一段 + 命中文本 + after 的第一段。
-  const afterParas = splitParagraphs(after);
-  const [firstAfter, ...restAfter] = afterParas;
-
-  out.push([
-    ...tail,
-    { text: inside, marked: true },
-    ...(firstAfter === undefined ? [] : [{ text: firstAfter, marked: false }]),
-  ]);
-  for (const p of restAfter) out.push([{ text: p, marked: false }]);
-
-  return out;
-}
-
-function splitParagraphs(text: string): string[] {
-  return text.split("\n").filter((p) => p.trim() !== "");
 }

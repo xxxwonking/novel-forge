@@ -1,3 +1,4 @@
+import { DraftStore } from "../../src/task/draft-store.js";
 import { createServer, type Server } from "node:http";
 import { once } from "node:events";
 import type { AddressInfo } from "node:net";
@@ -7,11 +8,12 @@ import { join, resolve } from "node:path";
 import { serve } from "../../src/server/http.js";
 import { ProjectStore } from "../../src/store/persist.js";
 import { ProviderStore } from "../../src/client/providers.js";
-import { writingSnapshot } from "../writing-fixtures.js";
+import { writingSnapshot, savedDraft } from "../writing-fixtures.js";
 import { ConversationStore } from "../../src/agent/conversation-store.js";
-export async function chatFixture(options: { legacyFailure?: boolean } = {}) {
+export async function chatFixture(options: { legacyFailure?: boolean; holdResponse?: boolean; reply?: string; chapterBody?: string; draftBody?: string; toolCall?: { name: string; arguments: Record<string, unknown> } } = {}) {
   const root = mkdtempSync(join(tmpdir(), "nf-chat-browser-"));
-  new ProjectStore(join(root, "chat-book")).save(writingSnapshot());
+  new ProjectStore(join(root, "chat-book")).save({ ...writingSnapshot(), ...(options.chapterBody === undefined ? {} : { beats: [], chapters: new Map([[175, options.chapterBody]]) }) });
+  if (options.draftBody !== undefined) new DraftStore(join(root, "chat-book")).saveDraft(savedDraft({ body: options.draftBody }));
   if (options.legacyFailure)
     new ConversationStore(join(root, "chat-book")).appendExchange(
       { role: "user", text: "看看现在写到哪了", at: new Date().toISOString() },
@@ -21,6 +23,9 @@ export async function chatFixture(options: { legacyFailure?: boolean } = {}) {
         at: new Date().toISOString(),
       },
     );
+  let release = () => {};
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  if (!options.holdResponse) release();
   let calls = 0,
     failed = false;
   const upstream = createServer(async (req, res) => {
@@ -36,6 +41,7 @@ export async function chatFixture(options: { legacyFailure?: boolean } = {}) {
       res.end(JSON.stringify({ error: { message: "测试中转暂时不可达" } }));
       return;
     }
+    await gate;
     res.end(
       JSON.stringify({
         id: `reply-${calls}`,
@@ -44,9 +50,9 @@ export async function chatFixture(options: { legacyFailure?: boolean } = {}) {
           {
             message: {
               role: "assistant",
-              content: "模型已回复，计划仍由你确认。",
+              ...(options.toolCall && calls === 1 ? { content: null, tool_calls: [{ id: "test-tool-1", type: "function", function: { name: options.toolCall.name, arguments: JSON.stringify(options.toolCall.arguments) } }] } : { content: options.reply ?? "模型已回复，计划仍由你确认。" }),
             },
-            finish_reason: "stop",
+            finish_reason: options.toolCall && calls === 1 ? "tool_calls" : "stop",
           },
         ],
         usage: { prompt_tokens: 8, completion_tokens: 5 },
@@ -77,6 +83,7 @@ export async function chatFixture(options: { legacyFailure?: boolean } = {}) {
     endpoint,
     profile,
     calls: () => calls,
+    release,
     close: async () => {
       for (const s of [app, upstream]) {
         s.closeAllConnections();

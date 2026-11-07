@@ -23,7 +23,7 @@ export async function writeScenes(client: ModelClient, input: ChapterRunInput, c
   saved: DraftScenes | null, onProgress: (state: DraftScenes) => void, stop: () => boolean): Promise<WriteResult> {
   const req = assemble(input.assembleInput);
   const beat = input.assembleInput.volatile.beat;
-  if (beat.budget === null) return { kind: "failed", detail: "分场写章需要已派生的章节字数预算" };
+  if (beat === null || beat.budget === null) return { kind: "failed", detail: "分场写章需要已派生的章节字数预算" };
   const count = Math.max(2, Math.min(6, Math.ceil(beat.budget.words.sweet / 900)));
   let state = saved;
   if (state === null) {
