@@ -49,6 +49,9 @@ test("侧栏记录备选后资料页即时展示，编辑中的内容不被重�
     await page.getByRole("button", { name: "编辑基本设定与偏好", exact: true }).click();
     const title = page.getByRole("textbox", { name: "暂定书名", exact: true });
     await title.fill("尚未保存的书名");
+    await page.getByRole("group", { name: "资料分类" }).getByRole("button", { name: "人物档案", exact: true }).click();
+    await page.getByRole("group", { name: "资料分类" }).getByRole("button", { name: "基本设定", exact: true }).click();
+    await expect(title).toHaveValue("尚未保存的书名");
     await page.getByRole("button", { name: "打开 AI 助手", exact: true }).click();
     await page.getByRole("textbox", { name: "对话内容", exact: true }).fill("记为备选：让守夜人成为下一幕的视角人物");
     await page.getByRole("button", { name: "发送", exact: true }).click();

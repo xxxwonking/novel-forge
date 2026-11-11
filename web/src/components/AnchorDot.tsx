@@ -1,3 +1,4 @@
+import type { JumpToSource } from "../source-navigation.js";
 /**
  * 图上一个可点的点。
  *
@@ -18,7 +19,7 @@ export interface AnchorDotProps {
   r: number;
   fill: string;
   title: string;
-  onJump: (chapter: number, quote: string) => void;
+  onJump: JumpToSource;
 }
 
 export function AnchorDot({ point, x, y, r, fill, title, onJump }: AnchorDotProps): React.ReactElement {
@@ -28,17 +29,24 @@ export function AnchorDot({ point, x, y, r, fill, title, onJump }: AnchorDotProp
     : point.resolution.status === "shifted"
       ? `${title}\n（位置有变动，仍可定位）`
       : title;
+  const jump = (): void => onJump(point.chapter, point.anchor.quote, point.anchor);
 
   return (
     <circle
       className={stale ? undefined : "node"}
+      role={stale ? undefined : "button"}
+      tabIndex={stale ? undefined : 0}
+      aria-label={hint}
       cx={x}
       cy={y}
       r={r}
       fill={stale ? "var(--bg-raised)" : fill}
       stroke={stale ? "var(--ink-faint)" : "none"}
       strokeDasharray={stale ? "2 2" : undefined}
-      onClick={stale ? undefined : () => onJump(point.chapter, point.anchor.quote)}
+      onClick={stale ? undefined : jump}
+      onKeyDown={stale ? undefined : event => {
+        if (event.key === "Enter" || event.key === " ") { event.preventDefault(); jump(); }
+      }}
     >
       <title>{hint}</title>
     </circle>

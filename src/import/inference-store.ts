@@ -15,6 +15,13 @@ import type { ChapterNo, IsoTimestamp } from "../types/primitives.js";
 
 const FILE = "import-inference.json";
 
+export class InferenceReadError extends Error {
+  constructor(cause: unknown) {
+    super(`${FILE} 读取失败：${cause instanceof Error ? cause.message : String(cause)}`, { cause });
+    this.name = "InferenceReadError";
+  }
+}
+
 /**
  * 一章最后一次反推的结果。
  *
@@ -45,11 +52,11 @@ export class InferenceStore {
   constructor(private readonly root: string) {}
 
   load(): ReadonlyMap<ChapterNo, InferenceRun> {
-    const text = readProjectFile(this.root, FILE);
-    if (text === undefined) return new Map();
     try {
+      const text = readProjectFile(this.root, FILE);
+      if (text === undefined) return new Map();
       const raw = JSON.parse(text) as Partial<InferenceFile> | null;
-      if (raw === null || typeof raw.chapters !== "object" || raw.chapters === null) throw new Error("chapters 结构无效");
+      if (raw === null || typeof raw.chapters !== "object" || raw.chapters === null || Array.isArray(raw.chapters)) throw new Error("chapters 结构无效");
       const entries = Object.entries(raw.chapters).map(([key, value]) => {
         const chapter = Number(key);
         if (!Number.isSafeInteger(chapter) || chapter < 1 || !valid(value)) throw new Error(`第 ${key} 章的记录无效`);
@@ -57,7 +64,7 @@ export class InferenceStore {
       });
       return new Map(entries);
     } catch (error) {
-      throw new Error(`${FILE} 读取失败：${error instanceof Error ? error.message : String(error)}`, { cause: error });
+      throw new InferenceReadError(error);
     }
   }
 

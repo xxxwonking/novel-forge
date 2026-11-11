@@ -56,12 +56,22 @@
   ::selection { background: var(--ring); color: var(--background); }
 }
 
+/* 低优先级的文字链接兜底；页面导航、卡片与按钮继续使用各自组件样式。 */
+@layer layout {
+  :where(a[href]) { color: var(--link); text-decoration-line: underline; text-decoration-thickness: 1px; text-underline-offset: 4px; }
+  :where(a[href]:hover) { text-decoration-thickness: 2px; }
+  :where(a[href]:focus-visible) { outline: 2px solid var(--ring); outline-offset: 4px; border-radius: 2px; }
+}
+
 @layer components {
   .shell { grid-template-columns: 236px minmax(0, 1fr); }
   .app-rail { background: var(--card); border-right: 1px solid var(--border); overflow: auto; }
   .project-navigation { display: flex; min-height: 100%; flex-direction: column; padding: 16px 12px 20px; font-family: var(--ui-font); }
   .navigation-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 24px; }
   .theme-page-tools { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .empty-with-action { flex-direction: column; gap: 16px; padding: 32px 24px; }
+  .empty-with-action p { margin: 0; max-width: 60ch; line-height: 1.7; }
+  .empty-with-action [data-slot="button"] { max-width: 100%; height: auto; min-height: 36px; white-space: normal; }
   .library-mast { gap: 16px; }
   .library-mast .theme-trigger { margin-left: 0; }
   .navigation-title { margin: 0; padding: 0 10px; overflow-wrap: anywhere; font-size: 15px; line-height: 1.6; font-weight: 600; }

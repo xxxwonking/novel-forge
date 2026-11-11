@@ -12,9 +12,9 @@ import { PassageAssistant, type PassageRequest } from "../components/PassageAssi
  */
 
 import { useEffect, useRef, useState } from "react";
-import { Button, ChoiceSelect, HelpTooltip } from "../components/controls.js";
+import { ActionLink, Button, ChoiceSelect, HelpTooltip } from "../components/controls.js";
 import { ChevronLeft as LeftOutlined, ChevronRight as RightOutlined } from "lucide-react";
-import { api, type GateFinding, type HealthPayload } from "../api.js";
+import { api, type GateFinding, type HealthPayload, type TextAnchor } from "../api.js";
 import { useFetch } from "../hooks.js";
 
 const LEVEL_LABEL: Record<string, string> = {
@@ -26,20 +26,21 @@ const LEVEL_LABEL: Record<string, string> = {
 
 export interface ReaderProps {
   chapter: number;
-  quote: string | null;
+  source: TextAnchor | null;
   onJump: (chapter: number, quote: string) => void;
 }
 
-export function Reader({ chapter, quote }: ReaderProps): React.ReactElement {
+export function Reader({ chapter, source }: ReaderProps): React.ReactElement {
+  const quote = source?.quote ?? null;
   const text = useFetch(() => api.chapter(chapter), [chapter]);
   const health = useFetch(() => api.health(chapter), [chapter]);
   const list = useFetch(() => api.chapters(), []);
   const anchor = useFetch(
     () =>
-      quote === null
+      source === null
         ? Promise.resolve(null)
-        : api.anchor({ chapter, quote, offsetHint: 0, occurrence: 0 }),
-    [chapter, quote],
+        : api.anchor(source),
+    [chapter, quote, source?.offsetHint, source?.occurrence],
   );
 
   const markRef = useRef<HTMLElement | null>(null);
@@ -106,7 +107,7 @@ export function Reader({ chapter, quote }: ReaderProps): React.ReactElement {
           <HelpTooltip title={next === undefined ? "已是最后一章" : `第 ${next.chapter} 章`}>
             <Button variant="ghost" icon={<RightOutlined />} disabled={next === undefined} onClick={() => next && go(next.chapter)} aria-label="下一章" />
           </HelpTooltip>
-          <a className="export-link" href="#/export">导出作品</a>
+          <ActionLink href="#/export">导出作品</ActionLink>
         </div>
         <div className="reader-progress" aria-hidden="true"><i style={{ transform: `scaleX(${progress})` }} /></div>
       </div>

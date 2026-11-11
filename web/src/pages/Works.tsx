@@ -1,7 +1,7 @@
 import { ThemeSwitcher } from "../components/ThemeSwitcher.js";
 import { useRef, useState } from "react";
-import { Button, Disclosure, Input, NumberInput, DialogFrame, ConfirmAction, ChoiceSelect, InlineGroup, Textarea } from "../components/controls.js";
-import { ArrowRight as ArrowRightOutlined, Trash2 as DeleteOutlined, Download as DownloadOutlined, Import as ImportOutlined, RefreshCw as ReloadOutlined, Undo2 as UndoOutlined } from "lucide-react";
+import { ActionLink, Button, Disclosure, Input, NumberInput, DialogFrame, ConfirmAction, ChoiceSelect, InlineGroup, Textarea } from "../components/controls.js";
+import { ArrowRight as ArrowRightOutlined, Trash2 as DeleteOutlined, Download as DownloadOutlined, Import as ImportOutlined, RefreshCw as ReloadOutlined, Undo2 as UndoOutlined, Settings2 } from "lucide-react";
 import { api, workUrl, type RemovedWork, type WorkSummary } from "../api.js";
 import { useFetch } from "../hooks.js";
 import { GENRE_LABELS, PLATFORM_LABELS, genreLabel, toOptions } from "../labels.js";
@@ -112,10 +112,10 @@ export function Works(): React.ReactElement {
             <h1>每个故事，<em>从一个想法</em>开始。</h1>
             <p>与 Agent 一起搭建世界、推敲人物、逐章创作。每一次采用，都由你决定。</p>
           </header>
-          <div className="section-head">
+          <div className="section-head flex-wrap gap-3">
             <h2>我的作品 <span>{String(count).padStart(2, "0")}</span></h2>
             <InlineGroup>
-              <a href="#/providers">AI 供应商</a>
+              <ActionLink href="#/providers"><Settings2 aria-hidden="true" />AI 供应商</ActionLink>
               <Button variant="ghost" size="sm" icon={<ImportOutlined />} disabled={pending !== null || importing} onClick={() => { setImportError(null); setShelfError(null); setImportOpen(true); }}>导入备份</Button>
               <Button variant="ghost" size="sm" icon={<ReloadOutlined />} loading={workspace.loading && workspace.data !== null} onClick={workspace.reload}>刷新</Button>
             </InlineGroup>

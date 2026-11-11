@@ -18,6 +18,7 @@
 
 import type { ProjectSession } from "../server/state.js";
 import { ChapterWriteError } from "../server/chapter-input.js";
+import { countOccurrences } from "../text/measure.js";
 
 type Source = Pick<ProjectSession, "meta" | "chapterNumbers" | "chapterText" | "events">;
 
@@ -39,6 +40,7 @@ export interface SearchSnippet {
   readonly quote: string;
   /** 该片段在本章正文中的起始位置。 */
   readonly offset: number;
+  readonly occurrence: number;
 }
 
 export interface ChapterHit {
@@ -131,7 +133,8 @@ function snippetAt(text: string, offset: number, length: number): SearchSnippet 
   const tail = text.slice(offset + length, Math.min(text.length, offset + length + CONTEXT));
   const closed = SENTENCE_END.map((mark) => tail.indexOf(mark)).filter((index) => index >= 0);
   const end = closed.length > 0 ? offset + length + Math.min(...closed) + 1 : offset + length + tail.length;
-  return { quote: text.slice(start, end), offset: start };
+  const quote = text.slice(start, end);
+  return { quote, offset: start, occurrence: countOccurrences(text.slice(0, start), quote) };
 }
 
 /** 一个实体只给一行：命中多个字段时报第一个，免得一个人物刷屏。 */

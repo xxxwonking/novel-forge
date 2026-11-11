@@ -80,6 +80,7 @@ for (const section of ["preparation", "chapter/1"]) {
 test("人物弹窗的标题层级正确，手机保存按钮可见且关闭恢复焦点", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(route("preparation"));
+  await page.getByRole("group", { name: "资料分类" }).getByRole("button", { name: "人物档案", exact: true }).click();
   const edit = page.getByRole("button", { name: "编辑「李长风」", exact: true });
   await edit.click();
   const dialog = page.getByRole("dialog");

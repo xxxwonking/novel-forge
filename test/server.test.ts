@@ -7,7 +7,7 @@
  */
 
 import { afterEach, describe, expect, it } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { handle, type ApiRequest } from "../src/server/api.js";
@@ -184,6 +184,45 @@ function req(method: string, path: string, query = ""): ApiRequest {
 }
 
 // ── 只读 ────────────────────────────────────────────────────────────────
+
+describe("提示依据 API", () => {
+  it("提取进度文件损坏时仍返回提示，不能把未知覆盖当作零章", () => {
+    const root = seed();
+    const s = new ProjectSession(root, rules);
+    writeFileSync(join(root, "import-inference.json"), "invalid progress file");
+    const result = get(s, "/api/alerts");
+    expect(result.status).toBe(200);
+    expect(result.body.fullList.length).toBeGreaterThan(0);
+    expect(result.body.coverage).toBeNull();
+    expect(result.body.coverageError).toContain("结构提取进度");
+    expect(Object.values(result.body.evidence).every((e: any) => e.coverageKnown === false)).toBe(true);
+    expect(readFileSync(join(root, "import-inference.json"), "utf8")).toBe("invalid progress file");
+  });
+
+  it("辅助进度损坏不能把已保存的计划误报为失败", () => {
+    const root = seed();
+    const s = new ProjectSession(root, rules);
+    const alert = s.derived.selection.fullList.find(a => a.id === "foreshadow_overdue:F07")!;
+    const action = alert.actions.find(a => a.kind === "add_resolution_to_beat")!;
+    writeFileSync(join(root, "import-inference.json"), "invalid progress file");
+    const result = post(s, "/api/alerts/action", { alertId: alert.id, action });
+    expect(result.status).toBe(200);
+    expect(s.nextBeat?.plan.resolves.some(r => r.foreshadowId === "F07")).toBe(true);
+    expect(result.body.alerts.homepage.some((a: { id: string }) => a.id === alert.id)).toBe(false);
+    expect(get(s, "/api/alerts").body.coverage).toBeNull();
+  });
+
+  it("提供覆盖信息且不改变作者事实、计划或告警生命周期", () => {
+    const s = session();
+    const before = JSON.stringify({ events: s.events(), beats: s.meta.beats, selection: s.derived.selection });
+    const { status, body } = get(s, "/api/alerts");
+    expect(status).toBe(200);
+    expect(body.coverage.total).toBe(s.chapterNumbers().length);
+    expect(body.coverage.recorded + body.coverage.pending + body.coverage.unrecorded).toBe(body.coverage.total);
+    expect(Object.keys(body.evidence)).toEqual(expect.arrayContaining(body.fullList.map((a: { id: string }) => a.id)));
+    expect(JSON.stringify({ events: s.events(), beats: s.meta.beats, selection: s.derived.selection })).toBe(before);
+  });
+});
 
 describe("剧情白板 API", () => {
   it("提供已确认事实与未来计划，读取不改变正式事件或章计划", () => {

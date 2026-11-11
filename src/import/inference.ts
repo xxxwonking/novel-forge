@@ -78,7 +78,15 @@ export class InferenceService {
 
   view(): InferenceView {
     const runs = this.runs.load();
-    const chapters = this.deps.source.chapterNumbers().map((chapter) => this.chapterView(chapter, runs.get(chapter)));
+    // 每次请求重建索引，避免逐章扫描全书；不跨请求缓存，以免隐藏新确认的事实。
+    const eventsByChapter = new Map<ChapterNo, StructuralEvent[]>();
+    for (const event of this.deps.source.events()) {
+      const chapter = event.envelope.chapter;
+      const bucket = eventsByChapter.get(chapter);
+      if (bucket) bucket.push(event);
+      else eventsByChapter.set(chapter, [event]);
+    }
+    const chapters = this.deps.source.chapterNumbers().map((chapter) => this.chapterView(chapter, runs.get(chapter), eventsByChapter.get(chapter) ?? []));
     const first = chapters.find((c) => c.state === "none");
     const blocking = chapters.find((c) => c.state === "problem" || c.state === "failed");
     return {
@@ -294,9 +302,9 @@ export class InferenceService {
     return this.deps.source.events().filter((e) => e.envelope.origin === ORIGIN);
   }
 
-  private chapterView(chapter: ChapterNo, run: InferenceRun | undefined): InferenceChapterView {
+  private chapterView(chapter: ChapterNo, run: InferenceRun | undefined, chapterEvents?: readonly StructuralEvent[]): InferenceChapterView {
     const text = this.deps.source.chapterText(chapter) ?? "";
-    const events = this.deps.source.events().filter((e) => e.envelope.chapter === chapter);
+    const events = chapterEvents ?? this.deps.source.events().filter((e) => e.envelope.chapter === chapter);
     // 「已有正式结构」指写章或手工标注留下的声明。扫正文得出的出场（text_scan）不算：
     // 它在确认人物时就会给几乎每一章落一条 committed，算进来的话导入的旧稿整本都成了
     // 「已有记录」，逐章反推一章也开不了（与 import/service.ts 的覆盖判据同一口径）。

@@ -1,0 +1,25 @@
+@layer components {
+  .alert-coverage { padding: 24px 0; border-block: 1px solid var(--border); }
+  .alert-coverage h2 { margin: 0 0 12px; font-size: 18px; }
+  .alert-coverage p { max-width: 72ch; line-height: 1.75; }
+  .alert-coverage .row { margin-top: 18px; }
+  .alert-filters { display: flex; flex-wrap: wrap; gap: 8px; margin: 24px 0 32px; }
+  .alert-review-group { margin-block: 32px; }
+  .alert-review-group > .muted { max-width: 72ch; line-height: 1.7; margin-bottom: 20px; }
+  .alert-subject { display: grid; gap: 14px; min-width: 0; }
+  .alert-guidance { padding-top: 4px; margin-bottom: 14px; }
+  .alert-guidance p { color: var(--muted-foreground); line-height: 1.7; font-size: 13px; margin: 0 0 12px; max-width: 72ch; }
+  .alert-guidance a + a { margin-left: 10px; }
+  .alert-evidence { margin: 12px 0 20px; font-size: 13px; line-height: 1.7; color: var(--muted-foreground); }
+  .alert-evidence summary, .alert-history > summary { cursor: pointer; color: var(--foreground); padding: 8px 0; }
+  .alert-evidence summary:focus-visible, .alert-history > summary:focus-visible { outline: 2px solid var(--ring); outline-offset: 4px; }
+  .alert-evidence blockquote { margin: 14px 0; padding: 0 16px; border-left: 1px solid var(--border); color: var(--foreground); white-space: pre-wrap; overflow-wrap: anywhere; }
+  .alert-history { border-top: 1px solid var(--border); padding: 18px 0; margin-top: 24px; }
+  .alert-suppressed { list-style: none; padding: 0; }
+  .alert-suppressed li { padding: 20px 0; border-bottom: 1px solid var(--border); }
+  @media (max-width: 720px) {
+    .alert-evidence summary, .alert-history > summary { min-height: 44px; box-sizing: border-box; }
+    .alert-filters button { white-space: normal; height: auto; }
+    .alert-guidance a { height: auto; white-space: normal; margin-bottom: 8px; }
+  }
+}

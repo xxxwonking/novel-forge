@@ -48,6 +48,17 @@ test("供应商页面可编辑保留密钥、测试连接、切换默认并支�
     await expect(
       page.getByRole("region", { name: "Gemini测试", exact: true }),
     ).toContainText("当前默认");
+    const removable = page.getByRole("region", { name: "已编辑供应商", exact: true });
+    await removable.getByRole("button", { name: "删除", exact: true }).click();
+    const confirm = page.getByRole("alertdialog");
+    const deletion = confirm.getByRole("button", { name: "删除供应商", exact: true });
+    await expect(deletion).toHaveAttribute("data-variant", "destructive");
+    await confirm.evaluate(async element => {
+      await Promise.all(element.getAnimations({ subtree: true }).map(animation => animation.finished.catch(() => {})));
+    });
+    expect((await new AxeBuilder({ page }).include('[role="alertdialog"]').analyze()).violations).toEqual([]);
+    await confirm.getByRole("button", { name: "取消", exact: true }).click();
+    await expect(removable).toBeVisible();
     await page.setViewportSize({ width: 390, height: 844 });
     expect(
       await page.evaluate(

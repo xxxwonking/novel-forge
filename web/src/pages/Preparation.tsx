@@ -1,13 +1,14 @@
+import { PREPARATION_SECTIONS, type PreparationSection } from "../preparation-browse.js";
+import { PreparationContentView } from "../components/PreparationContentView.js";
+import "../styles/preparation.css";
 import { FullTextCharacters } from "../components/FullTextCharacters.js";
-import { OutlineNodes } from "../components/OutlineNodes.js";
 import { useRef, useState } from "react";
-import { Button, Input, Textarea } from "../components/controls.js";
+import { ActionLink, Button, Input, Textarea } from "../components/controls.js";
 import { readTextFile } from "../files.js";
 import { Chip } from "../components/Chip.js";
 import { BeatEditor, CharacterEditor, DraftDialog, PlotLineEditor, SettingEditor, VolumeEditor, type Editing } from "../components/PreparationEditors.js";
 import { ImportChapters } from "../components/ImportChapters.js";
 import { InferenceChooser } from "../components/InferenceChooser.js";
-import { ReviewSettings } from "../components/ReviewSettings.js";
 import { WorkStatus } from "../components/WorkStatus.js";
 import { SceneWritingSettings, initialSceneWriting, sceneWritingOptions } from "../components/SceneWritingSettings.js";
 import { api, type CharacterRecord, type DraftFocus, type ForeshadowClaim, type PreparationContent, type PreparationPayload, type PreparationProposal, type SettingInput, type PlotLineInput, type VolumeCard } from "../api.js";
@@ -23,6 +24,8 @@ export function Preparation({ refresh, proposalId }: { refresh: () => void; prop
   const isCurrent = useRouteActive();
   const data = useFetch(() => api.preparation(), []);
   const [selected, setSelected] = useState<string | null>(proposalId);
+  const [section, setSection] = useState<PreparationSection>("basics");
+  const [showHistory, setShowHistory] = useState(false);
   const [editing, setEditing] = useState(false);
   const [entity, setEntity] = useState<Editing | null>(null);
   const [drafting, setDrafting] = useState<DraftFocus | null>(null);
@@ -38,6 +41,8 @@ export function Preparation({ refresh, proposalId }: { refresh: () => void; prop
   if (data.data === null) return <div className="empty">{data.error ?? "读取作品资料…"} <Button size="sm" onClick={data.reload}>重新读取</Button></div>;
   const view = data.data;
   const candidate = view.proposals.find((p) => p.id === selected);
+  const pending = view.proposals.filter(p => p.status === "proposed");
+  const history = view.proposals.filter(p => p.status !== "proposed");
 
   /** 手改与基本设定表单共用的落点：无影响直接生效，触及已采用正文则留下来让作者处理。 */
   const saved = (proposal: PreparationProposal): void => {
@@ -113,32 +118,44 @@ export function Preparation({ refresh, proposalId }: { refresh: () => void; prop
 
   return <>
     <div className="page-head"><h1>作品资料</h1><p>从一句想法到人物、世界与章计划。让 AI 先起草，你只核对与改动 —— 不确定的地方不必自己编。</p></div>
-    <SceneWritingSettings value={sceneForm} onChange={setSceneForm} disabled={busy} />
-    <section className="prep-section" aria-label="已导入资料"><div className="section-head"><h2>已导入资料 <small>{view.materials.length}</small></h2><div className="row"><Button disabled={view.materials.length===0} onClick={()=>setDrafting("materials")}>整理人物与剧情资料</Button><Button disabled={view.materials.length===0} onClick={()=>setDrafting("outline")}>从大纲生成剧情节点</Button></div></div>
-      {view.materials.length===0?<p className="muted">整项目导入时，大纲、人物档案与设定会保存到这里，也可继续单独导入人物档案。</p>:<ul className="materials-list">{view.materials.map(m=><li key={m.file}><strong>{m.name}</strong><span className="muted"> · {{characters:"人物档案",outline:"大纲／简介",setting:"设定",material:"资料"}[m.kind]??"资料"} · {m.words.toLocaleString()} 字</span></li>)}</ul>}
-      {(view.materialWarnings??[]).map(w=><p key={w} role="status" className="finding" data-level="warn">{w}</p>)}
-    </section>
-    <FullTextCharacters known={view.confirmed.characters} onProposed={proposal => { setSelected(proposal.id); data.reload(); refresh(); }} />
     <div className="prep-readiness">
       <div><strong>{view.readiness.ready ? `第 ${view.nextChapter} 章资料已就绪` : "继续准备你的故事"}</strong><p>{view.readiness.ready ? "可以按当前计划创作，结果将作为待采用稿交付。" : `还需要：${view.readiness.missing.join("、")}。`}</p></div>
-      <a className="prep-link" href={discuss(planPrompt)}>到对话整理方案 →</a>
+      <ActionLink href={discuss(planPrompt)}>到对话整理方案 →</ActionLink>
     </div>
-    <p className="muted">本次写章包含一份初稿，按需自动修订最多 {view.taskPolicy.autoRevisionLimit} 次，模型用量随任务显示。离开页面后服务继续执行，结果等待你采用。</p>
     {(error ?? data.error) !== null && <div className="finding" role="alert" data-level="block">{error ?? data.error}</div>}
     {notice !== null && <p className="prep-notice" role="status">{notice}</p>}
     <div className="prep-tabs" role="group" aria-label="资料视图">
       <Button variant={selected === null ? "default" : "outline"} onClick={() => { setSelected(null); setEditing(false); }}>已指定 / 已确认</Button>
-      <span className="muted">{view.proposals.filter((p) => p.status === "proposed").length} 份方案等待处理</span>
+      {pending.length > 0 && <Button onClick={() => setSelected(pending[0]!.id)}>查看待确认方案（{pending.length}）</Button>}
     </div>
     <div className="prep-layout">
       <div className="prep-main">
         {candidate === undefined ? <>
-          <div className="section-head"><h2>当前创作依据</h2><div className="row"><Button variant="default" onClick={() => setDrafting("full")}>让 AI 起草资料</Button><Button onClick={() => setDrafting("chapters")}>让 AI 排后面几章</Button><Button onClick={() => setImporting(true)}>导入已有正文</Button><Button onClick={() => setChoosing(true)}>反推故事结构</Button><Button onClick={() => setEditing(!editing)}>{editing ? "返回资料" : "编辑基本设定与偏好"}</Button></div></div>
+          <div className="prep-section-nav" role="group" aria-label="资料分类">{PREPARATION_SECTIONS.map(item => <Button key={item.key} aria-pressed={section === item.key} variant={section === item.key ? "secondary" : "ghost"} onClick={() => setSection(item.key)}>{item.label}</Button>)}</div>
+          <div hidden={section !== "basics"} className="prep-section-intro"><h2>基本设定与偏好</h2><p className="muted">确定故事的方向、世界规则和写作偏好。</p><div className="row"><Button variant="default" onClick={() => setDrafting("full")}>让 AI 起草资料</Button><Button onClick={() => setEditing(!editing)}>{editing ? "返回资料" : "编辑基本设定与偏好"}</Button></div></div>
+          <div hidden={section !== "characters"} className="prep-section-intro"><p className="muted">按姓名、别名或身份查找角色，再补充档案和说话方式。</p></div>
+          <div hidden={section !== "plans"} className="prep-section-intro"><h2>剧情计划</h2><p className="muted">从情节方向到分卷、章节和未来伏笔，安排接下来要写的内容。</p><Button variant="default" onClick={() => setDrafting("chapters")}>让 AI 排后面几章</Button></div>
+          <div hidden={section !== "materials"} className="prep-section-intro"><h2>资料导入</h2><p className="muted">导入已有正文，或整理大纲、人物档案与设定。AI 整理的结果需要你确认。</p><div className="row"><Button onClick={() => setImporting(true)}>导入已有正文</Button><Button onClick={() => setChoosing(true)}>反推故事结构</Button></div></div>
           <input type="file" accept=".txt,.md,text/plain" multiple ref={profilePicker} style={{ display: "none" }}
             onChange={(e) => { void importProfile(e.target.files); e.target.value = ""; }} />
-          {editing ? <AuthorForm view={view} onSaved={saved} /> : <Content content={view.confirmed} onEdit={setEntity} onDraft={setDrafting} onImport={() => profilePicker.current?.click()} importing={importingProfile} />}
+          <div hidden={section !== "basics"}>{editing && <AuthorForm view={view} onSaved={saved} />}</div>
+          <div hidden={editing && section === "basics"}><PreparationContentView content={view.confirmed} section={section} onEdit={setEntity} onDraft={setDrafting} onImport={() => profilePicker.current?.click()} importing={importingProfile} /></div>
+          <div hidden={section !== "characters"}>
+            <FullTextCharacters known={view.confirmed.characters} onProposed={proposal => { setSelected(proposal.id); data.reload(); refresh(); }} />
+          </div>
+          <div hidden={section !== "materials"}>
+            <section className="prep-section" aria-label="已导入资料"><div className="section-head"><h2>已导入资料 <small>{view.materials.length}</small></h2><div className="row"><Button disabled={view.materials.length===0} onClick={()=>setDrafting("materials")}>整理人物与剧情资料</Button><Button disabled={view.materials.length===0} onClick={()=>setDrafting("outline")}>从大纲生成剧情节点</Button></div></div>
+      {view.materials.length===0?<p className="muted">整项目导入时，大纲、人物档案与设定会保存到这里，也可继续单独导入人物档案。</p>:<ul className="materials-list">{view.materials.map(m=><li key={m.file}><strong>{m.name}</strong><span className="muted"> · {{characters:"人物档案",outline:"大纲／简介",setting:"设定",material:"资料"}[m.kind]??"资料"} · {m.words.toLocaleString()} 字</span></li>)}</ul>}
+      {(view.materialWarnings??[]).map(w=><p key={w} role="status" className="finding" data-level="warn">{w}</p>)}
+            </section>
+          </div>
+          <div hidden={section !== "plans"}>
+            <SceneWritingSettings value={sceneForm} onChange={setSceneForm} disabled={busy} />
+    <p className="muted">本次写章包含一份初稿，按需自动修订最多 {view.taskPolicy.autoRevisionLimit} 次，模型用量随任务显示。离开页面后服务继续执行，结果等待你采用。</p>
+
           <section className="prep-section"><div className="section-head"><h2>未来伏笔计划</h2><Button size="sm" variant="default"  onClick={() => setDrafting("foreshadows")}>从资料反推伏笔</Button></div><p className="muted">这些安排已确认，尚未写成正文中的埋设或兑现。</p><WorkStatus onChanged={refresh} />{view.plannedForeshadows.length === 0 ? <p className="muted">还没有独立的未来伏笔规划。有大纲或简介，就让 AI 从里面认出你已经安排好的伏笔供你核对 —— 确认后它们会以虚线出现在伏笔时间线上。</p> : view.plannedForeshadows.map(plan => <div className="draft-change" key={plan.id}><strong>{plan.label}</strong><p>{plan.intent}</p><small>预期第 {plan.expectedBy} 章前兑现 · 尚未埋设</small></div>)}</section>
-          <section className="prep-section"><h2>备选想法</h2>{view.ideas.length === 0 ? <p className="muted">暂时没有记录。可以在对话中说“把这个想法记为备选”。</p> : <ul>{view.ideas.map((idea) => <li key={idea.id}>{idea.text}</li>)}</ul>}</section>
+          </div>
+          <div hidden={section !== "basics"}><section className="prep-section"><h2>备选想法</h2>{view.ideas.length === 0 ? <p className="muted">暂时没有记录。可以在对话中说“把这个想法记为备选”。</p> : <ul>{view.ideas.map((idea) => <li key={idea.id}>{idea.text}</li>)}</ul>}</section></div>
         </> : <>
           <div className="prep-proposal-head"><Chip color={candidate.stale ? "orange" : "cyan"}>{status(candidate)}</Chip><h2>{candidate.summary}</h2><p className="muted">{candidate.source === "author" ? "作者指定的修改" : "Agent 提出的建议"} · {new Date(candidate.createdAt).toLocaleString("zh-CN")}</p></div>
           {candidate.stale && <p className="finding" data-level="warn">这份方案依据的资料已改变。请回到对话重新整理，避免覆盖你的新选择。</p>}
@@ -147,14 +164,22 @@ export function Preparation({ refresh, proposalId }: { refresh: () => void; prop
           <ForeshadowList foreshadows={candidate.changes.foreshadows} />
           {candidate.impacts.map((impact, index) => <div key={index} className="finding" data-level="warn"><strong>{impact.message}</strong><div>{impact.chapters.map((n) => <a key={n} href={`#/chapter/${n}`}>第 {n} 章　</a>)}</div><p>先形成相应章节的候选修改，再核对这些设定。</p></div>)}
           {candidate.findings.map((finding, index) => <div key={index} className="finding" data-level={finding.level}>{finding.message}</div>)}
+          {candidate.status === "proposed" && <SceneWritingSettings value={sceneForm} onChange={setSceneForm} disabled={busy} />}
           {candidate.status === "proposed" && <div className="prep-proposal-actions">
             <div className="row"><Button variant="default" disabled={busy || candidate.stale || candidate.impacts.length > 0} onClick={() => void act(candidate, "write")}>确认并写第 {view.nextChapter} 章</Button><Button disabled={busy || candidate.stale || candidate.impacts.length > 0} onClick={() => void act(candidate, "confirm")}>只确认方案</Button><Button disabled={busy || candidate.stale || candidate.impacts.length > 0} onClick={() => void act(candidate, "trial")}>按方案先试写</Button><Button variant="ghost" disabled={busy} onClick={() => void act(candidate, "reject")}>丢弃</Button></div>
             <p className="muted">试写会把这份方案附在草稿上；采用章节时，再一并确认这些依赖。</p>
           </div>}
-          <p className="muted">以下为该方案保存时的完整预览。</p><Content content={candidate.content} expanded />
+          <p className="muted">以下为该方案保存时的完整预览。</p><PreparationContentView content={candidate.content} expanded />
         </>}
       </div>
-      <aside className="prep-sidebar" aria-label="方案记录"><h2>方案记录</h2>{view.proposals.length === 0 ? <p className="muted">还没有方案。先和 Agent 聊聊想写的故事。</p> : view.proposals.map((p) => <Button className="prep-proposal-item mt-3 grid h-auto w-full min-w-0 grid-cols-1 justify-items-start whitespace-normal p-3.5 text-left" data-selected={p.id === selected} key={p.id} onClick={() => { setSelected(p.id); setEditing(false); }}><Chip>{status(p)}</Chip><strong>{p.summary}</strong><small>{new Date(p.createdAt).toLocaleDateString("zh-CN")}</small></Button>)}</aside>
+      <aside className="prep-sidebar" aria-label="方案记录">
+        <h2>待确认方案 <small>{pending.length}</small></h2>
+        <p className="muted">先核对改动与影响，确认后才更新创作依据。</p>
+        {pending.length === 0 && <p className="muted">没有待确认方案。</p>}
+        {pending.map(p => <ProposalButton key={p.id} proposal={p} selected={selected === p.id} onClick={() => { setSelected(p.id); setEditing(false); }} />)}
+        <Button className="mt-6" variant="ghost" aria-expanded={showHistory} onClick={() => setShowHistory(!showHistory)}>{showHistory ? "收起" : "查看"}历史方案（{history.length}）</Button>
+        {showHistory && history.map(p => <ProposalButton key={p.id} proposal={p} selected={selected === p.id} onClick={() => { setSelected(p.id); setEditing(false); }} />)}
+      </aside>
     </div>
     {entity?.kind === "character" && <CharacterEditor base={entity.base as CharacterRecord | null} characters={view.confirmed.characters} fingerprint={view.fingerprint} onSaved={saved} onClose={() => setEntity(null)} />}
     {entity?.kind === "setting" && <SettingEditor base={entity.base as SettingInput | null} fingerprint={view.fingerprint} onSaved={saved} onClose={() => setEntity(null)} />}
@@ -183,6 +208,10 @@ export function Preparation({ refresh, proposalId }: { refresh: () => void; prop
     }} />}
     {entity?.kind === "beat" && <BeatEditor base={entity.base as never} chapter={nextPlanChapter(view.nextChapter, view.confirmed.beats)} characters={view.confirmed.characters} settings={view.confirmed.settings} plotLines={view.confirmed.plotLines} fingerprint={view.fingerprint} onSaved={saved} onClose={() => setEntity(null)} />}
   </>;
+}
+
+function ProposalButton({ proposal, selected, onClick }: { proposal: PreparationProposal; selected: boolean; onClick: () => void }): React.ReactElement {
+  return <Button className="prep-proposal-item mt-3 grid h-auto w-full min-w-0 grid-cols-1 justify-items-start whitespace-normal p-3.5 text-left" data-selected={selected} aria-pressed={selected} onClick={onClick}><Chip>{status(proposal)}</Chip><strong>{proposal.summary}</strong><small>{new Date(proposal.createdAt).toLocaleDateString("zh-CN")}</small></Button>;
 }
 
 function AuthorForm({ view, onSaved }: { view: PreparationPayload; onSaved: (proposal: PreparationProposal) => void }): React.ReactElement {
@@ -258,47 +287,3 @@ function ForeshadowList({ foreshadows }: { foreshadows: readonly ForeshadowClaim
 }
 
 /** 只读资料视图。传入 `onEdit` 时才出现手改入口 —— 方案预览复用本组件，那里不能编辑。 */
-function Content({ content, onEdit, onDraft, onImport, importing, expanded }: { content: PreparationContent; onEdit?: (editing: Editing) => void; onDraft?: (focus: DraftFocus) => void; onImport?: () => void; importing?: boolean; expanded?: boolean }): React.ReactElement {
-  const s = content.setting;
-  const add = (kind: Editing["kind"], label: string): React.ReactElement | null => onEdit === undefined ? null : <Button size="sm" onClick={() => onEdit({ kind, base: null })}>{label}</Button>;
-  // 起草是主路径，手改是纠正路径 —— 按钮的视觉权重按这个顺序排。
-  const draft = (label: string, focus: DraftFocus): React.ReactElement | null => onDraft === undefined ? null : <Button size="sm" variant="default"  onClick={() => onDraft(focus)}>{label}</Button>;
-  const edit = (kind: Editing["kind"], base: unknown, name: string): React.ReactElement | null => onEdit === undefined ? null : <Button size="sm" variant="ghost" onClick={() => onEdit({ kind, base })}>编辑{name}</Button>;
-  return <>
-    <section className="prep-section"><h2>{s.title}</h2><dl className="prep-facts">{([
-      ["故事想法", s.premise], ["核心冲突", s.centralConflict], ["故事起点", s.openingSituation], ["主角特征", s.protagonistTraits], ["行为边界", s.protagonistForbidden],
-      ["特殊能力", s.specialAbility], ["能力限制", s.abilityLimits], ["世界规则", s.worldRules], ["感情线", s.romanceLine], ["风格", s.styleKeywords], ["不写的内容", s.taboos],
-    ] as [string, string | string[]][]).map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{(Array.isArray(value) ? value.join("；") : value) || <span className="muted">尚未指定</span>}</dd></div>)}</dl></section>
-    <section className="prep-section"><div className="section-head"><h2>人物档案 <small>{content.characters.length}</small></h2><div className="row">{onImport === undefined ? null : <Button size="sm" loading={importing === true} onClick={onImport}>导入人物档案</Button>}{draft("让 AI 起草人物", "characters")}{add("character", "手工补一个")}</div></div>{content.characters.length === 0 && <p className="muted">还没有人物档案。有现成的角色档案就导进来 —— 上传后会读它并整理出人物供你核对；也可以让 Agent 从正文起草，或直接手填。</p>}<div className="prep-card-grid">{content.characters.map((c) => <article className="prep-character" key={c.id}><div className="row"><h3>{c.name}</h3><Chip>{c.provenance === "proposed" ? "建议" : c.tier === "protagonist" ? "主角" : "已确认"}</Chip></div><p>{c.profile.role}</p><p className="muted">{c.profile.traits.join(" · ")}</p><dl className="prep-facts"><div><dt>想要什么</dt><dd>{c.profile.wants || "尚未指定"}</dd></div><div><dt>害怕什么</dt><dd>{c.profile.fears || "尚未指定"}</dd></div><div><dt>背景</dt><dd>{c.profile.background || "尚未指定"}</dd></div></dl><details open={expanded === true}><summary>外貌与说话方式</summary><p>{c.profile.appearance.map((a) => `${a.key}：${a.value}`).join("；")}</p>{c.speech.exemplars.map((line, i) => <blockquote key={i}>{line}</blockquote>)}{c.speech.forbiddenLexicon.length > 0 && <p>不使用：{c.speech.forbiddenLexicon.join("、")}</p>}</details>{edit("character", c, `「${c.name}」`)}</article>)}</div></section>
-    <section className="prep-section"><div className="section-head"><h2>地点与组织</h2>{add("setting", "新增地点／组织")}</div>{content.settings.length === 0 && <p className="muted">还没有地点或组织设定。</p>}{content.settings.map((place) => <article className="prep-place" key={place.id}><div className="row"><h3>{place.name} <span className="muted">{place.kind === "organization" ? "组织" : "地点"}</span></h3>{edit("setting", place, "设定")}</div><p>{place.description}</p>{place.facts.length > 0 && <ul>{place.facts.map((fact, i) => <li key={i}>{fact}</li>)}</ul>}</article>)}</section>
-    <section className="prep-section"><div className="section-head"><h2>情节方向</h2><div className="row">{draft("从资料识别情节线", "plotlines")}{add("plotLine", "新增情节线")}</div></div>{content.plotLines.length === 0 ? <p className="muted">还没有情节线规划。有大纲或简介，就让 AI 从里面认出主线与支线供你核对；也可以直接手填。</p> : <ul>{content.plotLines.map((line) => <li key={line.id}><Chip>{line.weight === "main" ? "主线" : line.weight === "sub" ? "支线" : "细节"}</Chip> {line.label}{edit("plotLine", line, "情节线")}</li>)}</ul>}</section>
-    <OutlineNodes nodes={content.outlineNodes??[]} lines={content.plotLines}/>
-    <section className="prep-section"><div className="section-head"><h2>卷</h2>{add("volume", "新增一卷")}</div>
-      <p className="muted">卷纲会顶替这几章的逐章梗概进入模型上下文 —— 章数一多，它是唯一能把远处的篇幅压下去的东西。哪几章属于哪一卷由下面章节计划的卷号决定。</p>
-      {(() => {
-        const spans = new Map<number, number[]>();
-        for (const beat of content.beats) spans.set(beat.volume, [...(spans.get(beat.volume) ?? []), beat.chapter]);
-        const volumes = [...new Set([...spans.keys(), ...content.volumes.map((v) => v.volume)])].sort((a, b) => a - b);
-        if (volumes.length === 0) return <p className="muted">还没有章节计划，也就还没有卷。</p>;
-        return volumes.map((volume) => {
-          const card = content.volumes.find((v) => v.volume === volume) ?? null;
-          const chapters = spans.get(volume) ?? [];
-          const range = chapters.length === 0 ? "还没有章节" : `第 ${Math.min(...chapters)}–${Math.max(...chapters)} 章`;
-          return <article className="prep-beat" key={volume}>
-            <div className="row"><h3>卷 {volume}{card?.title ? `·${card.title}` : ""}</h3>
-              <Chip>{card?.summary.trim() ? "有卷纲" : "缺卷纲"}</Chip>
-              <span className="muted">{range}{chapters.length > 0 ? ` · ${chapters.length} 章` : ""}</span>
-              <span className="push-right">{edit("volume", card ?? { volume, title: "", summary: "", updatedAt: "" }, "这一卷")}</span></div>
-            {card?.summary.trim()
-              ? <p>{card.summary}</p>
-              : <p className="muted">还没写卷纲。写完这一卷之后补上，前面这几章在上下文里就能压成一句话。</p>}
-          </article>;
-        });
-      })()}
-    </section>
-    <section className="prep-section"><div className="section-head"><h2>章节计划</h2>{add("beat", "新增章计划")}</div>{content.beats.length === 0 && <p className="muted">还没有章节计划。先明确这一章的目标、冲突和结束位置。</p>}{content.beats.map((beat) => <article className="prep-beat" key={beat.chapter}><div className="row"><h3>第 {beat.chapter} 章</h3><Chip>{beat.provenance === "proposed" ? "建议计划" : "已确认计划"}</Chip>{beat.budget && <span className="muted">{beat.budget.words.min}–{beat.budget.words.max} 字</span>}<span className="push-right">{edit("beat", beat, "计划")}</span></div><strong>{beat.plan.coreEvent}</strong><dl className="prep-facts"><div><dt>本章兑现</dt><dd>{beat.plan.stageFeedback}</dd></div><div><dt>结束位置</dt><dd>{beat.plan.hook}</dd></div><div><dt>出场人物</dt><dd>{beat.plan.characters.map((id) => content.characters.find((c) => c.id === id)?.name ?? id).join("、")}</dd></div><div><dt>地点</dt><dd>{beat.plan.locations.map((id) => content.settings.find((s) => s.id === id)?.name ?? id).join("、")}</dd></div>{beat.plan.secondaryThread && <div><dt>次级推进</dt><dd>{beat.plan.secondaryThread}</dd></div>}</dl>{beat.plan.resolves.length > 0 && <p>计划兑现：{beat.plan.resolves.map((r) => `${r.foreshadowId}（${r.completeness === "partial" ? "部分" : "完整"}）`).join("、")}</p>}</article>)}</section>
-    <section className="prep-section"><h2>写作规则与偏好</h2><ul>{content.discipline.rules.map((rule, i) => <li key={i}>{rule}</li>)}</ul></section>
-    {/* 方案预览里不显示 —— 它是这本书的设置，不属于某一份候选资料。 */}
-    {onEdit !== undefined && <ReviewSettings />}
-  </>;
-}

@@ -41,6 +41,7 @@ test("手机全文识别显示实际进度、原文出处，选择后只生成�
     return r.fulfill({ json: { id: "new-candidate" } });
   });
   await page.goto("/?work=browser-fixture#/preparation");
+  await page.getByRole("group", { name: "资料分类" }).getByRole("button", { name: "人物档案", exact: true }).click();
   await page
     .getByRole("button", { name: "阅读全文识别人物", exact: true })
     .click();

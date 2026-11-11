@@ -19,13 +19,22 @@ export { Input } from "./ui/input.js";
 export { Textarea } from "./ui/textarea.js";
 export { Chip as StatusTag } from "./Chip.js";
 
+/** 页面跳转使用按钮外观，保留链接的键盘、新标签页和复制地址行为。 */
+export function ActionLink({ children, className, variant = "outline", size = "sm", ...props }: React.ComponentProps<"a"> & {
+  href: string; variant?: "outline" | "ghost" | "secondary"; size?: React.ComponentProps<typeof PrimitiveButton>["size"];
+}) {
+  return <PrimitiveButton asChild variant={variant} size={size} className={cn("text-foreground no-underline", className)}>
+    <a {...props}>{children}</a>
+  </PrimitiveButton>;
+}
+
 export function Button({ loading = false, icon, iconPlacement, block, danger, children, className, variant = "outline", ...props }: React.ComponentProps<typeof PrimitiveButton> & {
   loading?: boolean | undefined; icon?: React.ReactNode; iconPlacement?: "start" | "end"; block?: boolean; danger?: boolean;
 }) {
   const mark = loading ? <LoaderCircle aria-hidden="true" className="size-4 animate-spin motion-reduce:animate-none" /> : icon;
   return <PrimitiveButton {...props} aria-busy={loading || undefined} disabled={props.disabled || loading}
     variant={danger && variant === "default" ? "destructive" : variant}
-    className={cn(block && "w-full", danger && "text-danger-foreground", className)}>
+    className={cn(block && "w-full", danger && variant !== "default" && variant !== "destructive" && "text-danger-foreground", className)}>
     {iconPlacement !== "end" && mark}{children}{iconPlacement === "end" && mark}
   </PrimitiveButton>;
 }
@@ -126,7 +135,7 @@ export function ConfirmAction({ title, description, children, onConfirm, okText 
 }) {
   return <AlertDialog><AlertDialogTrigger asChild>{children}</AlertDialogTrigger><AlertDialogContent>
     <AlertDialogHeader><AlertDialogTitle>{title}</AlertDialogTitle><AlertDialogDescription>{description ?? "请核对后确认此操作。"}</AlertDialogDescription></AlertDialogHeader>
-    <AlertDialogFooter><AlertDialogCancel>{cancelText}</AlertDialogCancel><AlertDialogAction className={danger ? "bg-destructive text-white" : undefined} onClick={onConfirm}>{okText}</AlertDialogAction></AlertDialogFooter>
+    <AlertDialogFooter><AlertDialogCancel>{cancelText}</AlertDialogCancel><AlertDialogAction variant={danger ? "destructive" : "default"} onClick={onConfirm}>{okText}</AlertDialogAction></AlertDialogFooter>
   </AlertDialogContent></AlertDialog>;
 }
 export function SidePanel({ open, title, children, footer, onClose, width }: { open: boolean; title: React.ReactNode; children?: React.ReactNode; footer?: React.ReactNode; onClose: () => void; width?: string | number }) {

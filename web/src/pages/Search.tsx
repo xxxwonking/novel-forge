@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
-import { Button, Input } from "../components/controls.js";
+import { ActionLink, Button, Input } from "../components/controls.js";
 import { X } from "lucide-react";
 import { api, type EntityHit, type SearchResult } from "../api.js";
 import { useFetch } from "../hooks.js";
+import { chapterRoute } from "../source-navigation.js";
 
 const KIND_LABELS: Record<EntityHit["kind"], string> = {
   character: "人物", setting: "地点与组织", plotLine: "情节线", volume: "卷", beat: "章节计划", event: "已确认事件",
@@ -56,7 +57,7 @@ export function Search({ query }: { query: string }): React.ReactElement {
               {hit.count > hit.snippets.length && <span className="muted">（另有 {hit.count - hit.snippets.length} 处未列出）</span>}
             </div>
             {hit.snippets.map((snippet) => (
-              <a className="search-snippet" key={snippet.offset} href={`#/chapter/${hit.chapter}?quote=${encodeURIComponent(snippet.quote)}`}>
+              <a className="search-snippet" key={snippet.offset} href={`#${chapterRoute(hit.chapter, snippet.quote, { offsetHint: snippet.offset, occurrence: snippet.occurrence ?? 0 })}`}>
                 {snippet.quote}
               </a>
             ))}
@@ -76,7 +77,7 @@ export function Search({ query }: { query: string }): React.ReactElement {
               return <div className="search-entity" key={`${hit.kind}-${hit.id}-${hit.field}`}>
                 <div><strong>{hit.title}</strong> <span className="muted">{hit.field}</span></div>
                 <p>{hit.excerpt}</p>
-                <a href={to.href}>{to.label} →</a>
+                <ActionLink href={to.href}>{to.label}</ActionLink>
               </div>;
             })}
           </div>

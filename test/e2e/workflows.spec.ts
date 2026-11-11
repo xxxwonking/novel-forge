@@ -10,6 +10,7 @@ async function createWork(request: APIRequestContext) {
 test("完整导入预览区分正文与资料，模型失败后原稿保留并可确认作者候选", async ({ page, request }) => {
   const id = await createWork(request);
   await page.goto(`/?work=${id}#/preparation`);
+  await page.getByRole("group", { name: "资料分类" }).getByRole("button", { name: "资料导入", exact: true }).click();
   await page.getByRole("button", { name: "导入已有正文", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "导入正文与项目资料" });
   await dialog.locator('input[type="file"][multiple]').setInputFiles([

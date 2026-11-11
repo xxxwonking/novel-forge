@@ -44,6 +44,14 @@ for (const theme of ["浅色", "深色"]) {
   }) => {
     await page.goto(work("chapter/1"));
     await choose(page, theme);
+    // 检查最终样式，而不只检查主题类；组件 CSS 抢先加载曾让基础链接覆盖导航。
+    const navigation = page.locator(".navigation-link[href='#/chat']");
+    await expect(navigation).toHaveCSS("text-decoration-line", "none");
+    await expect(navigation).toHaveCSS(
+      "color",
+      theme === "浅色" ? "rgb(82, 82, 91)" : "rgb(161, 161, 170)",
+    );
+    await expect(page.locator(".app-rail")).toHaveCSS("width", "236px");
     await expect(page.locator("article.prose")).toBeVisible();
     const prose = await page
       .locator("article.prose")
@@ -64,6 +72,7 @@ for (const theme of ["浅色", "深色"]) {
     );
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(work("preparation"));
+  await page.getByRole("group", { name: "资料分类" }).getByRole("button", { name: "人物档案", exact: true }).click();
     const trigger = page.getByRole("combobox", {
       name: "主题设置",
       exact: true,

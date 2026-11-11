@@ -1,0 +1,2 @@
+/* 必须先于组件及其样式加载：CSS 层的优先级由首次出现顺序决定。 */
+@layer theme, layout, base, components, utilities;

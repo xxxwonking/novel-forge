@@ -15,6 +15,7 @@ test("中文DOCX正文和人物档案经过真实转换与预览，扫描PDF失�
   expect(work.status()).toBe(201);
   const id = (await work.json()).id;
   await page.goto(`/?work=${id}#/preparation`);
+  await page.getByRole("group", { name: "资料分类" }).getByRole("button", { name: "资料导入", exact: true }).click();
   await page.getByRole("button", { name: "导入已有正文", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "导入正文与项目资料" });
   await dialog.locator("input[type=file][multiple]").setInputFiles([

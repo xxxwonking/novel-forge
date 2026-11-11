@@ -2,7 +2,7 @@ import { useState } from "react";
 import { api, type PreparationProposal } from "../api.js";
 import { useFetch } from "../hooks.js";
 import { BeatEditor } from "./PreparationEditors.js";
-import { Button, DialogFrame, NumberInput } from "./controls.js";
+import { ActionLink, Button, DialogFrame, NumberInput } from "./controls.js";
 /** 白板只编辑未来章计划；复用资料候选与版本确认，画布布局不参与。 */
 export function BoardPlanEditor({
   chapter,
@@ -88,12 +88,12 @@ export function BoardPlanEditor({
           </p>
         ))}
         {error && <p role="alert">{error}</p>}
-        <a
+        <ActionLink
           href={`#/preparation?proposal=${encodeURIComponent(proposal.id)}`}
           onClick={onClose}
         >
           到资料页查看完整候选
-        </a>
+        </ActionLink>
       </DialogFrame>
     );
   if (!view)

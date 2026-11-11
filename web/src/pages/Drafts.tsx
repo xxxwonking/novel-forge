@@ -1,7 +1,7 @@
 import { SelectableProse } from "../components/SelectableProse.js";
 import { PassageAssistant, type PassageRequest } from "../components/PassageAssistant.js";
 import { useEffect, useRef, useState } from "react";
-import { Button, NumberInput, DialogFrame, ChoiceSelect, StatusTag } from "../components/controls.js";
+import { ActionLink, Button, NumberInput, DialogFrame, ChoiceSelect, StatusTag } from "../components/controls.js";
 import { api, type TextAnchor, type ChapterTaskView, type DraftView } from "../api.js";
 import { useFetch, useRouteActive } from "../hooks.js";
 import { TaskCard, taskRunning } from "../components/TaskPanel.js";
@@ -106,11 +106,11 @@ export function Drafts({ chapter, draftId, refresh, task, reloadTasks }: { chapt
   return <>
     <div className="page-head"><h1>第 {chapter} 章 · 章节结果</h1><p>先看这一章发生了什么，再核对原文。待采用内容保留在当前稿中。</p></div>
     {task && <TaskCard task={task} reload={reload} detailed />}
-    {draft.automaticResultDraftId && <div className="prep-readiness"><div><strong>这份初稿已保留</strong><p>本次任务已创建自动修订版。请查看新版本的进度与检查结果。</p></div><a className="prep-link" href={`#/draft/${chapter}/${draft.automaticResultDraftId}`}>查看自动修订稿 →</a></div>}
+    {draft.automaticResultDraftId && <div className="prep-readiness"><div><strong>这份初稿已保留</strong><p>本次任务已创建自动修订版。请查看新版本的进度与检查结果。</p></div><ActionLink href={`#/draft/${chapter}/${draft.automaticResultDraftId}`}>查看自动修订稿</ActionLink></div>}
     {draft.revision?.kind === "automatic" && <p className="muted">这是本次任务的第 1 次自动修订，初稿及原检查保留在版本列表中。当前用量包含初稿与本次修订。</p>}
     <div className="draft-toolbar"><Chip color={draft.status === "needs_revision" ? "orange" : draft.status === "ready" ? "cyan" : undefined}>{draft.status === "adopted" ? draft.isCurrentAdopted ? "当前正式版本" : "历史采用版本" : states[draft.status] ?? draft.status}</Chip><span>{draft.words} 字</span><label>版本 <ChoiceSelect aria-label="稿件版本" value={draftId}  onChange={(value) => goDraft(chapter, value)}
-      options={(versions.data ?? [draft]).map((d) => ({ value: d.draftId, label: `${d.draftId} · ${d.isCurrentAdopted ? "当前正式版本" : states[d.status] ?? d.status}` }))} /></label><a href="#/preparation">作品资料</a></div>
-    {draft.preparationProposalId !== null && <div className="prep-readiness"><div><strong>依赖方案：{dependency?.summary ?? "正在读取"}</strong><p>{dependency?.status === "confirmed" ? "此方案已确认。" : "这份草稿使用了尚未确认的建议设定。采用章节时会一并确认该方案。"}</p></div><a href={`#/preparation?proposal=${encodeURIComponent(draft.preparationProposalId)}`}>查看依赖</a></div>}
+      options={(versions.data ?? [draft]).map((d) => ({ value: d.draftId, label: `${d.draftId} · ${d.isCurrentAdopted ? "当前正式版本" : states[d.status] ?? d.status}` }))} /></label><ActionLink href="#/preparation">作品资料</ActionLink></div>
+    {draft.preparationProposalId !== null && <div className="prep-readiness"><div><strong>依赖方案：{dependency?.summary ?? "正在读取"}</strong><p>{dependency?.status === "confirmed" ? "此方案已确认。" : "这份草稿使用了尚未确认的建议设定。采用章节时会一并确认该方案。"}</p></div><ActionLink href={`#/preparation?proposal=${encodeURIComponent(draft.preparationProposalId)}`}>查看依赖</ActionLink></div>}
     {impacted.length > 0 && <div className="prep-readiness">
       <div>
         <strong>采用这一稿会牵连后面 {impacted.length} 章</strong>
@@ -118,7 +118,7 @@ export function Drafts({ chapter, draftId, refresh, task, reloadTasks }: { chapt
           ? `第 ${impacted.filter((c) => c.severity === "conflict").map((c) => c.chapter).join("、")} 章的事实会直接对不上，必须处理；未处理完不能开始连写。`
           : `第 ${impacted.map((c) => c.chapter).join("、")} 章引用了这里改动的东西，采用后值得再读一遍。`}</p>
       </div>
-      <a className="prep-link" href="#/revision">查看跨章返修 →</a>
+      <ActionLink href="#/revision">查看跨章返修</ActionLink>
     </div>}
     {(error ?? query.error) && <div className="finding" data-level="block" role="alert">{error ?? query.error}</div>}
     {notice && <p className="prep-notice" role="status">{notice}</p>}
@@ -134,7 +134,7 @@ export function Drafts({ chapter, draftId, refresh, task, reloadTasks }: { chapt
       {draft.status === "discarded" && <Button variant="default" disabled={busy || taskRunning(task)} onClick={() => void perform("restore")}>恢复这份草稿</Button>}
       {draft.status !== "discarded" && <Button disabled={busy || taskRunning(task)} onClick={() => void perform("new")}>另写一版</Button>}
       {draft.status !== "adopted" && draft.status !== "discarded" && <Button variant="ghost" disabled={busy || taskRunning(task)} onClick={() => void perform("discard")}>丢弃这份草稿</Button>}
-      {draft.status === "adopted" && <a href={`#/chapter/${chapter}`}>查看正式正文 →</a>}
+      {draft.status === "adopted" && <ActionLink href={`#/chapter/${chapter}`}>查看正式正文</ActionLink>}
     </div>
     <SceneWritingSettings value={sceneForm} onChange={setSceneForm} disabled={busy || taskRunning(task)} />
     {editor === "body" && <DraftEditor key={draftId} draft={draft} onSaved={saved} onClose={() => setEditor(null)} />}

@@ -13,7 +13,7 @@
  */
 
 import { useState } from "react";
-import { Button, NumberInput, HelpTooltip } from "../components/controls.js";
+import { ActionLink, Button, NumberInput, HelpTooltip } from "../components/controls.js";
 import { api, type RevisionChapter } from "../api.js";
 import { useFetch, useRouteActive } from "../hooks.js";
 import { Chip } from "../components/Chip.js";
@@ -117,7 +117,7 @@ export function Revision({ refresh }: { refresh: () => void }): React.ReactEleme
               {done ? <Chip>已处理</Chip> : <HelpTooltip title={severity.hint}><Chip color={severity.color}>{severity.label}</Chip></HelpTooltip>}
               <span className="muted">因第 {item.triggers.map((t) => t.chapter).join("、")} 章的修订</span>
               <span className="push-right row">
-                <a href={`#/chapter/${item.chapter}`}>读正文</a>
+                <ActionLink variant="ghost" href={`#/chapter/${item.chapter}`}>读正文</ActionLink>
                 <Button size="sm" loading={busy === `locate${item.chapter}`} disabled={busy !== null}
                   onClick={() => void locate(item.chapter)}>{item.state === "located" && !item.outdated ? "重新定位" : "定位受影响段落"}</Button>
                 <Button size="sm" loading={busy === `open${item.chapter}`} disabled={busy !== null} onClick={() => void open(item.chapter)}>去改这一章</Button>
@@ -137,7 +137,7 @@ export function Revision({ refresh }: { refresh: () => void }): React.ReactEleme
                   <p className="muted">{passage.why}</p>
                   <p><strong>建议改法：</strong>{passage.suggestion}</p>
                 </div>
-                <a href={`#/chapter/${item.chapter}?quote=${encodeURIComponent(passage.quote)}`}>在正文里查看 ↗</a>
+                <ActionLink href={`#/chapter/${item.chapter}?quote=${encodeURIComponent(passage.quote)}`}>在正文里查看</ActionLink>
               </div>)}
             </div>}
 

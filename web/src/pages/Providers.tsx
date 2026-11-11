@@ -228,6 +228,7 @@ export function Providers(): React.ReactElement {
                   title={`删除供应商“${p.name}”？`}
                   description="删除本机保存的配置与密钥。已有对话、草稿和作品资料保留。"
                   danger
+                  okText="删除供应商"
                   onConfirm={() =>
                     void perform(() => api.deleteProvider(p.id), "配置已删除。")
                   }

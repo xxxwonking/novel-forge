@@ -1,3 +1,4 @@
+import type { JumpToSource } from "../source-navigation.js";
 import { useRelationNetwork } from "./useRelationNetwork.js";
 import { Chip } from "./Chip.js";
 import { useEffect, useState, type CSSProperties } from "react";
@@ -9,6 +10,7 @@ import {
   ZoomOut,
   Maximize,
   RotateCcw,
+  ArrowRight,
 } from "lucide-react";
 import { Button } from "./controls.js";
 import "./relation-map.css";
@@ -30,7 +32,7 @@ const KIND_COLOR: Record<string, string> = {
 
 export interface RelationMapProps {
   graph: RelationGraph;
-  onJump: (chapter: number, quote: string) => void;
+  onJump: JumpToSource;
   highlight?: string | null;
 }
 
@@ -183,7 +185,7 @@ export function RelationMap({
                       ? undefined
                       : () =>
                           !network.moved.current &&
-                          onJump(jumpable.chapter, jumpable.anchor.quote)
+                          onJump(jumpable.chapter, jumpable.anchor.quote, jumpable.anchor)
                   }
                 >
                   <title>{`${nameOf(graph, e.from)} · ${nameOf(graph, e.to)}：${relationLabel(e.kind)}${e.declared ? "（仅档案设定）" : `（第 ${e.changedAt} 章）`}\n${e.note}`}</title>
@@ -288,12 +290,15 @@ export function RelationMap({
       </section>
       <div className="relation-history">
         <h2>关系沿革</h2>
+        <p className="relation-history-intro">按人物关系查看当前状态、变化记录与正文出处。</p>
+        <div className="relation-history-scroll" role="region" aria-label="人物关系沿革明细" tabIndex={0}>
         <table>
           <thead>
             <tr>
-              <th>关系</th>
-              <th>当前</th>
-              <th className="num">变于</th>
+              <th scope="col">人物关系</th>
+              <th scope="col">当前关系</th>
+              <th scope="col">说明与沿革</th>
+              <th scope="col">最近变化</th>
             </tr>
           </thead>
           <tbody>
@@ -307,45 +312,59 @@ export function RelationMap({
                       : 0.35,
                 }}
               >
+                <th scope="row">
+                  <div className="relation-pair">
+                    <span>{nameOf(graph, e.from)}</span>
+                    <ArrowRight aria-hidden="true" /><span className="sr-only">对</span>
+                    <span>{nameOf(graph, e.to)}</span>
+                  </div>
+                </th>
                 <td>
-                  {nameOf(graph, e.from)} → {nameOf(graph, e.to)}
+                  <div className="relation-status">
+                    <Chip>{relationLabel(e.kind)}</Chip>
+                    {e.declared && <Chip color="orange">仅设定</Chip>}
+                  </div>
                 </td>
                 <td>
-                  <Chip>{relationLabel(e.kind)}</Chip>
-                  {e.declared && <Chip color="orange">仅设定</Chip>}
-                  <span className="muted">{e.note}</span>
+                  <p className="relation-note">{e.note || "暂无关系说明"}</p>
+                  {e.historyCount > 1 && (
+                    <ol className="relation-changes" aria-label="历次关系变化">
+                      {e.history.map((h, index) => (
+                        <li key={index}>
+                          <span>第 {h.chapter} 章</span>
+                          <span>{relationLabel(h.kind)}</span>
+                        </li>
+                      ))}
+                    </ol>
+                  )}
+                </td>
+                <td>
+                  <div className="relation-evidence">
+                  <span className={e.declared ? "muted" : undefined}>{e.declared ? "暂无正文记录" : `第 ${e.changedAt} 章`}</span>
                   {!e.declared &&
                     e.point !== null &&
                     e.point.resolution.status !== "stale" && (
                       <Button
                         variant="link"
                         size="sm"
-                        className="relation-source"
+                        className="relation-source px-0"
                         aria-label={`查看原文：${nameOf(graph, e.from)}与${nameOf(graph, e.to)}`}
                         onClick={() =>
-                          onJump(e.point!.chapter, e.point!.anchor.quote)
+                          onJump(e.point!.chapter, e.point!.anchor.quote, e.point!.anchor)
                         }
                       >
                         查看原文
                       </Button>
                     )}
-                  {e.historyCount > 1 && (
-                    <div
-                      className="muted"
-                      style={{ fontSize: 12, marginTop: 4 }}
-                    >
-                      {e.history
-                        .map((h) => `ch${h.chapter} ${relationLabel(h.kind)}`)
-                        .join(" → ")}
-                    </div>
-                  )}
+                  {!e.declared && e.point?.resolution.status === "stale" && <span className="muted">原文已变化</span>}
+                  </div>
                 </td>
-                <td className="num">{e.declared ? "—" : e.changedAt}</td>
               </tr>
             ))}
           </tbody>
         </table>
-        <p className="muted" style={{ fontSize: 12, marginTop: 14 }}>
+        </div>
+        <p className="relation-history-help muted">
           节点大小按连边数，主角用暖色。悬停、点选或键盘聚焦人物可突出其关系。
           <br />
           虚线表示这条关系只来自资料、<strong>尚未写进正文</strong>

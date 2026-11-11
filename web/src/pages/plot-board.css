@@ -40,6 +40,12 @@
 .board-result:hover { color: var(--foreground); background: var(--card); }
 .board-search-results > p { color: var(--board-muted); }
 .board-canvas { position: relative; min-width: 0; min-height: 0; background: var(--board-bg); }
+.board-empty { position: absolute; inset: 0; z-index: 5; display: grid; place-items: center; pointer-events: none; }
+.board-empty-content { width: min(460px, calc(100% - 40px)); max-height: calc(100% - 40px); overflow: auto; padding: 24px; border: 1px solid var(--border); border-radius: var(--ui-radius-card); background: var(--board-panel); pointer-events: auto; overflow-wrap: anywhere; }
+.board-empty-content h2 { margin: 0 0 12px; font-size: var(--ui-text-mobile-title); line-height: 1.5; }
+.board-empty-content p { margin: 12px 0; color: var(--board-muted); }
+.board-empty-content .board-actions { margin-top: 20px; gap: 10px; }
+.board-empty-content .board-button { max-width: 100%; height: auto; white-space: normal; text-align: center; }
 .plot-board .react-flow { --xy-background-color: var(--background); --xy-edge-stroke: var(--canvas-edge); --xy-edge-stroke-width: 1; --xy-attribution-background-color: var(--card); }
 .plot-board .react-flow__node-story { width: 272px; border-radius: var(--ui-radius-card); }
 .plot-board .react-flow__node-story:focus-visible { outline: 2px solid var(--foreground); outline-offset: 4px; }

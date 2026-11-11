@@ -12,11 +12,26 @@
   .relation-particle { pointer-events: none; animation: relation-travel 4.8s linear infinite alternate; }
   .relation-canvas[data-paused="true"] .relation-particle { animation-play-state: paused; }
   .relation-caption { margin: 0 0 12px; font-size: 12px; line-height: 1.7; }
-  .relation-history h2 { margin: 8px 0 16px; font: 600 14px/1.5 var(--ui-font); }
-  .relation-history td { overflow-wrap: anywhere; }
-  .relation-history table { table-layout: fixed; width: 100%; }
-  .relation-history th:last-child { width: 52px; }
-  .relation-source { display: flex; }
+  .relation-history h2 { margin: 8px 0; font: 600 18px/1.5 var(--ui-font); }
+  .relation-history-intro { margin: 0 0 20px; color: var(--muted-foreground); font-size: 13px; line-height: 1.7; }
+  .relation-history-scroll { overflow-x: auto; border-top: 1px solid var(--border); }
+  .relation-history-scroll:focus-visible { outline: 2px solid var(--ring); outline-offset: 4px; }
+  .relation-history table { table-layout: fixed; width: 100%; min-width: 720px; }
+  .relation-history thead th { padding: 16px; font: 500 12px/1.5 var(--ui-font); letter-spacing: 0; }
+  .relation-history thead th:first-child { width: 26%; }
+  .relation-history thead th:nth-child(2) { width: 112px; }
+  .relation-history thead th:last-child { width: 128px; }
+  .relation-history tbody th, .relation-history td { padding: 20px 16px; border-bottom: 1px solid var(--border); vertical-align: top; text-align: left; font: 400 14px/1.7 var(--ui-font); letter-spacing: 0; white-space: normal; overflow-wrap: anywhere; }
+  .relation-history tbody th { color: var(--foreground); font-weight: 500; text-transform: none; }
+  .relation-history tbody tr:last-child th { border-bottom: 0; }
+  .relation-pair { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  .relation-pair svg { flex: 0 0 16px; width: 16px; height: 16px; color: var(--muted-foreground); }
+  .relation-status { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  .relation-note { margin: 0; color: var(--foreground); }
+  .relation-changes { display: flex; flex-wrap: wrap; gap: 8px 16px; list-style: none; margin: 12px 0 0; padding: 0; color: var(--muted-foreground); font-size: 12px; }
+  .relation-changes li { display: inline-flex; gap: 8px; }
+  .relation-evidence { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; font-size: 13px; }
+  .relation-history-help { margin: 20px 0 0; font-size: 12px; line-height: 1.8; }
   @keyframes relation-travel {
     0% { transform: var(--particle-from); opacity: 0; }
     10%, 90% { opacity: 1; }

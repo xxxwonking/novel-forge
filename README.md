@@ -79,16 +79,16 @@ npm run web:build
 
 ## 目录与设计记录
 
-| 位置 | 内容 |
-| --- | --- |
-| `src/chapter/`、`src/context/`、`src/client/` | 章节流程、上下文装配和模型接入 |
-| `src/task/` | LangGraph 章节任务、工具执行、草稿与采用 |
-| `src/workspace/`、`src/preparation/` | 作品列表、资料方案、确认和试写依赖 |
-| `src/planning/`、`src/export/` | 故事安排、处理进度与正文/设定集多格式固定快照 |
-| `src/beat/`、`src/gate/`、`rules.yaml` | 章节规划约束与检查规则 |
-| `src/store/`、`src/alerts/`、`src/anchor/`、`src/view/` | 小说状态、告警、正文定位和结构视图 |
-| `src/server/`、`web/` | 本地 API 和 Web 工作区 |
-| `src/harness/`、`test/` | 演示与验收脚本、自动化测试 |
+| 位置                                                   | 内容                        |
+| ---------------------------------------------------- | ------------------------- |
+| `src/chapter/`、`src/context/`、`src/client/`          | 章节流程、上下文装配和模型接入           |
+| `src/task/`                                          | LangGraph 章节任务、工具执行、草稿与采用 |
+| `src/workspace/`、`src/preparation/`                  | 作品列表、资料方案、确认和试写依赖         |
+| `src/planning/`、`src/export/`                        | 故事安排、处理进度与正文/设定集多格式固定快照   |
+| `src/beat/`、`src/gate/`、`rules.yaml`                 | 章节规划约束与检查规则               |
+| `src/store/`、`src/alerts/`、`src/anchor/`、`src/view/` | 小说状态、告警、正文定位和结构视图         |
+| `src/server/`、`web/`                                 | 本地 API 和 Web 工作区          |
+| `src/harness/`、`test/`                               | 演示与验收脚本、自动化测试             |
 
 后续方向见[首版用户流程草案](docs/superpowers/specs/2026-09-09-novel-forge-user-flow-design.md)、[用户流程与现有能力映射](docs/superpowers/specs/2026-09-09-novel-forge-user-flow-capability-map.md)和[工作记忆](MEMORY.md)。设计建议、源码实现和实际验收结果在记录中分别标注。
 

@@ -1,3 +1,4 @@
+import type { JumpToSource } from "../source-navigation.js";
 import { ChatSurface, type ChatPresentation } from "../components/ChatSurface.js";
 import {
   Message,
@@ -23,6 +24,7 @@ import {
 import { useEffect, useRef, useState } from "react";
 import {
   Button,
+  ActionLink,
   SidePanel,
   Input,
   DialogFrame,
@@ -59,7 +61,7 @@ export interface ChatProps {
   onOpenDraft: (chapter: number, draftId: string) => void;
   /** 地址里指定的模式（新建空白作品后直接进谋篇）。只在载入时对齐一次。 */
   initialMode?: ConversationMode | undefined;
-  onJump: (chapter: number, quote: string) => void;
+  onJump: JumpToSource;
   /** 对话可能改变作品状态（写章/采用/改计划），据此刷新侧栏与首页。 */
   refresh: () => void;
 }
@@ -680,12 +682,11 @@ export function Chat({
               <Button onClick={() => onJump(draft.chapter, "")}>
                 在正文页打开该章
               </Button>
-              <a
-                className="drawer-link"
+              <ActionLink
                 href={`#/draft/${draft.chapter}/${draft.draftId}`}
               >
                 完整结果页
-              </a>
+              </ActionLink>
               <span style={{ flex: 1 }} />
               {draft.acceptable && (
                 <Button

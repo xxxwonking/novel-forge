@@ -1,4 +1,7 @@
 import { chapterHealth } from "./chapter-health.js";
+import { alertEvidence, structureCoverage } from "../alerts/evidence.js";
+import { InferenceReadError } from "../import/inference-store.js";
+import type { InferenceChapterView } from "../import/inference.js";
 import { assistPassage } from "./passage-assistant.js";
 import { convertDocument } from "../import/document.js";
 /**
@@ -364,13 +367,26 @@ function overview(session: ProjectSession): unknown {
 }
 
 function alerts(session: ProjectSession): unknown {
-  const { selection } = session.derived;
+  const { selection, projections } = session.derived;
+  let chapters: readonly InferenceChapterView[] | null = null;
+  let coverageError: string | null = null;
+  try { chapters = session.inference.view().chapters; }
+  catch (error) {
+    if (!(error instanceof InferenceReadError)) throw error;
+    coverageError = "结构提取进度暂时无法读取，请检查 import-inference.json 或从备份恢复。现有提示仍可核对，覆盖情况暂时未知。";
+  }
+  const revision = session.revise.view();
+  const current = [...selection.fullList, ...selection.repairQueue, ...selection.suppressed.map(s => s.alert)];
   return {
     homepage: selection.homepage,
     fullList: selection.fullList,
     repairQueue: selection.repairQueue,
     suppressed: selection.suppressed,
     progress: session.storyProgress(),
+    evidence: alertEvidence(current, projections, chapters, chapter => session.chapterText(chapter), session.rules.anchor),
+    coverage: chapters === null ? null : structureCoverage(chapters),
+    coverageError,
+    revision: { pending: revision.pending, conflicts: revision.conflicts, error: revision.error },
   };
 }
 

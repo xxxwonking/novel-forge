@@ -1,3 +1,4 @@
+import { sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parentPort, workerData } from "node:worker_threads";
 import { unzipSync } from "fflate";
@@ -26,21 +27,17 @@ async function extract(): Promise<string> {
     return result.value;
   }
   const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+  // PDF.js requires a trailing "/" even when Node reads a Windows file path.
+  const resourceDirectory = (relativePath: string): string =>
+    fileURLToPath(
+      new URL(relativePath, import.meta.resolve("pdfjs-dist/package.json")),
+    ).split(sep).join("/");
   const task = pdfjs.getDocument({
     data: bytes,
-    cMapUrl: fileURLToPath(
-      new URL("./cmaps/", import.meta.resolve("pdfjs-dist/package.json")),
-    ),
+    cMapUrl: resourceDirectory("./cmaps/"),
     cMapPacked: true,
-    wasmUrl: fileURLToPath(
-      new URL("./wasm/", import.meta.resolve("pdfjs-dist/package.json")),
-    ),
-    standardFontDataUrl: fileURLToPath(
-      new URL(
-        "./standard_fonts/",
-        import.meta.resolve("pdfjs-dist/package.json"),
-      ),
-    ),
+    wasmUrl: resourceDirectory("./wasm/"),
+    standardFontDataUrl: resourceDirectory("./standard_fonts/"),
     useSystemFonts: false,
     disableFontFace: true,
     stopAtErrors: true,

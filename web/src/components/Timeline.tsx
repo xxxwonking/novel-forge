@@ -1,3 +1,4 @@
+import type { JumpToSource } from "../source-navigation.js";
 /**
  * 伏笔时间线（视图一）。
  *
@@ -17,7 +18,7 @@ import { AnchorDot } from "./AnchorDot.js";
 export interface TimelineProps {
   axis: Axis;
   lanes: ForeshadowLane[];
-  onJump: (chapter: number, quote: string) => void;
+  onJump: JumpToSource;
   highlight?: string | null;
 }
 

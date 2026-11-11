@@ -1,3 +1,4 @@
+import type { JumpToSource } from "../source-navigation.js";
 /**
  * 情节线（视图二）。
  *
@@ -17,7 +18,7 @@ import { Grid, truncate } from "./Timeline.js";
 export interface PlotTracksProps {
   axis: Axis;
   tracks: PlotTrack[];
-  onJump: (chapter: number, quote: string) => void;
+  onJump: JumpToSource;
   highlight?: string | null;
 }
 

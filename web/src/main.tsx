@@ -1,3 +1,4 @@
+import "./styles/layers.css";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { TooltipProvider } from "./components/ui/tooltip.js";

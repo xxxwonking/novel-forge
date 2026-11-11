@@ -29,6 +29,19 @@ const get = (session: ProjectSession, path: string, params: Record<string, strin
   handle(session, { method: "GET", path, query: new URLSearchParams(params), body: null } satisfies ApiRequest);
 
 describe("全文检索", () => {
+  it("重复片段携带出现序号，每条检索结果都定位到各自位置", () => {
+    const quote = "钥匙放在桌上。";
+    const text = `${quote}\n\n${quote}\n\n${quote}`;
+    const session = seeded({ ...writingSnapshot(), chapters: new Map([[1, text]]) });
+    const snippets = searchWork(session, "钥匙").chapters[0]!.snippets;
+    expect(snippets).toHaveLength(3);
+    for (const [index, snippet] of snippets.entries()) {
+      expect(snippet.occurrence).toBe(index);
+      const res = get(session, "/api/anchor", { chapter: "1", quote: snippet.quote, offsetHint: String(snippet.offset), occurrence: String(snippet.occurrence) });
+      expect(res.body).toMatchObject({ resolution: { offset: snippet.offset } });
+    }
+  });
+
   it("正文命中按章号升序，给出该章命中数与片段", () => {
     const session = seeded();
     const result = searchWork(session, "钥匙");

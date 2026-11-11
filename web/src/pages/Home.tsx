@@ -7,7 +7,7 @@
  */
 
 import { useState } from "react";
-import { Button, StatusTag } from "../components/controls.js";
+import { ActionLink, Button, StatusTag } from "../components/controls.js";
 import { ArrowRight as ArrowRightOutlined, Import as ImportOutlined } from "lucide-react";
 import { api, type Alert, type AlertAction, type Overview } from "../api.js";
 import { AlertCard } from "../components/AlertCard.js";
@@ -53,7 +53,7 @@ export function Home({ overview, onAction, onIgnore, refresh }: HomeProps): Reac
           </div>
           <div className="row">
             <Button variant="default" icon={<ImportOutlined />} onClick={() => setImporting(true)}>导入已有正文</Button>
-            <a href="#/chat?mode=planning">先聊聊再定 →</a>
+            <ActionLink href="#/chat?mode=planning">先聊聊再定<ArrowRightOutlined aria-hidden="true" /></ActionLink>
           </div>
         </section>
       )}
@@ -65,7 +65,7 @@ export function Home({ overview, onAction, onIgnore, refresh }: HomeProps): Reac
           </div>
           <div className="row">
             <Button variant="default" loading={identifying} onClick={() => void identify()}>从正文识别人物</Button>
-            <a href="#/preparation">到作品资料 →</a>
+            <ActionLink href="#/preparation">到作品资料<ArrowRightOutlined aria-hidden="true" /></ActionLink>
           </div>
         </section>
       )}
@@ -73,16 +73,15 @@ export function Home({ overview, onAction, onIgnore, refresh }: HomeProps): Reac
       {error !== null && <p className="finding" role="alert" data-level="block">{error}</p>}
 
       <div className="page-head">
-        <h1>现在需要处理（{homepage.length}）</h1>
+        <h1>优先核对（{homepage.length}）</h1>
         <p>
-          按修复成本的<strong>增长速度</strong>排序，不是按当前严重度 ——
-          逾期 8 章的伏笔下一章顺手就收了，逾期 35 章的读者早忘了，想收好得先重新提起。
-          点按钮直接写进第 {overview.nextChapter} 章的节拍表。
+          以下提醒来自现有结构记录。先核对正文与记录是否一致，再决定补充记录或安排后续剧情。
+          加入计划只会更新第 {overview.nextChapter} 章的安排，完成仍以正文采用后的记录为准。
         </p>
       </div>
 
       {homepage.length === 0 ? (
-        <div className="empty">当前没有需要处理的结构债。</div>
+        <div className="empty">现有结构记录未触发提醒，可在全部提示中查看记录覆盖情况。</div>
       ) : (
         <div className="alerts">
           {homepage.map((alert, i) => (

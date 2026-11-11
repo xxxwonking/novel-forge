@@ -1,3 +1,5 @@
+import type { Alert, AlertAction, AlertEvidence, TextAnchor, PlanningAction } from "./alert-types.js";
+export type { Alert, AlertAction, AlertEvidence, AlertSubject, TextAnchor, PlanningAction } from "./alert-types.js";
 /**
  * 与 /api 的通信。
  *
@@ -76,12 +78,7 @@ export function workUrl(id: string, route = "/chat"): string {
   return url.href;
 }
 
-export interface TextAnchor {
-  chapter: number;
-  quote: string;
-  offsetHint: number;
-  occurrence: number;
-}
+
 
 export interface OutlineNode {
   id:string;plotLine:string|null;chapter:number|null;order:number;summary:string;kind:"action"|"info"|"relation"|"resource"|"decision";
@@ -117,44 +114,6 @@ export interface AnchorPoint {
   chapter: number;
   anchor: TextAnchor;
   resolution: AnchorResolution;
-}
-
-export type AlertAction =
-  | { kind: "add_resolution_to_beat"; targetChapter: number; foreshadowId: string; weight: ForeshadowWeight; completeness: "full" | "partial" }
-  | { kind: "add_advance_to_beat"; targetChapter: number; plotLine: string }
-  | { kind: "add_character_to_beat"; targetChapter: number; characterId: string }
-  | { kind: "reschedule"; foreshadowId: string; expectedBy: number }
-  | { kind: "abandon"; foreshadowId: string }
-  | { kind: "confirm_exit"; characterId: string }
-  | { kind: "acknowledge" }
-  | { kind: "open_view"; view: "foreshadow" | "plotline" | "arc" | "relation" }
-  | { kind: "jump_to_anchor"; anchor: TextAnchor };
-
-export type AlertSubject =
-  | { kind: "foreshadow"; id: string }
-  | { kind: "plotline"; id: string }
-  | { kind: "character"; id: string }
-  | { kind: "chapter"; chapter: number }
-  | { kind: "anchor"; anchor: TextAnchor };
-
-export type PlanningAction = Extract<AlertAction, { kind: "add_resolution_to_beat" | "add_advance_to_beat" | "add_character_to_beat" | "reschedule" | "abandon" | "confirm_exit" }>;
-
-export interface Alert {
-  id: string;
-  category: string;
-  direction: "forward" | "backward";
-  impact: number;
-  decay: number;
-  score: number;
-  title: string;
-  detail: string;
-  subject: AlertSubject;
-  fatigueCount: number;
-  acknowledged: boolean;
-  migratedTo: "suggest_abandon" | "confirm_exit" | null;
-  actions: AlertAction[];
-  createdAt: string;
-  lastEvaluatedAt: string;
 }
 
 export interface ChapterPlan {
@@ -265,7 +224,13 @@ export interface AlertsPayload {
   repairQueue: Alert[];
   suppressed: { alert: Alert; reason: "scheduled" | "acknowledged" | "fatigued" }[];
   progress: StoryProgress[];
+  evidence?: Record<string, AlertEvidence>;
+  coverage?: { total: number; recorded: number; pending: number; unrecorded: number } | null;
+  coverageError?: string | null;
+  revision?: { pending: number; conflicts: number; error: string | null };
 }
+
+
 
 export interface StoryProgress {
   id: string;
@@ -630,7 +595,7 @@ export interface PreparationProposal {
 }
 
 /** 全文检索：正文命中带可直接当锚点用的片段，结构命中说清命中在哪个字段。 */
-export interface SearchSnippet { quote: string; offset: number }
+export interface SearchSnippet { quote: string; offset: number; occurrence: number }
 export interface ChapterHit { chapter: number; count: number; snippets: SearchSnippet[] }
 export interface EntityHit {
   kind: "character" | "setting" | "plotLine" | "volume" | "beat" | "event";

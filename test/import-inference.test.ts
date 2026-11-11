@@ -58,6 +58,22 @@ const INFER1 = modelText(JSON.stringify({
   character_presence: [{ character_id: "C01", role: "pov" }],
 }));
 
+describe("长篇结构状态读取", () => {
+  it("一次读取只枚举一次事件流，后续请求仍能看到新确认的记录", async () => {
+    const { root } = project(Array.from({ length: 300 }, () => OLD1));
+    const run = session(root, [INFER1]);
+    const reads = vi.spyOn(run.session, "events");
+    const view = run.session.inference.view();
+    expect(view.chapters).toHaveLength(300);
+    expect(reads).toHaveBeenCalledTimes(1);
+    expect(view.chapters.every(c => c.state === "none")).toBe(true);
+    await run.session.inference.infer({ chapter: 1 });
+    expect(run.session.inference.view().chapters[0]?.state).toBe("pending");
+    run.session.inference.confirm({ chapter: 1 });
+    expect(run.session.inference.view().chapters[0]?.state).toBe("confirmed");
+  });
+});
+
 describe("反推的引用资料目录", () => {
   it("响应schema区分已埋伏笔与待埋规划，没有规划时不允许认领已埋编号", async () => {
     const { root } = project([OLD1, OLD2]);

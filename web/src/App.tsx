@@ -1,4 +1,5 @@
 import { ThemeSwitcher } from "./components/ThemeSwitcher.js";
+import { anchorFromQuery, chapterRoute, type JumpToSource } from "./source-navigation.js";
 /**
  * 应用外壳与路由。
  *
@@ -10,6 +11,7 @@ import { ThemeSwitcher } from "./components/ThemeSwitcher.js";
 import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import { ArrowLeft, Menu, MessagesSquare } from "lucide-react";
 import { Button } from "./components/ui/button.js";
+import { ActionLink } from "./components/controls.js";
 import { Sheet, SheetTrigger, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "./components/ui/sheet.js";
 import { ProjectNavigation } from "./components/ProjectNavigation.js";
 import { api, selectedProjectId, type Alert, type AlertAction, type PlanningAction } from "./api.js";
@@ -47,7 +49,17 @@ const PlotBoard = lazy(() => import("./pages/PlotBoard.js").then(module => ({ de
 export function App(): React.ReactElement {
   const [route] = useRoute();
   const workspace = useFetch(() => api.workspace(), []);
-  if(route==="/providers"&&selectedProjectId()===null&&workspace.data?.defaultProjectId==null)return <main className="main"><div className="theme-page-tools"><a href="#/works">返回作品库</a><ThemeSwitcher /></div><Suspense fallback={<p role="status">读取配置…</p>}><Providers/></Suspense></main>;
+  if (route === "/providers" && selectedProjectId() === null && workspace.data?.defaultProjectId == null) {
+    return (
+      <main className="main">
+        <div className="theme-page-tools">
+          <ActionLink href="#/works"><ArrowLeft aria-hidden="true" />返回作品库</ActionLink>
+          <ThemeSwitcher />
+        </div>
+        <Suspense fallback={<p role="status">读取配置…</p>}><Providers /></Suspense>
+      </main>
+    );
+  }
   if (workspace.data === null) {
     return <div className="empty">{workspace.error === null ? "打开工作区…" : <>读取工作区失败：{workspace.error} <Button size="sm" variant="outline" onClick={workspace.reload}>重试</Button></>}</div>;
   }
@@ -104,7 +116,7 @@ function ProjectApp({ projectId }: { projectId: string }): React.ReactElement {
   const onAction = useCallback(
     async (alert: Alert, action: AlertAction) => {
       if (action.kind === "jump_to_anchor") {
-        go(`/chapter/${action.anchor.chapter}?quote=${encodeURIComponent(action.anchor.quote)}`);
+        go(chapterRoute(action.anchor.chapter, action.anchor.quote, action.anchor));
         return;
       }
       if (action.kind === "open_view") {
@@ -156,8 +168,8 @@ function ProjectApp({ projectId }: { projectId: string }): React.ReactElement {
     [refresh, showToast],
   );
 
-  const onJump = useCallback(
-    (chapter: number, quote: string) => go(`/chapter/${chapter}?quote=${encodeURIComponent(quote)}`),
+  const onJump = useCallback<JumpToSource>(
+    (chapter, quote, position) => go(chapterRoute(chapter, quote, position)),
     [go],
   );
 
@@ -215,7 +227,7 @@ function ProjectApp({ projectId }: { projectId: string }): React.ReactElement {
         )}
       </div>
       {(chatMounted || fullChat) && <ErrorBoundary onReset={refresh}><Suspense fallback={<div role="status">正在打开对话…</div>}>
-        <Chat onJump={(chapter, quote) => { setDockOpen(window.innerWidth >= 1200); onJump(chapter, quote); }} refresh={refresh}
+        <Chat onJump={(chapter, quote, position) => { setDockOpen(window.innerWidth >= 1200); onJump(chapter, quote, position); }} refresh={refresh}
           presentation={fullChat ? "full" : dockAvailable && dockOpen ? "dock" : "hidden"}
           onClose={closeDock} onExpand={() => go("/chat")}
           onOpenDraft={(chapter, id) => { setDockOpen(window.innerWidth >= 1200); go("/draft/" + chapter + "/" + id); }}
@@ -241,7 +253,7 @@ interface RoutedProps {
   overview: NonNullable<ReturnType<typeof useFetch<Awaited<ReturnType<typeof api.overview>>>>["data"]>;
   onAction: (alert: Alert, action: AlertAction) => void;
   onIgnore: (alert: Alert) => void;
-  onJump: (chapter: number, quote: string) => void;
+  onJump: JumpToSource;
   refresh: () => void;
   tasks: readonly ChapterTaskView[];
   reloadTasks: () => void;
@@ -279,7 +291,8 @@ function RouteContent({ route, overview, onAction, onIgnore, onJump, refresh, ta
   }
   if (path?.startsWith("/chapter/")) {
     const n = Number(path.slice("/chapter/".length));
-    return <Reader key={route} chapter={Number.isInteger(n) ? n : overview.currentChapter} quote={query.get("quote")} onJump={onJump} />;
+    const chapter = Number.isInteger(n) ? n : overview.currentChapter;
+    return <Reader key={route} chapter={chapter} source={anchorFromQuery(chapter, query)} onJump={onJump} />;
   }
 
   const view = VIEWS.find((v) => v.path === path);

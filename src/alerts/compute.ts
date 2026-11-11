@@ -137,7 +137,7 @@ function foreshadowAlerts(input: AlertComputeInput, rules: Rules): readonly Draf
             ? `「${f.label}」逾期 ${overdue} 章（${weightLabel(f.weight)}）`
             : `「${f.label}」还有 ${-overdue} 章到期（${weightLabel(f.weight)}）`,
         detail: migrated
-          ? `第 ${f.plantedAt} 章埋下，计划第 ${f.expectedBy} 章前收，现在第 ${input.currentChapter} 章。读者到这时已经忘了 —— 要收得先重新提起，或者废弃它。`
+          ? `第 ${f.plantedAt} 章埋下，计划第 ${f.expectedBy} 章前收，现在第 ${input.currentChapter} 章，结构记录中尚未完整回收。请先核对正文是否已经兑现，再决定补记、继续安排或废弃。`
           : `第 ${f.plantedAt} 章埋下：${f.intent}　计划第 ${f.expectedBy} 章前收。`,
         subject: { kind: "foreshadow", id: f.id },
         migratedTo: migrated ? "suggest_abandon" : null,
@@ -169,8 +169,8 @@ function foreshadowAlerts(input: AlertComputeInput, rules: Rules): readonly Draf
         direction: "forward",
         impact,
         decay: decayForeshadowOverdue(sincePlanted - rules.crossChapter.foreshadowStale, a.decay),
-        title: `「${f.label}」埋下已 ${sincePlanted} 章无动静`,
-        detail: `第 ${f.plantedAt} 章埋下：${f.intent}　期限还在第 ${f.expectedBy} 章，但这么久没提读者已经忘了 —— 提前呼应一次，或者废弃。`,
+        title: `「${f.label}」埋下已 ${sincePlanted} 章，尚无完整回收记录`,
+        detail: `第 ${f.plantedAt} 章埋下：${f.intent}　期限还在第 ${f.expectedBy} 章，目前尚无完整回收记录。请核对正文及已有的部分回收，再决定后续安排。`,
         subject: { kind: "foreshadow", id: f.id },
         migratedTo: null,
         actions: [
@@ -216,8 +216,8 @@ function plotLineAlerts(input: AlertComputeInput, rules: Rules): readonly Draft[
       direction: "forward",
       impact: a.impact[line.weight],
       decay: decayPlotlineGap(gap, limit, a.decay),
-      title: `${line.label}断了 ${gap} 章未推进（${weightLabel(line.weight)}，上限 ${limit}）`,
-      detail: `上次推进在第 ${line.lastAdvancedAt} 章，共 ${line.points.length} 个节点。安排一次推进，或确认这条线已收束。`,
+      title: `${line.label}已有 ${gap} 章未记录推进（${weightLabel(line.weight)}，上限 ${limit}）`,
+      detail: `上次推进在第 ${line.lastAdvancedAt} 章，请先核对后续正文是否已有推进；若记录无误，可安排下一次推进或标记有意暂停。`,
       subject: { kind: "plotline", id: line.id },
       migratedTo: null,
       actions: [
@@ -253,10 +253,10 @@ function characterAlerts(input: AlertComputeInput, rules: Rules): readonly Draft
       impact: a.characterImpact[arc.tier],
       decay: decayCharacterMissing(gap, a.decay),
       title: migrated
-        ? `${arc.name}消失 ${gap} 章 —— 这个角色已经退场了吗？`
-        : `${arc.name}消失 ${gap} 章未出场`,
+        ? `${arc.name}已有 ${gap} 章无出场记录，请核对是否退场`
+        : `${arc.name}已有 ${gap} 章无出场记录`,
       detail: migrated
-        ? `第 ${arc.introducedAt} 章登场，末次出场第 ${arc.lastSeenAt} 章，共出场 ${arc.presence.length} 章。确认退场后不再提醒。`
+        ? `记录显示第 ${arc.introducedAt} 章登场，末次出场第 ${arc.lastSeenAt} 章，共出场 ${arc.presence.length} 章。确认退场后不再提醒。`
         : `第 ${arc.introducedAt} 章登场，末次出场第 ${arc.lastSeenAt} 章（${roleLabel(last?.role)}），共出场 ${arc.presence.length} 章。`,
       subject: { kind: "character", id: arc.characterId },
       migratedTo: migrated ? "confirm_exit" : null,

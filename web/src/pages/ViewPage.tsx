@@ -1,3 +1,4 @@
+import type { JumpToSource } from "../source-navigation.js";
 /**
  * 四张结构视图的容器。
  *
@@ -15,20 +16,24 @@ import { Timeline } from "../components/Timeline.js";
 import { PlotTracks } from "../components/PlotTracks.js";
 import { ArcLanes } from "../components/ArcLanes.js";
 import { RelationMap } from "../components/RelationMap.js";
+import { Button } from "../components/ui/button.js";
+import { ActionLink } from "../components/controls.js";
+import { characterStateFieldLabel, characterStateValueLabel } from "../labels.js";
+import "../styles/character-arcs.css";
 
 const BLURB: Record<string, string> = {
   "/foreshadow":
     "实线是已经埋进正文的伏笔：埋点 → 期限 → 收束。红条表示逾期，点击有依据的点可跳到原文。虚线是还没埋的规划，只有期限，等正文写到那里才会长出埋点。",
   "/plotlines":
     "每条线一行，圆点是事件（越大权重越高）。红条是断线段，虚线是还没推进但阈值内。断线阈值按权重派生：主线 3 章、支线 12、细节 20。",
-  "/arcs": "竖条是出场（越高越吃重），菱形是状态转折点，红条是当前缺席段。阈值按人物档位派生：主角 2 章、主要 15、次要 30。",
+  "/arcs": "沿章节查看人物何时出场、经历了哪些状态变化，发现长期未出场的人物，帮助检查人物线是否连贯。",
   "/relations": "有向边表示「谁对谁」的态度。粗边表示这对关系变过多次。实线是正文里写过的，点边跳到那一章；虚线只来自资料（角色档案），尚未写进正文。",
 };
 
 export interface ViewPageProps {
   kind: string;
   title: string;
-  onJump: (chapter: number, quote: string) => void;
+  onJump: JumpToSource;
   highlight: string | null;
   refresh: () => void;
 }
@@ -149,7 +154,13 @@ function ForeshadowBody({ views, onJump, highlight }: BodyProps): React.ReactEle
 }
 
 function PlotBody({ views, onJump, highlight }: BodyProps): React.ReactElement {
-  if (views.plotTracks.length === 0 && !(views.outlineNodes?.length)) return <div className="empty">还没有剧情内容。<a href="#/preparation">导入大纲并整理剧情节点</a>，或从已有正文逐章反推。</div>;
+  if (views.plotTracks.length === 0 && !(views.outlineNodes?.length)) return (
+    <div className="empty empty-with-action">
+      <p>还没有剧情内容。</p>
+      <ActionLink href="#/preparation">导入大纲并整理剧情节点</ActionLink>
+      <p>也可以从已有正文逐章反推。</p>
+    </div>
+  );
 
   return (
     <>
@@ -193,46 +204,72 @@ function PlotBody({ views, onJump, highlight }: BodyProps): React.ReactElement {
 }
 
 function ArcBody({ views, onJump, highlight }: BodyProps): React.ReactElement {
-  if (views.arcs.length === 0) return <div className="empty">还没有人物。</div>;
+  if (views.arcs.length === 0) return <div className="empty">还没有人物记录。先在作品资料中准备人物，再从已写正文提取出场与状态变化。</div>;
 
   return (
-    <>
+    <div className="arc-view">
+      <section className="arc-guide" aria-label="人物弧线阅读说明">
+        <p><strong>每行一位人物，从左到右看章节。</strong>竖条越高，人物在这一章参与越多；圆点记录人物状态的变化。</p>
+        <ul className="arc-legend" aria-label="人物弧线图例">
+          <li><i className="arc-mark" data-role="pov" aria-hidden="true" />视角人物</li>
+          <li><i className="arc-mark" data-role="major" aria-hidden="true" />主要参与</li>
+          <li><i className="arc-mark" data-role="minor" aria-hidden="true" />次要参与</li>
+          <li><i className="arc-mark" data-role="mentioned" aria-hidden="true" />仅被提及</li>
+          <li><i className="arc-mark" data-kind="turn" aria-hidden="true" />状态变化，可查看原文</li>
+          <li><i className="arc-mark" data-kind="stale" aria-hidden="true" />原文已变化，暂不能定位</li>
+          <li><i className="arc-mark" data-kind="absence" aria-hidden="true" />连续未出场提醒</li>
+        </ul>
+        <p className="arc-data-note">这里展示已提取的结构记录，空白不一定代表正文没有出场。红条表示出场间隔已超过该人物的提醒阈值，是否需要补写仍由你判断。</p>
+      </section>
+      <div className="arc-section-head">
+        <h2>人物出场分布</h2>
+        <span>{views.arcs.length} 位人物 · 当前第 {views.axis.current} 章</span>
+      </div>
+      <p className="arc-scroll-hint">图表可横向滚动；下方明细可查看完整姓名、变化内容和正文出处。</p>
       <ArcLanes axis={views.axis} arcs={views.arcs} onJump={onJump} highlight={highlight} />
 
-      <div className="table-panel">
+      <div className="arc-section-head"><h2>人物明细</h2><span>与上方图表逐行对应</span></div>
+      <div className="table-panel arc-details" role="region" aria-label="人物出场与状态变化明细" tabIndex={0}>
       <table>
         <thead>
           <tr>
-            <th>人物</th>
-            <th className="num">登场</th>
-            <th className="num">末次</th>
-            <th className="num">出场章数</th>
-            <th>转折点</th>
+            <th scope="col">人物</th>
+            <th scope="col">首次登场</th>
+            <th scope="col">最近出场</th>
+            <th scope="col">出场章数</th>
+            <th scope="col">状态变化与原文</th>
           </tr>
         </thead>
         <tbody>
           {views.arcs.map((a) => (
-            <tr key={a.characterId}>
+            <tr key={a.characterId} data-highlighted={highlight === a.characterId || undefined}>
+              <th scope="row">
+                <div className="arc-person-name">{a.name}</div>
+                <Chip>{tierLabel(a.tier)}</Chip>
+              </th>
+              <td>{a.introducedAt > 0 ? `第 ${a.introducedAt} 章` : "尚未登场"}</td>
               <td>
-                <Chip className="tag-weight">{tierLabel(a.tier)}</Chip>{a.name}
-                <div className="muted" style={{ fontSize: 11 }}>
-                  {a.characterId}
-                </div>
+                {a.presence.length === 0 ? "暂无出场记录" : `第 ${a.lastSeenAt} 章`}
+                {a.absenceSpan !== null && <span className="arc-absence-note">连续 {views.axis.current - a.lastSeenAt} 章未记录出场</span>}
               </td>
-              <td className="num">{a.introducedAt}</td>
-              <td className="num" style={{ color: a.absenceSpan !== null ? "var(--warn)" : undefined }}>
-                {a.presence.length === 0 ? "—" : a.lastSeenAt}
-              </td>
-              <td className="num">{a.presence.length}</td>
+              <td>{a.presence.length} 章</td>
               <td>
                 {a.turningPoints.length === 0 ? (
-                  <span className="muted">无</span>
+                  <span className="muted">暂无状态变化记录</span>
                 ) : (
-                  a.turningPoints.map((t, i) => (
-                    <div key={i} className="muted">
-                      ch{t.point.chapter} {t.field}：{t.to}
-                    </div>
-                  ))
+                  <ul className="arc-turning-points">
+                  {a.turningPoints.map((t, i) => (
+                    <li key={i}>
+                      <div className="arc-turn-heading"><span>第 {t.point.chapter} 章</span><strong>{characterStateFieldLabel(t.field)}</strong></div>
+                      <p>{characterStateValueLabel(t.field, t.from)} → {characterStateValueLabel(t.field, t.to)}</p>
+                      {t.point.resolution.status === "stale" ? <span className="muted">原文已变化，暂不能定位</span> : (
+                        <Button variant="link" size="sm" className="arc-source px-0"
+                          aria-label={`查看${a.name}第${t.point.chapter}章${characterStateFieldLabel(t.field)}变化的原文`}
+                          onClick={() => onJump(t.point.chapter, t.point.anchor.quote, t.point.anchor)}>查看原文</Button>
+                      )}
+                    </li>
+                  ))}
+                  </ul>
                 )}
               </td>
             </tr>
@@ -240,6 +277,6 @@ function ArcBody({ views, onJump, highlight }: BodyProps): React.ReactElement {
         </tbody>
       </table>
       </div>
-    </>
+    </div>
   );
 }

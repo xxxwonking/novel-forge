@@ -1,5 +1,6 @@
+import type { JumpToSource } from "../source-navigation.js";
 import { useState } from "react";
-import { Button, HelpTooltip, StatusTag } from "./controls.js";
+import { ActionLink, Button, HelpTooltip, StatusTag } from "./controls.js";
 import {
   Check as CheckOutlined,
   X as CloseOutlined,
@@ -60,7 +61,7 @@ export function Message({
   disabled,
 }: {
   turn: ConversationTurn;
-  onJump: (chapter: number, quote: string) => void;
+  onJump: JumpToSource;
   onView: (chapter: number, draftId: string) => void;
   onAdopt: (chapter: number, draftId: string) => void;
   onRetry: (() => void) | undefined;
@@ -257,7 +258,7 @@ function EffectCard({
   onAdopt,
 }: {
   effect: AgentEffect;
-  onJump: (chapter: number, quote: string) => void;
+  onJump: JumpToSource;
   onView: (chapter: number, draftId: string) => void;
   onAdopt: (chapter: number, draftId: string) => void;
 }): React.ReactElement {
@@ -269,9 +270,9 @@ function EffectCard({
           <StatusTag color="gold">
             {effect.kind === "chapter_started" ? "章节任务" : "任务状态已更新"}
           </StatusTag>
-          <a href={`#/draft/${effect.chapter}/${effect.draftId}`}>
+          <ActionLink href={`#/draft/${effect.chapter}/${effect.draftId}`}>
             第 {effect.chapter} 章 · 查看任务与结果
-          </a>
+          </ActionLink>
         </div>
       );
     case "preparation_proposed":
@@ -286,11 +287,11 @@ function EffectCard({
               : "待确认方案"}
           </StatusTag>
           <span>{effect.summary}</span>
-          <a
+          <ActionLink
             href={`#/preparation?proposal=${encodeURIComponent(effect.proposalId)}`}
           >
             查看方案
-          </a>
+          </ActionLink>
         </div>
       );
     case "chapter_written":
@@ -307,7 +308,7 @@ function EffectCard({
           >
             查看草稿
           </Button>
-          <a href={`#/draft/${effect.chapter}/${effect.draftId}`}>完整结果</a>
+          <ActionLink href={`#/draft/${effect.chapter}/${effect.draftId}`}>完整结果</ActionLink>
           {effect.acceptable && (
             <Button
               size="sm"
@@ -362,9 +363,9 @@ function EffectCard({
           <StatusTag color="gold">
             已固定 {effect.chapters} 章正式版本
           </StatusTag>
-          <a href={`#/export?id=${encodeURIComponent(effect.exportId)}`}>
+          <ActionLink href={`#/export?id=${encodeURIComponent(effect.exportId)}`}>
             查看导出预览并下载
-          </a>
+          </ActionLink>
         </div>
       );
     case "idea_recorded":

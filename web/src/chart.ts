@@ -38,7 +38,7 @@ export interface Scale {
   ticks: number[];
 }
 
-export function makeScale(axis: Axis, rows: number, available: number): Scale {
+export function makeScale(axis: Axis, rows: number, available: number, rowHeight: number = LAYOUT.rowHeight): Scale {
   const plotWidth = Math.max(
     LAYOUT.minPlotWidth,
     available - LAYOUT.labelWidth - LAYOUT.padLeft - LAYOUT.padRight,
@@ -48,9 +48,9 @@ export function makeScale(axis: Axis, rows: number, available: number): Scale {
 
   return {
     x: (chapter) => left + ((chapter - axis.from) / span) * plotWidth,
-    y: (row) => LAYOUT.padTop + row * LAYOUT.rowHeight + LAYOUT.rowHeight / 2,
+    y: (row) => LAYOUT.padTop + row * rowHeight + rowHeight / 2,
     width: left + plotWidth + LAYOUT.padRight,
-    height: LAYOUT.padTop + Math.max(1, rows) * LAYOUT.rowHeight + LAYOUT.padBottom,
+    height: LAYOUT.padTop + Math.max(1, rows) * rowHeight + LAYOUT.padBottom,
     plotWidth,
     ticks: makeTicks(axis),
   };

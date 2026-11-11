@@ -15,7 +15,7 @@
 
 import { Fragment, useRef, useState } from "react";
 import { InferenceCorrection } from "../components/InferenceCorrection.js";
-import { Button, CheckField, DialogFrame, HelpTooltip } from "../components/controls.js";
+import { ActionLink, Button, CheckField, DialogFrame, HelpTooltip } from "../components/controls.js";
 import { api, type InferenceChapter, type InferenceDeclaration, type InferenceView } from "../api.js";
 import { useFetch, useRouteActive } from "../hooks.js";
 import { Chip } from "../components/Chip.js";
@@ -120,7 +120,7 @@ export function Inference({ refresh }: { refresh: () => void }): React.ReactElem
     {correcting !== null && <InferenceCorrection chapter={correcting} characters={preparation.data?.confirmed.characters ?? []} onClose={() => setCorrecting(null)} onChanged={() => { data.reload(); refresh(); }} />}
     <div className="page-head"><h1>从正文反推结构</h1><p>读你已经写好的旧稿，逐章补出事件、伏笔与人物变化。反推出来的是模型的判断，确认之后才成为作品事实。</p></div>
 
-    {view.blocked !== null && <div className="finding" data-level="block" role="alert">{view.blocked}<div><a href="#/preparation">去资料页 →</a></div></div>}
+    {view.blocked !== null && <div className="finding" data-level="block" role="alert">{view.blocked}<div><ActionLink className="mt-3" href="#/preparation">去资料页</ActionLink></div></div>}
     {(error ?? data.error) !== null && <div className="finding" data-level="block" role="alert">{error ?? data.error}</div>}
     {notice !== null && <p className="prep-notice" role="status">{notice}</p>}
 
@@ -153,7 +153,7 @@ export function Inference({ refresh }: { refresh: () => void }): React.ReactElem
               <HelpTooltip title={state.hint}><Chip color={state.color}>{state.label}</Chip></HelpTooltip>
               <span className="muted">{chapter.words} 字</span>
               <span className="push-right row">
-                <a href={`#/chapter/${chapter.chapter}`}>读正文</a>
+                <ActionLink variant="ghost" href={`#/chapter/${chapter.chapter}`}>读正文</ActionLink>
                 {chapter.declaration !== null && <Button size="sm" variant="ghost" onClick={() => setOpen(expanded ? null : chapter.chapter)}>{expanded ? "收起" : "看这一章反推出什么"}</Button>}
                 {chapter.state === "pending" && <Button size="sm" variant="default" loading={busy === `confirm${chapter.chapter}`} disabled={busy !== null} onClick={() => void act(chapter.chapter, "confirm")}>确认</Button>}
                 {chapter.review && <Button size="sm" disabled={busy !== null} onClick={event => { reviewReturn.current = event.currentTarget; setExcludedRecords([]); setReviewing(chapter); }}>复核有效记录</Button>}
